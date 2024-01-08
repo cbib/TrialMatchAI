@@ -12,13 +12,9 @@ import itertools
 from itertools import islice
 import pandas as pd
 
-import requests
 import xml.etree.ElementTree as ET
 import os
-import time
-import json
 import re
-import gzip, tarfile
 
 REGEX_FILE  = utils.load_regex_patterns("../data/regex_patterns.json")
 EXCEPTIONS_FILE = utils.load_regex_patterns("../data/exception_regex_patterns.json")
@@ -59,9 +55,9 @@ def extract_eligibility_criteria(trial_id):
             # Extract the text from the Eligibility Criteria TextBlock section
             eligibility_criteria_text = eligibility_criteria_textblock.text
             return eligibility_criteria_text.strip()
-
+    else:
     # If the trial ID is not found or the eligibility criteria textblock is missing, return None
-    return None
+        return None
 
 def split_line_to_sentences_by_leading_char_from_regex_patterns(line, regex_patterns, exception_patterns = EXCEPTIONS_FILE):
     """
@@ -550,4 +546,6 @@ def eic_text_preprocessing(_ids, regex_patterns = REGEX_FILE):
         return final_df
     else:
         return None
+    
+    
     

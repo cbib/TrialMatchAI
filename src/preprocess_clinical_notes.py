@@ -134,8 +134,6 @@ def tokenize_clinical_note(id_list, source_directory=INPUT_FILEPATH):
     return df
 
 
-
-
 def mimic_sent_tokenize_rules(text):
 
     # long sections are OBVIOUSLY different sentences
@@ -525,4 +523,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
