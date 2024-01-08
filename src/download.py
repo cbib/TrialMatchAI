@@ -4,7 +4,6 @@ import xml.etree.ElementTree as ET
 import os
 import time
 import joblib 
-import logging
 from tqdm.auto import tqdm
 import numpy as np
 
@@ -58,7 +57,6 @@ def get_cancer_trials_list(max_trials=15000):
 
 def download_study_info(nct_id):
     local_file_path = f"../data/trials_xmls/{nct_id}.xml"
-    updated_cts = []
 
     if os.path.exists(local_file_path):
         # Read the content of the existing local XML file
@@ -69,7 +67,7 @@ def download_study_info(nct_id):
         except ET.ParseError as e:
             print(f"Error parsing XML for trial {nct_id}: {e}")
             os.remove(local_file_path)
-            return updated_cts
+
         
         # Download the online version of the XML
         url = f"https://clinicaltrials.gov/ct2/show/{nct_id}?displayxml=true"
@@ -77,7 +75,6 @@ def download_study_info(nct_id):
             response = requests.get(url)
         except requests.exceptions.RequestException as e:
             print(f"Error fetching XML for trial {nct_id}: {e}")
-            return updated_cts
 
         if response.status_code == 200:
             online_xml_content = response.text
@@ -86,10 +83,9 @@ def download_study_info(nct_id):
                 online_root = ET.fromstring(online_xml_content)
             except ET.ParseError as e:
                 print(f"Error parsing online XML for trial {nct_id}: {e}")
-                return updated_cts
+
         else:
             print(f"Error: received status code {response.status_code} when fetching XML for trial {nct_id}")
-            return updated_cts
 
         to_check = ["eligibility", "brief_title", "overall_status", "location"]
                 
@@ -112,7 +108,6 @@ def download_study_info(nct_id):
                         for a, b in zip(local_version, online_version)])
 
         if is_updated:
-            updated_cts.append(nct_id)
             # Update the local XML with the online version
             with open(local_file_path, "w") as f:
                 f.write(ET.tostring(online_root, encoding='unicode'))
@@ -126,7 +121,6 @@ def download_study_info(nct_id):
             response = requests.get(url)
         except requests.exceptions.RequestException as e:
             print(f"Error fetching XML for trial {nct_id}: {e}")
-            return updated_cts
 
         if response.status_code == 200:
             try:
@@ -136,12 +130,11 @@ def download_study_info(nct_id):
                 print(f"Study information downloaded for {nct_id}")
             except ET.ParseError as e:
                 print(f"Error parsing online XML for trial {nct_id}: {e}")
-                return updated_cts
         else:
             print(f"Error: received status code {response.status_code} when fetching XML for trial {nct_id}")
-            return updated_cts
+    return []
 
-    return updated_cts
+    
 
 memory = joblib.Memory(".")
 def ParallelExecutor(use_bar="tqdm", **joblib_args):
@@ -191,3 +184,6 @@ class Downloader:
         elapsed_time = end_time - start_time
         print(f"Elapsed time: {elapsed_time} seconds")
         return updated_cts
+    
+    
+    
