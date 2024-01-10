@@ -3,7 +3,6 @@ import joblib
 from tqdm.auto import tqdm
 import requests
 from typing import List, Dict, Union
-import requests
 import numpy as np
 import pandas as pd
 import glob
@@ -20,7 +19,6 @@ from spacy.tokens import Doc, Token
 from spacy.matcher import Matcher
 from srsly import read_json
 import re
-from utils import get_dictionaries_with_values
 import transformers
 from transformers import AutoTokenizer, pipeline
 import warnings
@@ -60,6 +58,39 @@ def ParallelExecutor(use_bar="tqdm", **joblib_args):
 
         return tmp
     return aprun
+
+def get_dictionaries_with_values(list_of_dicts, key, values):
+    """
+    Filter a list of dictionaries based on the presence of specific values in a specified key.
+
+    This function takes a list of dictionaries and filters them based on the presence of specific values in a specified key.
+    The function checks each dictionary in the input list and includes only those dictionaries where any of the given values
+    are present in the specified key. The filtering is performed using list comprehensions.
+
+    Parameters:
+        list_of_dicts (list): A list of dictionaries to be filtered.
+        key (str): The key in the dictionaries where the filtering is applied.
+        values (list): A list of values. The function will filter dictionaries where any of these values are present in the specified key.
+
+    Returns:
+        list: A list of dictionaries that meet the filtering criteria.
+
+    Example:
+        list_of_dicts = [
+            {"name": "Alice", "age": 30},
+            {"name": "Bob", "age": 25},
+            {"name": "Charlie", "age": 35},
+            {"name": "David", "age": 30},
+        ]
+
+        get_dictionaries_with_values(list_of_dicts, "age", [30, 35])
+        # Output: [
+        #   {"name": "Alice", "age": 30},
+        #   {"name": "Charlie", "age": 35},
+        #   {"name": "David", "age": 30}
+        # ]
+    """
+    return [d for d in list_of_dicts if any(val in d.get(key, []) for val in values)]
 
 
 def add_custom_entity(doc, entity):
@@ -366,3 +397,7 @@ class EntityRecognizer:
         elif self.data_source=="patient notes":
             pd.concat(X).to_csv(OUTPUT_FILEPATH_PAT + "entities_parsed.csv", index = False)
         return pd.concat(X)
+    
+    
+if __name__ == "__main__":
+    main()

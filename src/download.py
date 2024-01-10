@@ -7,10 +7,10 @@ import joblib
 from tqdm.auto import tqdm
 import numpy as np
 
-# Open the log file
-log_file = open('../logs/download.log', 'w')
-# Redirect standard output to the log file
-sys.stdout = log_file
+# # Open the log file
+# log_file = open('../logs/download.log', 'w')
+# # Redirect standard output to the log file
+# sys.stdout = log_file
 
 def normalize_whitespace(s):
     return ' '.join(s.split())

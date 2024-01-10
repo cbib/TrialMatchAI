@@ -575,36 +575,6 @@ def replace_parentheses_with_braces(text):
     return result
 
 
-def load_regex_patterns(file_path):
-    """
-    Load regular expression patterns from a JSON file.
-
-    This function reads a JSON file containing regular expression patterns and extracts the patterns
-    into a dictionary. The JSON file should have a specific structure with the following elements:
-    {
-        "patterns": {
-            "pattern_name1": {
-                "regex": "pattern_expression1"
-            },
-            "pattern_name2": {
-                "regex": "pattern_expression2"
-            },
-            ...
-        }
-    }
-
-    Parameters:
-        file_path (str): The file path to the JSON file containing the regular expression patterns.
-
-    Returns:
-        dict: A dictionary containing the regular expression patterns loaded from the JSON file.
-            The keys of the dictionary are the pattern names, and the values are the corresponding
-            regular expression patterns.
-    """
-    with open(file_path, 'r', encoding='utf-8') as file:
-        patterns_data = json.load(file)
-
-    return {name: data["regex"] for name, data in patterns_data.get("patterns", {}).items()}
 
 
 def line_starts_with_capitalized_alphanumeric(line):

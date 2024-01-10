@@ -43,7 +43,7 @@ class TestSplitLineToSentences(unittest.TestCase):
         regex_patterns = ['^\\d{1,2}\\.\\d{1,2}\\.\\d{1,2}\\.\\d{1,2}']
         exception_patterns = {}
         
-        result = preprocessing_utils.split_line_to_sentences_by_leading_char_from_regex_patterns('01.02.03.04 Some text here', regex_patterns, exception_patterns)
+        result = preprocessing_utils.split_by_leading_char_from_regex_patterns('01.02.03.04 Some text here', regex_patterns, exception_patterns)
         self.assertEqual(result, ['01.02.03.04 Some text here'])
 
     @patch('preprocessing_utils.utils.replace_parentheses_with_braces')
@@ -52,7 +52,7 @@ class TestSplitLineToSentences(unittest.TestCase):
         regex_patterns = ['^\\d{1,2}\\.\\d{1,2}\\.\\d{1,2}']
         exception_patterns = {'03 Some': ''}
         
-        result = preprocessing_utils.split_line_to_sentences_by_leading_char_from_regex_patterns('01.02.03 Some text here', regex_patterns, exception_patterns)
+        result = preprocessing_utils.split_by_leading_char_from_regex_patterns('01.02.03 Some text here', regex_patterns, exception_patterns)
         self.assertEqual(result, ['01.02.03 Some text here'])
 
     @patch('preprocessing_utils.utils.replace_parentheses_with_braces')
@@ -61,7 +61,7 @@ class TestSplitLineToSentences(unittest.TestCase):
         regex_patterns = ['^\\d{1,2}\\.\\d{1,2}\\.\\d{1,2}']
         exception_patterns = {}
         
-        result = preprocessing_utils.split_line_to_sentences_by_leading_char_from_regex_patterns('No matching pattern here', regex_patterns, exception_patterns)
+        result = preprocessing_utils.split_by_leading_char_from_regex_patterns('No matching pattern here', regex_patterns, exception_patterns)
         self.assertEqual(result, ['No matching pattern here'])
 
 if __name__ == '__main__':
