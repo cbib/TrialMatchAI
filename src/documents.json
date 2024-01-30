@@ -1,0 +1,12 @@
+{
+    "documents": {
+      "doc1": "The trial includes patients with KRAS mutation",
+      "doc2": "The trial includes patients over 18 years of age",
+      "doc3": "The trial excludes patients with a history of heart disease",
+      "doc4": "The trial includes patients with BRAC mutation",
+      "doc5": "The triale excludes patients with HIV",
+      "doc6": "The trial excludes patients with pregnancy",
+      "doc7": "The trial includes patients undegoing radiotherapy"
+    }
+  }
+  

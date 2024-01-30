@@ -1,5 +1,7 @@
+
 import os
 import joblib
+from joblib import delayed
 from tqdm.auto import tqdm
 import requests
 from typing import List, Dict, Union
@@ -20,33 +22,82 @@ from spacy.matcher import Matcher
 from srsly import read_json
 import re
 import transformers
-from transformers import AutoTokenizer, pipeline
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 import warnings
 
+# Filepaths
 INPUT_FILEPATH = "../data/preprocessed_data/"
 OUTPUT_FILEPATH_CT = "../data/ner_clinical_trials/"
 OUTPUT_FILEPATH_PAT = "../data/ner_patients_clinical_notes/"
-AUXILIARY_ENTITIES_LIST = ["Disease_disorder", "Sign_symptom", "Biological_structure", "Date", "Duration", "Time", "Frequency", "Severity", "Lab_value", "Dosage",
-                           "Diagnostic_procedure", "Therapeutic_procedure", "Medication", "Clinical_event", "Outcome", "History", "Subject,"
-                           "Family_history", "Detailed_description", "Area"]
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-aux_tokenizer = AutoTokenizer.from_pretrained("d4data/biomedical-ner-all")
-aux_pipeline = pipeline("ner", model="d4data/biomedical-ner-all", tokenizer= aux_tokenizer, aggregation_strategy="first", device=device)
-mutations_tokenizer = AutoTokenizer.from_pretrained("Brizape/tmvar-PubMedBert-finetuned-24-02")
+# List of auxiliary entities
+AUXILIARY_ENTITIES_LIST = ["Sign_symptom", "Biological_structure", "Date", "Duration", "Time", "Frequency", 
+                           "Severity", "Lab_value", "Dosage", "Diagnostic_procedure", "Therapeutic_procedure", "Medication", 
+                           "Clinical_event", "Outcome", "History", "Subject", "Family_history", "Detailed_description", "Area"]
+
+# Check if CUDA is available
+device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
+# Load auxiliary tokenizer and pipeline
+aux_tokenizer = AutoTokenizer.from_pretrained("d4data/biomedical-ner-all", model_max_length=512)
+aux_pipeline = pipeline("ner", model="d4data/biomedical-ner-all", tokenizer=aux_tokenizer, aggregation_strategy="first", device=device)
+
+# Load mutations tokenizer and pipeline
+mutations_tokenizer = AutoTokenizer.from_pretrained("Brizape/tmvar-PubMedBert-finetuned-24-02", model_max_length=512)
 mutations_pipeline = pipeline("ner", model="Brizape/tmvar-PubMedBert-finetuned-24-02", tokenizer=mutations_tokenizer, aggregation_strategy="first",  device=device)
 
+neg_tokenizer = AutoTokenizer.from_pretrained("bvanaken/clinical-assertion-negation-bert")
+neg_model = AutoModelForSequenceClassification.from_pretrained("bvanaken/clinical-assertion-negation-bert")
+classifier = pipeline("text-classification", model=neg_model, tokenizer=neg_tokenizer)
+
+
 def query_plain(text, url="http://localhost:8888/plain"):
+    """
+    Send a plain text query to a specified URL.
+
+    This function sends a plain text query to a specified URL using the POST method. The query is sent as a JSON object with the 'text' key.
+    The response is received as a JSON object and is decoded into a string.
+
+    Parameters:
+        text (str): The plain text query to be sent.
+        url (str): The URL to which the query is sent. Default is "http://localhost:8888/plain".
+
+    Returns:
+        dict: The response received as a JSON object.
+
+    Example:
+        query_plain("Hello, world!")
+        # Output: {'response': 'Hello, world!'}
+    """
     return json.loads(requests.post(url, json={'text': text}).content.decode('utf-8'))
 
+# Memory caching for function calls
 memory = joblib.Memory(".")
+
 def ParallelExecutor(use_bar="tqdm", **joblib_args):
-    """Utility for tqdm progress bar in joblib.Parallel"""
+    """
+    Utility function for tqdm progress bar in joblib.Parallel.
+
+    This function is a utility for using tqdm progress bar with joblib.Parallel. It returns a function that can be used as a wrapper
+    for the operation iterator in joblib.Parallel. The function takes a 'bar' argument which specifies the type of progress bar to use.
+    The available options are 'tqdm', 'False', and 'None'. The function also accepts additional arguments that are passed to tqdm.
+
+    Parameters:
+        use_bar (str): The type of progress bar to use. Default is "tqdm".
+        **tq_args: Additional arguments to be passed to tqdm.
+
+    Returns:
+        function: The wrapper function that can be used with joblib.Parallel.
+
+    Example:
+        executor = ParallelExecutor(use_bar="tqdm", ncols=80)
+        results = executor(op_iter)
+    """
     all_bar_funcs = {
         "tqdm": lambda args: lambda x: tqdm(x, **args),
-        "False": lambda args: iter,
-        "None": lambda args: iter,
+        "False": lambda args: lambda x: x,
+        "None": lambda args: lambda x: x,
     }
+
     def aprun(bar=use_bar, **tq_args):
         def tmp(op_iter):
             if str(bar) in all_bar_funcs.keys():
@@ -54,9 +105,10 @@ def ParallelExecutor(use_bar="tqdm", **joblib_args):
             else:
                 raise ValueError("Value %s not supported as bar type" % bar)
             # Pass n_jobs from joblib_args
-            return joblib.Parallel(n_jobs=joblib_args.get("n_jobs", 10))(bar_func(op_iter))
+            return joblib.Parallel(n_jobs=joblib_args.get("n_jobs", 10), prefer="threads")(bar_func(op_iter))
 
         return tmp
+
     return aprun
 
 def get_dictionaries_with_values(list_of_dicts, key, values):
@@ -92,27 +144,62 @@ def get_dictionaries_with_values(list_of_dicts, key, values):
     """
     return [d for d in list_of_dicts if any(val in d.get(key, []) for val in values)]
 
-
 def add_custom_entity(doc, entity):
+    """
+    Add a custom entity to a spaCy document.
+
+    This function takes a spaCy document and a custom entity dictionary and adds the custom entity to the document.
+    The function finds the token indices corresponding to the character span of the entity and sets the entity span in the document.
+
+    Parameters:
+        doc (spacy.tokens.Doc): The spaCy document to which the entity is added.
+        entity (dict): The custom entity dictionary containing the text, start, end, and entity_group.
+
+    Returns:
+        spacy.tokens.Doc: The modified spaCy document with the custom entity added.
+
+    Example:
+        doc = nlp("The patient has a fever.")
+        entity = {"text": "fever", "start": 16, "end": 21, "entity_group": "Symptom"}
+        doc = add_custom_entity(doc, entity)
+    """
     entity["text"] = re.sub(r'([,.-])\s+', r'\1', entity["text"]) 
-    # print(entity["text"])
     entity_text = entity["text"].lower()
     start_char = entity["start"] 
     end_char = entity["end"] 
     # Find the token indices corresponding to the character span
     start_indices = [i for i, token in enumerate(doc) if (start_char <= token.idx <= end_char) or (entity_text in token.text and token.idx <= start_char)]
     if start_indices:
-    # You can choose the first matching window or handle multiple matches
+        # You can choose the first matching window or handle multiple matches
         start_index = start_indices[0]
         start_token = doc[start_index]
         end_index = min(start_index + len(entity_text.split()) - 1, len(doc) - 1)
         end_token = doc[end_index]
-        # print(doc[start_token.i:end_token.i + 1])
         doc.set_ents([Span(doc, start_token.i, end_token.i + 1, entity["entity_group"])])
         
     return doc
 
+
+
 def negation_handling(sentence, entity):
+    """
+    Perform negation handling on a sentence with a given entity.
+
+    This function takes a sentence and an entity dictionary and performs negation handling on the sentence.
+    The function uses medSpaCy to identify negation cues and determines if the entity is negated or not.
+
+    Parameters:
+        sentence (str): The sentence in which the entity is present.
+        entity (dict): The entity dictionary containing the text, start, and end.
+
+    Returns:
+        dict: The modified entity dictionary with the "is_negated" field indicating if the entity is negated or not.
+
+    Example:
+        sentence = "The patient does not have a fever."
+        entity = {"text": "fever", "start": 23, "end": 28}
+        entity = negation_handling(sentence, entity)
+    """
     nlp = spacy.load("en_core_web_sm", disable={"ner"})
     doc = nlp(sentence.lower())
     nlp = medspacy.load(nlp)
@@ -128,7 +215,21 @@ def negation_handling(sentence, entity):
                 entity["is_negated"] = "no"
         else:
             entity["is_negated"] = "no"
-    return  entity 
+    return entity
+
+def is_entity_negated(sentence, entity):
+    # Surround the entity with [entity] on both sides
+    entity_text = entity["text"]
+    sentence_with_entity = re.sub(rf'\b{re.escape(entity_text)}\b', f"[entity]{entity_text}[entity]", sentence)
+
+    # Classify the modified sentence to check for negation
+    classification = classifier(sentence_with_entity)[0]
+    is_negated = classification['label'] == 'ABSENT'
+    if is_negated:
+        entity["is_negated"] = "yes"
+    else:
+        entity["is_negated"] = "no"
+    return entity
 
 class EntityRecognizer:
     def __init__(self, id_list, n_jobs, data_source="clinical trials"):
@@ -139,9 +240,11 @@ class EntityRecognizer:
     def data_loader(self, id_list):
         to_concat = []
         for idx in id_list:
-            if self.data_source=="clinical trials":
-                df = pd.read_csv(INPUT_FILEPATH + "clinical_trials/" + "%s_preprocessed.csv"%idx)
-                to_concat.append(df)
+            if self.data_source == "clinical trials":
+                file_path = os.path.join(INPUT_FILEPATH, "clinical_trials", f"{idx}_preprocessed.csv")
+                if os.path.exists(file_path):
+                    df = pd.read_csv(file_path)
+                    to_concat.append(df)
             elif self.data_source=="patient notes":
                 df = pd.read_csv(INPUT_FILEPATH + "patient_notes/" + "%s_preprocessed.csv"%idx)
                 to_concat.append(df)
@@ -199,16 +302,17 @@ class EntityRecognizer:
 
         # Iterate through the input list
         for entry in dictionary_list:
-            text = entry['text']
-            group = entry['entity_group']
+            if 'text' in entry and 'entity_group' in entry:
+                text = entry['text']
+                group = entry['entity_group']
 
-            # Check if the text is already in the non_overlapping dictionary
-            if text in non_overlapping:
-                # Compare groups and keep the entry if it belongs to one of the preferred groups
-                if group in preferred_set:
+                # Check if the text is already in the non_overlapping dictionary
+                if text in non_overlapping:
+                    # Compare groups and keep the entry if it belongs to one of the preferred groups
+                    if group in preferred_set:
+                        non_overlapping[text] = entry
+                else:
                     non_overlapping[text] = entry
-            else:
-                non_overlapping[text] = entry
 
         # Convert the non-overlapping dictionary back to a list
         result_list = list(non_overlapping.values())
@@ -333,7 +437,7 @@ class EntityRecognizer:
         df = df.dropna()
         for _,row in df.iterrows():
             sent = row["sentence"].replace(",", "")
-            main_entities = self.mtner_normalize_format(query_plain(sent.lower()))["ents"]
+            main_entities = self.mtner_normalize_format(query_plain(sent))["ents"]
             variants_entities = mutations_pipeline(sent)
             aberration_type_entities = self.aberration_type_recognizer(sent)
             pregnancy_entities = self.pregnancy_recognizer(sent)
@@ -352,7 +456,7 @@ class EntityRecognizer:
                 clean_entities = self.find_and_remove_overlaps(combined_entities, if_overlap_keep=["gene", "ProteinMutation", "DNAMutation", "SNP"])
                 for e in clean_entities:
                     if (("score" in e and e["score"] > 0.6) or ("score" not in e)) and len(e["text"]) > 1:
-                        ent = negation_handling(sent, e)
+                        ent = is_entity_negated(sent, e)
                         ent["text"] = re.sub(r'([,.-])\s+', r'\1', e["text"]) 
                         is_negated.append(ent["is_negated"]) 
                         _ids.append(row["id"])
@@ -369,35 +473,51 @@ class EntityRecognizer:
                             field.append(row["criteria"])
                         elif self.data_source=="patient notes":
                             field.append(row["field"])
-                    else:
-                        continue
         return pd.DataFrame({
-                            '_id': _ids,
-                            'sentence': sentences,
+                            'nct_id': _ids,
+                            'text': sentences,
                             'entity_text': entities_texts,
                             'entity_group': entities_groups,
                             'normalized_id': normalized_ids,
                             'field' : field,
                             "is_negated" : is_negated,
-                            'start':start,
-                            'end':end
                         })
             
+    def save_output(self, df, output_filepath):
+        df.to_csv(output_filepath, index=False)
+
     def __call__(self):
         all_df = self.data_loader(self.id_list)
+
+        def process_dataframe(df):
+            output_filepath = OUTPUT_FILEPATH_CT + df["id"].iloc[0] + ".csv"
+            if not os.path.exists(output_filepath):
+                result_df = self.recognize_entities(df)
+                if self.data_source == "clinical trials":
+                    self.save_output(result_df, output_filepath)
+                return result_df
+
         parallel_runner = ParallelExecutor(n_jobs=self.n_jobs)(total=len(self.id_list))
-        X = parallel_runner(
-            joblib.delayed(self.recognize_entities)(
-            df, 
-            )
-            for df in all_df
-        )     
-        if self.data_source=="clinical_trials":
-            pd.concat(X).to_csv(OUTPUT_FILEPATH_CT + "entities_parsed.csv", index = False)
-        elif self.data_source=="patient notes":
-            pd.concat(X).to_csv(OUTPUT_FILEPATH_PAT + "entities_parsed.csv", index = False)
-        return pd.concat(X)
-    
-    
+        
+        parallel_runner(delayed(process_dataframe)(df) for df in all_df)
+        
+        return 
+
 if __name__ == "__main__":
-    main()
+    # Load the list of NCT IDs
+    folder_path = '../data/trials_xmls/'  # Replace this with the path to your folder
+    file_names = []
+    # List all files in the folder
+    for file in os.listdir(folder_path):
+        if os.path.isfile(os.path.join(folder_path, file)):
+            file_name, file_extension = os.path.splitext(file)
+            file_names.append(file_name)
+    nct_ids = file_names[0:1000]
+    reco = EntityRecognizer(n_jobs=50, id_list=nct_ids, data_source="clinical trials")
+    entities = reco()
+    # # Load the list of patient IDs
+    # pat_ids = pd.read_csv("../data/patient_ids.csv")
+    # pat_ids = pat_ids["id"].tolist()
+    # reco = EntityRecognizer(n_jobs=50, id_list=pat_ids, data_source="patient notes")
+    # entities = reco()
+    # entities.to_csv("../data/ner_patients_clinical_notes/entities_parsed.csv", index = False)

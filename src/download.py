@@ -21,7 +21,6 @@ def get_cancer_trials_list(max_trials=15000):
     page_size = 100  # Number of trials per page
     current_rank = 1
     trials_fetched = 0
-
     while trials_fetched < max_trials:
         search_params = {
             "expr": "((cancer) OR (neoplasm)) AND ((interventional) OR (treatment)) AND ((mutation) OR (variant))",
@@ -30,9 +29,7 @@ def get_cancer_trials_list(max_trials=15000):
             "fmt": "json",
             "fields": "NCTId"
         }
-
         response = requests.get(base_url, params=search_params)
-
         if response.status_code == 200:
             trials_data = response.json()
             if "FullStudiesResponse" in trials_data:
@@ -67,8 +64,6 @@ def download_study_info(nct_id):
         except ET.ParseError as e:
             print(f"Error parsing XML for trial {nct_id}: {e}")
             os.remove(local_file_path)
-
-        
         # Download the online version of the XML
         url = f"https://clinicaltrials.gov/ct2/show/{nct_id}?displayxml=true"
         try:
