@@ -105,7 +105,7 @@ def ParallelExecutor(use_bar="tqdm", **joblib_args):
             else:
                 raise ValueError("Value %s not supported as bar type" % bar)
             # Pass n_jobs from joblib_args
-            return joblib.Parallel(n_jobs=joblib_args.get("n_jobs", 10), prefer="threads")(bar_func(op_iter))
+            return joblib.Parallel(n_jobs=joblib_args.get("n_jobs", 10))(bar_func(op_iter))
 
         return tmp
 
@@ -512,8 +512,8 @@ if __name__ == "__main__":
         if os.path.isfile(os.path.join(folder_path, file)):
             file_name, file_extension = os.path.splitext(file)
             file_names.append(file_name)
-    nct_ids = file_names[0:1000]
-    reco = EntityRecognizer(n_jobs=50, id_list=nct_ids, data_source="clinical trials")
+    nct_ids = file_names
+    reco = EntityRecognizer(n_jobs=5, id_list=nct_ids, data_source="clinical trials")
     entities = reco()
     # # Load the list of patient IDs
     # pat_ids = pd.read_csv("../data/patient_ids.csv")
