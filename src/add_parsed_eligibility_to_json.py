@@ -10,7 +10,7 @@ collection = db["clinicaltrials"]
 def update_json_from_dataframe_and_add_to_mongoDB(jsons_directory, dataframes_directory):
     # Create a list to store the filenames in the dataframe repository
     dataframe_filenames = []
-
+    
     # Iterate through each file in the dataframe directory and add the filename (without the extension) to the list
     for dataframe_file in os.listdir(dataframes_directory):
         if dataframe_file.endswith('.csv'):

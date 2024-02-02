@@ -1,0 +1,17 @@
+data/
+src/output/
+src/models/
+src/joblib/
+src/__pycache__/
+src/.ipynb_checkpoints/
+resources/
+filter-config.yml
+git-filter-repo
+filter-config.yml
+# .gitignore
+
+src/mongo_vector_embedded.py
+src/chromaDB_trial.py
+src/connect_to_mongodb.py
+src/add_parsed_eligibility_to_json.py
+src/langchain_demo.py
