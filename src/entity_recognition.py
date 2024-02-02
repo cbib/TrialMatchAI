@@ -26,9 +26,9 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipe
 import warnings
 
 # Filepaths
-INPUT_FILEPATH = "../data/preprocessed_data/"
-OUTPUT_FILEPATH_CT = "../data/ner_clinical_trials/"
-OUTPUT_FILEPATH_PAT = "../data/ner_patients_clinical_notes/"
+INPUT_FILEPATH = '/home/mabdallah/TrialMatchAI/data/preprocessed_data'
+OUTPUT_FILEPATH_CT = '/home/mabdallah/TrialMatchAI/data/ner_clinical_trials/'
+# OUTPUT_FILEPATH_PAT = "../data/ner_patients_clinical_notes/"
 
 # List of auxiliary entities
 AUXILIARY_ENTITIES_LIST = ["Sign_symptom", "Biological_structure", "Date", "Duration", "Time", "Frequency", 
@@ -38,14 +38,14 @@ AUXILIARY_ENTITIES_LIST = ["Sign_symptom", "Biological_structure", "Date", "Dura
 # Check if CUDA is available
 device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
 # Load auxiliary tokenizer and pipeline
-aux_tokenizer = AutoTokenizer.from_pretrained("d4data/biomedical-ner-all", model_max_length=512)
+aux_tokenizer = AutoTokenizer.from_pretrained("d4data/biomedical-ner-all", model_max_length=512, padding=True, truncation=True)
 aux_pipeline = pipeline("ner", model="d4data/biomedical-ner-all", tokenizer=aux_tokenizer, aggregation_strategy="first", device=device)
 
 # Load mutations tokenizer and pipeline
-mutations_tokenizer = AutoTokenizer.from_pretrained("Brizape/tmvar-PubMedBert-finetuned-24-02", model_max_length=512)
+mutations_tokenizer = AutoTokenizer.from_pretrained("Brizape/tmvar-PubMedBert-finetuned-24-02", model_max_length=512, padding=True, truncation=True)
 mutations_pipeline = pipeline("ner", model="Brizape/tmvar-PubMedBert-finetuned-24-02", tokenizer=mutations_tokenizer, aggregation_strategy="first",  device=device)
 
-neg_tokenizer = AutoTokenizer.from_pretrained("bvanaken/clinical-assertion-negation-bert")
+neg_tokenizer = AutoTokenizer.from_pretrained("bvanaken/clinical-assertion-negation-bert", model_max_length=512, padding=True, truncation=True)
 neg_model = AutoModelForSequenceClassification.from_pretrained("bvanaken/clinical-assertion-negation-bert")
 classifier = pipeline("text-classification", model=neg_model, tokenizer=neg_tokenizer)
 
@@ -111,7 +111,7 @@ def ParallelExecutor(use_bar="tqdm", **joblib_args):
 
     return aprun
 
-def get_dictionaries_with_values(list_of_dicts, key, values):
+def get_dictionaries_of_specific_entities(list_of_dicts, key, values):
     """
     Filter a list of dictionaries based on the presence of specific values in a specified key.
 
@@ -135,7 +135,7 @@ def get_dictionaries_with_values(list_of_dicts, key, values):
             {"name": "David", "age": 30},
         ]
 
-        get_dictionaries_with_values(list_of_dicts, "age", [30, 35])
+        get_dictionaries_of_specific_entities(list_of_dicts, "age", [30, 35])
         # Output: [
         #   {"name": "Alice", "age": 30},
         #   {"name": "Charlie", "age": 35},
@@ -324,7 +324,7 @@ class EntityRecognizer:
         med_nlp.disable_pipe('medspacy_target_matcher')
         @Language.component("aberrations-ner")
         def regex_pattern_matcher_for_aberrations(doc):
-            df_regex = pd.read_csv("../data/regex_variants.tsv", sep="\t", header=None)
+            df_regex = pd.read_csv("/home/mabdallah/TrialMatchAI/data/regex_variants.tsv", sep="\t", header=None)
             df_regex = df_regex.rename(columns={1 : "label", 2:"regex_pattern"}).drop(columns=[0])
             dict_regex = df_regex.set_index('label')['regex_pattern'].to_dict()
             original_ents = list(doc.ents)
@@ -360,7 +360,7 @@ class EntityRecognizer:
                             "is_negated" : "yes" if entity._.is_negated else "no"})
         return ent_list
     
-    
+
     def pregnancy_recognizer(self, text):
         med_nlp = medspacy.load()
         med_nlp.disable_pipe('medspacy_target_matcher')
@@ -411,8 +411,16 @@ class EntityRecognizer:
             current_entity = entities[0]
             for next_entity in entities[1:]:
                 if (
-                    current_entity['entity_group'] == next_entity['entity_group']
-                    and next_entity['start'] - current_entity['end'] - 1 <= 3
+                    'text' in current_entity
+                    and 'text' in next_entity
+                    and 'entity_group' in current_entity
+                    and 'entity_group' in next_entity
+                    and 'start' in current_entity
+                    and 'end' in current_entity
+                    and 'start' in next_entity
+                    and 'end' in next_entity
+                    and current_entity['entity_group'] == next_entity['entity_group']
+                    and next_entity['start'] - current_entity['end'] - 1 <= 5
                 ):
                     current_entity['text'] += ' ' + next_entity['text']
                     current_entity['end'] = next_entity['end']
@@ -423,7 +431,6 @@ class EntityRecognizer:
             combined_entities.append(current_entity)
         return combined_entities
 
-    
     def recognize_entities(self, df):
         _ids = []
         sentences = []
@@ -442,10 +449,10 @@ class EntityRecognizer:
             aberration_type_entities = self.aberration_type_recognizer(sent)
             pregnancy_entities = self.pregnancy_recognizer(sent)
             aux_entities = aux_pipeline(sent)
-            aux_entities = get_dictionaries_with_values(aux_entities, "entity_group", AUXILIARY_ENTITIES_LIST)
+            aux_entities = get_dictionaries_of_specific_entities(aux_entities, "entity_group", AUXILIARY_ENTITIES_LIST)
             aux_entities = [{"text" if k == "word" else k: v for k, v in d.items()} for d in aux_entities]
             
-            combined_entities  = self.merge_lists_with_priority_to_first(variants_entities, main_entities)
+            combined_entities  = self.merge_lists_without_priority(variants_entities, main_entities)
             combined_entities  = self.merge_lists_without_priority(combined_entities, aux_entities)
             combined_entities  = self.merge_lists_without_priority(combined_entities, pregnancy_entities)
             combined_entities  = self.merge_lists_with_priority_to_first(combined_entities, aberration_type_entities)
@@ -455,7 +462,7 @@ class EntityRecognizer:
             if len(combined_entities) > 0:
                 clean_entities = self.find_and_remove_overlaps(combined_entities, if_overlap_keep=["gene", "ProteinMutation", "DNAMutation", "SNP"])
                 for e in clean_entities:
-                    if (("score" in e and e["score"] > 0.6) or ("score" not in e)) and len(e["text"]) > 1:
+                    if (("score" in e and e["score"] > 0.7) or ("score" not in e)) and len(e["text"]) > 1:
                         ent = is_entity_negated(sent, e)
                         ent["text"] = re.sub(r'([,.-])\s+', r'\1', e["text"]) 
                         is_negated.append(ent["is_negated"]) 
@@ -505,7 +512,7 @@ class EntityRecognizer:
 
 if __name__ == "__main__":
     # Load the list of NCT IDs
-    folder_path = '../data/trials_xmls/'  # Replace this with the path to your folder
+    folder_path = '/home/mabdallah/TrialMatchAI/data/trials_xmls' # Replace this with the path to your folder
     file_names = []
     # List all files in the folder
     for file in os.listdir(folder_path):

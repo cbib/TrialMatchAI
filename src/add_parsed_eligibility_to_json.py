@@ -1,8 +1,13 @@
 import os
 import pandas as pd
 import json
+import pymongo
 
-def update_json_from_dataframe(jsons_directory, dataframes_directory):
+client = pymongo.MongoClient("mongodb+srv://abdallahmajd7:Basicmongobias72611@trialmatchai.pvx7ldb.mongodb.net/")
+db = client["trialmatchai"]
+collection = db["clinicaltrials"]
+
+def update_json_from_dataframe_and_add_to_mongoDB(jsons_directory, dataframes_directory):
     # Create a list to store the filenames in the dataframe repository
     dataframe_filenames = []
 
@@ -18,7 +23,7 @@ def update_json_from_dataframe(jsons_directory, dataframes_directory):
 
             # Extract NCT ID from the JSON file name
             nct_id = json_file.split('.')[0]
-
+            # print(nct_id)
             # Only perform processing if the filename exists in both repositories
             if nct_id in dataframe_filenames:
                 # Load existing JSON file
@@ -47,9 +52,12 @@ def update_json_from_dataframe(jsons_directory, dataframes_directory):
                 # Save the updated JSON data back to the file
                 with open(json_path, 'w') as f:
                     json.dump(existing_json_data, f, indent=2)
+                
+                # Convert the single dictionary into a list before inserting into MongoDB
+                collection.insert_many([existing_json_data])
 
 if __name__ == "__main__":
     # Example usage:
     jsons_directory_path = '../data/trials_jsons'
     dataframes_directory_path = '../data/ner_clinical_trials'
-    update_json_from_dataframe(jsons_directory_path, dataframes_directory_path)
+    update_json_from_dataframe_and_add_to_mongoDB(jsons_directory_path, dataframes_directory_path)

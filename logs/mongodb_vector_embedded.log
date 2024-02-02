@@ -1,0 +1,143 @@
+nohup: ignoring input
+NCT01677741
+NCT00033514
+NCT02323607
+NCT05076695
+NCT02825940
+NCT00628251
+NCT04106362
+NCT00038857
+NCT01690702
+NCT04991506
+NCT03466268
+NCT04044430
+NCT03178552
+NCT02628132
+NCT03365882
+NCT03047928
+NCT01407562
+NCT03768310
+NCT01534585
+NCT05169567
+NCT03381430
+NCT04251078
+NCT03280030
+NCT03809988
+NCT03817411
+NCT04514419
+NCT03366766
+NCT04486287
+NCT02901301
+NCT04303884
+NCT02129699
+NCT01477606
+NCT04072042
+NCT02390739
+NCT04116541
+NCT00567554
+NCT03579472
+NCT01401959
+NCT02365441
+NCT05020457
+NCT01928576
+NCT00482833
+NCT00089011
+NCT04435691
+NCT01974765
+NCT02210858
+NCT03440515
+NCT03836768
+NCT04272645
+NCT05021900
+NCT03616782
+NCT04133636
+NCT02680951
+NCT04628026
+NCT00222612
+NCT00224354
+NCT02310321
+NCT00482703
+NCT02390752
+NCT02396433
+NCT05022394
+NCT04447027
+NCT04809467
+NCT00108186
+NCT03996473
+NCT00079235
+NCT02296112
+NCT02971748
+NCT02650986
+NCT04801797
+NCT02935361
+NCT02725424
+NCT03674112
+NCT00444587
+NCT03513484
+NCT04945733
+NCT00352365
+NCT02520154
+NCT03841110
+NCT03734809
+NCT04711161
+NCT02690480
+NCT05005403
+NCT03326921
+NCT01251575
+NCT03096847
+NCT00471159
+NCT01325207
+NCT00887068
+NCT01201265
+NCT02445391
+NCT04895722
+NCT04106024
+NCT00580112
+NCT03770429
+NCT04385563
+NCT01783535
+NCT02227251
+NCT05061550
+Traceback (most recent call last):
+  File "/scratch/homedirs/mabdallah/TrialMatchAI/src/mongodb_vector_embedded.py", line 53, in <module>
+    collection.replace_one({'_id': doc['_id']}, doc)
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/collection.py", line 973, in replace_one
+    self._update_retryable(
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/collection.py", line 881, in _update_retryable
+    return self.__database.client._retryable_write(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/mongo_client.py", line 1523, in _retryable_write
+    return self._retry_with_session(retryable, func, s, bulk)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/mongo_client.py", line 1421, in _retry_with_session
+    return self._retry_internal(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/_csot.py", line 107, in csot_wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/mongo_client.py", line 1462, in _retry_internal
+    ).run()
+      ^^^^^
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/mongo_client.py", line 2315, in run
+    return self._read() if self._is_read else self._write()
+                                              ^^^^^^^^^^^^^
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/mongo_client.py", line 2422, in _write
+    return self._func(self._session, conn, self._retryable)  # type: ignore
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/collection.py", line 862, in _update
+    return self._update(
+           ^^^^^^^^^^^^^
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/collection.py", line 816, in _update
+    result = conn.command(
+             ^^^^^^^^^^^^^
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/helpers.py", line 322, in inner
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/pool.py", line 968, in command
+    return command(
+           ^^^^^^^^
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/network.py", line 192, in command
+    helpers._check_command_response(
+  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/pymongo/helpers.py", line 230, in _check_command_response
+    raise OperationFailure(errmsg, code, response, max_wire_version)
+pymongo.errors.OperationFailure: you are over your space quota, using 516 MB of 512 MB, full error: {'ok': 0, 'errmsg': 'you are over your space quota, using 516 MB of 512 MB', 'code': 8000, 'codeName': 'AtlasError'}
