@@ -3,7 +3,8 @@ import pandas as pd
 import json
 import pymongo
 
-client = pymongo.MongoClient("mongodb+srv://abdallahmajd7:Basicmongobias72611@trialmatchai.pvx7ldb.mongodb.net/")
+mongodb_link = os.environ.get('MONGODB_LINK')
+client = pymongo.MongoClient(mongodb_link)
 db = client["trialmatchai"]
 collection = db["clinicaltrials"]
 

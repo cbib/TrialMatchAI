@@ -1,9 +1,10 @@
 # Connect to MongoDB server
 import pymongo
+import os
 def connect_mongodb():
     # MongoDB connection string
-    mongo_url = "mongodb+srv://abdallahmajd7:Basicmongobias72611@trialmatchai.pvx7ldb.mongodb.net/"
-    client = pymongo.MongoClient(mongo_url)
+    mongodb_link = os.environ.get('MONGODB_LINK')
+    client = pymongo.MongoClient(mongodb_link)
     db = client["AIRegulation"]
     collection = db["mifid2"]
     return collection

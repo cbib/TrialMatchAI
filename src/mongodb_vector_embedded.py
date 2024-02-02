@@ -1,14 +1,18 @@
+import os
 import pymongo
 import requests
 from typing import List, Dict
 from tenacity import retry, wait_random_exponential, stop_after_attempt
-
-client = pymongo.MongoClient("mongodb+srv://abdallahmajd7:Basicmongobias72611@trialmatchai.pvx7ldb.mongodb.net/")
-db = client.trialmatchai
-collection = db.clinicaltrials
 import openai
 
-openai.api_key = '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'
+mongodb_link = os.environ.get('MONGODB_LINK')
+client = pymongo.MongoClient(mongodb_link)
+db = client.trialmatchai
+collection = db.clinicaltrials
+
+
+openapi_token = os.environ.get('OPENAPI_TOKEN')
+openai.api_key = openapi_token
 
 # hf_token = "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"
 # embedding_url = "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2"
