@@ -19,3 +19,4 @@ logs/*
 src/inference.ipynb
 src/SynthethicData.ipynb
 src/fine-tune-data.ipynb
+src/mongo_vector_embedded.py
