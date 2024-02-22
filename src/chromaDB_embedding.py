@@ -1,13 +1,9 @@
 import chromadb
-import json
 import os
 import pandas as pd
 from chromadb.utils import embedding_functions
-import joblib
-from tqdm.auto import tqdm
 
 client = chromadb.PersistentClient()
-client.delete_collection("eligibility_criteria_collection")
 em = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2", device="cuda:4")
 collection = client.get_or_create_collection("eligibility_criteria_collection", metadata={"hnsw:space": "cosine"}, embedding_function=em) # cosine is the default
 
