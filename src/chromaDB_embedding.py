@@ -4,7 +4,7 @@ import pandas as pd
 from chromadb.utils import embedding_functions
 
 client = chromadb.PersistentClient()
-em = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2", device="cuda:4")
+em = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2", device="cuda")
 collection = client.get_or_create_collection("eligibility_criteria_collection", metadata={"hnsw:space": "cosine"}, embedding_function=em) # cosine is the default
 
 # Create an empty list to store filenames without extension
