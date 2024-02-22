@@ -1,53 +1,0 @@
-  0%|          | 0/9263 [00:00<?, ?it/s]  0%|          | 5/9263 [00:00<12:05, 12.75it/s]  0%|          | 10/9263 [00:13<4:01:07,  1.56s/it]  0%|          | 15/9263 [00:30<6:14:40,  2.43s/it]  0%|          | 20/9263 [00:52<8:07:22,  3.16s/it]  0%|          | 25/9263 [01:13<9:07:02,  3.55s/it]  0%|          | 30/9263 [01:34<9:44:55,  3.80s/it]  0%|          | 35/9263 [02:02<11:16:51,  4.40s/it]  0%|          | 40/9263 [02:22<10:50:07,  4.23s/it]  0%|          | 45/9263 [02:47<11:29:37,  4.49s/it]  1%|          | 50/9263 [03:11<11:40:18,  4.56s/it]  1%|          | 55/9263 [03:41<12:52:10,  5.03s/it]  1%|          | 60/9263 [03:58<11:37:13,  4.55s/it]  1%|          | 65/9263 [04:27<12:32:32,  4.91s/it]  1%|          | 70/9263 [04:43<11:15:38,  4.41s/it]  1%|          | 75/9263 [05:14<12:31:46,  4.91s/it]  1%|          | 80/9263 [06:55<24:21:24,  9.55s/it]  1%|          | 85/9263 [07:46<24:48:53,  9.73s/it]  1%|          | 90/9263 [08:47<26:36:14, 10.44s/it]  1%|          | 95/9263 [09:37<26:17:59, 10.33s/it]  1%|          | 100/9263 [10:44<28:41:33, 11.27s/it]joblib.externals.loky.process_executor._RemoteTraceback: 
-"""
-Traceback (most recent call last):
-  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/joblib/externals/loky/process_executor.py", line 463, in _process_worker
-    r = call_item()
-        ^^^^^^^^^^^
-  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/joblib/externals/loky/process_executor.py", line 291, in __call__
-    return self.fn(*self.args, **self.kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/joblib/parallel.py", line 589, in __call__
-    return [func(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/joblib/parallel.py", line 589, in <listcomp>
-    return [func(*args, **kwargs)
-            ^^^^^^^^^^^^^^^^^^^^^
-  File "/scratch/homedirs/mabdallah/TrialMatchAI/src/entity_recognition.py", line 495, in process_dataframe
-    result_df = self.recognize_entities(df)
-                ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/scratch/homedirs/mabdallah/TrialMatchAI/src/entity_recognition.py", line 452, in recognize_entities
-    combined_entities  = self.merge_similar_consecutive_entities(combined_entities)
-                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/scratch/homedirs/mabdallah/TrialMatchAI/src/entity_recognition.py", line 417, in merge_similar_consecutive_entities
-    current_entity['text'] += ' ' + next_entity['text']
-    ~~~~~~~~~~~~~~^^^^^^^^
-KeyError: 'text'
-"""
-
-The above exception was the direct cause of the following exception:
-
-Traceback (most recent call last):
-  File "/scratch/homedirs/mabdallah/TrialMatchAI/src/entity_recognition.py", line 517, in <module>
-    entities = reco()
-               ^^^^^^
-  File "/scratch/homedirs/mabdallah/TrialMatchAI/src/entity_recognition.py", line 502, in __call__
-    parallel_runner(delayed(process_dataframe)(df) for df in all_df)
-  File "/scratch/homedirs/mabdallah/TrialMatchAI/src/entity_recognition.py", line 108, in tmp
-    return joblib.Parallel(n_jobs=joblib_args.get("n_jobs", 10))(bar_func(op_iter))
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/joblib/parallel.py", line 1952, in __call__
-    return output if self.return_generator else list(output)
-                                                ^^^^^^^^^^^^
-  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/joblib/parallel.py", line 1595, in _get_outputs
-    yield from self._retrieve()
-  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/joblib/parallel.py", line 1699, in _retrieve
-    self._raise_error_fast()
-  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/joblib/parallel.py", line 1734, in _raise_error_fast
-    error_job.get_result(self.timeout)
-  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/joblib/parallel.py", line 736, in get_result
-    return self._return_or_raise()
-           ^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/mabdallah/miniconda3/lib/python3.11/site-packages/joblib/parallel.py", line 754, in _return_or_raise
-    raise self._result
-KeyError: 'text'

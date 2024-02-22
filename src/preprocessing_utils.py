@@ -1,5 +1,4 @@
 # preprocessing_utils.py
-
 """
 Description: This script contains functions for pre-processing clinical trials eligibility criteria texts.  
 The functions serve to split the raw unstructured text into clean and structured sentences to be processed by a more advanced downstream NLP analysis
@@ -15,11 +14,30 @@ import xml.etree.ElementTree as ET
 import os
 import re
 import logging
-import nltk
+# import nltk
+# from nltk.tokenize.punkt import PunktParameters, PunktSentenceTokenizer
+# # Customize Punkt parameters
+# punkt_params = PunktParameters()
+# punkt_params.abbrev_types = set(['e.g', 'i.e.'])
+# punkt_params.abbrev_types.add(r'\b(?:\d+\.?\d*|[A-Z]\.)\s*')
+# # Configure logging
+# # logging.basicConfig(filename='../logs/app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
 
-# Configure logging
-# logging.basicConfig(filename='../logs/app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
 
+# def split_on_full_stops(text):
+#     """
+#     Splits a line of text on full stops (periods) but avoids splitting on regular dots (decimal points).
+
+#     Parameters:
+#         text (str): The input text.
+
+#     Returns:
+#         list: A list of sentences split on full stops.
+#     """
+#     # Create a custom Punkt tokenizer with the modified parameters
+#     custom_tokenizer = PunktSentenceTokenizer(punkt_params)
+#     sentences = custom_tokenizer.tokenize(text)
+#     return sentences
 
 def flatten_list_of_lists(list_of_lists):
     """
@@ -146,44 +164,6 @@ def extract_eligibility_criteria(trial_id):
     logging.warning(f"XML file for trial ID {trial_id} not found.")
     return None
 
-# def extract_eligibility_criteria(trial_id):
-#     """
-#     Extract the eligibility criteria text for a clinical trial with the given trial ID.
-
-#     This function attempts to locate and extract the eligibility criteria text for a clinical trial
-#     specified by its trial ID. The function reads an XML file named '{trial_id}.xml' which is expected
-#     to contain information for the clinical trial. It searches for the eligibility criteria textblock within
-#     the XML and extracts the corresponding text.
-
-#     Parameters:
-#         trial_id (str): The unique identifier of the clinical trial.
-
-#     Returns:
-#         str or None: The extracted eligibility criteria text for the specified trial if found,
-#                     otherwise None.
-#     """
-#     xml_file_path = f'../data/trials_xmls/{trial_id}.xml'
-
-#     if os.path.exists(xml_file_path):
-#         with open(xml_file_path, 'r') as xml_file:
-#             xml_content = xml_file.read()
-#         try:
-#             tree = ET.ElementTree(ET.fromstring(xml_content))
-#             root = tree.getroot()
-#         except ET.ParseError as e:
-#             print(f"Error parsing XML for trial {trial_id}: {e}")
-#             return None
-#         # Find the Eligibility Criteria TextBlock section within the XML
-#         eligibility_criteria_textblock = root.find(".//eligibility/criteria/textblock")
-
-#         if eligibility_criteria_textblock is not None:
-#             # Extract the text from the Eligibility Criteria TextBlock section
-#             eligibility_criteria_text = eligibility_criteria_textblock.text
-#             return eligibility_criteria_text.strip()
-#     else:
-#     # If the trial ID is not found or the eligibility criteria textblock is missing, return None
-#         return None
-
 def split_by_leading_char_from_regex_patterns(line, regex_patterns, exceptions_path = "../data/exception_regex_patterns.json"):
     """
     Split a line of text into sentences using leading characters defined by regex patterns.
@@ -210,7 +190,6 @@ def split_by_leading_char_from_regex_patterns(line, regex_patterns, exceptions_p
     sentences = []
     sentence = ""
     # Replace parentheses with braces in the line
-    line = replace_parentheses_with_braces(line)
     words = line.split()  # Split the line into words
     for i, word in enumerate(words):
         if i < len(words) - 3:
@@ -365,6 +344,8 @@ def split_on_carriage_returns(text, regex_patterns):
         # Output: [(Introduction:, 1), (This is the introduction to the topic., 0)]
     """
     lines = re.split(r'\n\n+', re.sub(r':\n', ':\n\n', text)) # Split the text into lines using double carriage returns
+    # lines = split_lines_on_semicolon(lines)
+    # print(lines)
     result = []
     current_line = ""
     line_type = LINE_TYPE_REGULAR
@@ -398,60 +379,28 @@ def split_on_carriage_returns(text, regex_patterns):
 
     return result
 
-# def split_on_carriage_returns(text, regex_patterns):
-#     """
-#     Split a text into lines separated by double carriage returns (i.e. \n\n)
 
-#     This function takes a text and a list of regular expression (regex) patterns. It splits the text into lines using double carriage returns.
-#     For each line, it identifies the type based on certain conditions, including whether it is a header or a continuation of the previous line.
+def split_lines_on_fullstop_or_semicolon(lines):
+    """
+    Splits lines or sentences on a semi-colon.
 
-#     Parameters:
-#         text (str): The input text to be split into lines and identified.
-#         regex_patterns (list): A list of regular expression patterns to match against the lines.
+    Parameters:
+        lines (list): A list of lines or sentences to be split.
 
-#     Returns:
-#         list: A list of tuples, where each tuple contains a line and its corresponding type:
-#             - Type 0: Regular line
-#             - Type 1: Header line
-#             - Type 2: False header line (appears as a header but is not an actual header)
+    Returns:
+        list: A list of lines or sentences split on a semi-colon.
+    """
+    split_lines = []
+    for i in range(len(lines)):
+        line = lines[i][0].strip()
+        line = replace_parentheses_with_braces(line)
+        if ";" in line and not (line.find("{") < line.find(";") < line.find("}")):
+            split_lines.extend(line.split(";"))
+        else:
+            split_lines.append(line)
+    return split_lines
 
-#     Example:
-#         text = "Introduction:\n\nThis is the introduction to the topic.\n\n"
-#         regex_patterns = [r"Chapter \d+", r"Section \d+"]
-#         split_on_carriage_returns(text, regex_patterns)
-#         # Output: [(Introduction:, 1), (This is the introduction to the topic., 0)]
-#     """
-#     lines = re.split(r'\n\n+', re.sub(r':\n', ':\n\n', text)) # Split the text into lines using double carriage returns
-#     result = []
-#     current_line = ""
-#     i = 0
-#     while i < len(lines) :
-#         line = lines[i]
-#         current_line += line
-#         line_type = 0          
-#         if i == len(lines) - 1 :
-#             i += 1
-#             result.append((current_line, line_type))
-#             break
-#         if is_header(lines[i].lstrip(), lines[i + 1].lstrip(), regex_patterns) :
-#             line_type = 1   
-#         if (not any(re.search(pattern, lines[i + 1].lstrip()) for pattern in regex_patterns) and lines[i].rstrip().endswith((",", ";"))) and not line_starts_with_capitalized_alphanumeric(lines[i+1].lstrip()) :
-#             current_line += " " + lines[i + 1] 
-#             i += 2
-#         elif i < len(lines) - 2 and is_header(lines[i + 1].lstrip(), lines[i + 2].lstrip(), regex_patterns) :
-#             if not is_false_header(lines[i + 1], lines[i], lines[i + 2]):
-#                 i += 1
-#             elif  is_false_header(lines[i + 1], lines[i], lines[i + 2]):
-#                 current_line += " " + lines[i+1]
-#                 line_type = 2
-#                 i += 2   
-#         else:
-#             i += 1
-#         current_line = re.sub(r'\s+', ' ', current_line)
-#         result.append((current_line, line_type))
-#         current_line = ""
-#         line_type = ""
-#     return result
+
     
 def split_to_sentences(text, regex_patterns):
     """
@@ -478,11 +427,12 @@ def split_to_sentences(text, regex_patterns):
     split_by_leading_char_from_regex_patterns
     """
     lines = split_on_carriage_returns(text, regex_patterns)
+    lines = split_lines_on_fullstop_or_semicolon(lines)
     cleaned_lines = []
-    for i in range(len(lines)):
-        line = lines[i][0].strip()
+    for i, line in enumerate(lines):
+        # line = lines[i][0].strip()
         if i < len(lines) - 1:
-            next_line = lines[i+1][0].strip()
+            next_line = lines[i+1].strip()
             if not next_line or next_line.startswith('-') or re.search(r'\s{2,}', next_line) or re.search(r'^\d+\s*\.', next_line):
                 line += ' '
         line = re.sub(r"\n", " ", line)
@@ -491,6 +441,7 @@ def split_to_sentences(text, regex_patterns):
         cleaned_lines.append(line)
     flat_list = [item for sublist in cleaned_lines for item in sublist]
     return flat_list
+
 
 
 def drop_leading_character(sentence, regex_patterns):
@@ -733,6 +684,5 @@ def eic_text_preprocessing(_ids, regex_path = "../data/regex_patterns.json", out
         return final_df
     else:
         return None
-    
     
     

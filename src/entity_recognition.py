@@ -36,18 +36,20 @@ AUXILIARY_ENTITIES_LIST = ["Sign_symptom", "Biological_structure", "Date", "Dura
                            "Clinical_event", "Outcome", "History", "Subject", "Family_history", "Detailed_description", "Area"]
 
 # Check if CUDA is available
-device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
+device0 = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device1 = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device2 = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
 # Load auxiliary tokenizer and pipeline
-aux_tokenizer = AutoTokenizer.from_pretrained("d4data/biomedical-ner-all", model_max_length=512, padding=True, truncation=True)
-aux_pipeline = pipeline("ner", model="d4data/biomedical-ner-all", tokenizer=aux_tokenizer, aggregation_strategy="first", device=device)
+aux_tokenizer = AutoTokenizer.from_pretrained("d4data/biomedical-ner-all", model_max_length=512, max_length=512, truncation=True)
+aux_pipeline = pipeline("ner", model="d4data/biomedical-ner-all", tokenizer=aux_tokenizer, aggregation_strategy="first", device=device0)
 
 # Load mutations tokenizer and pipeline
-mutations_tokenizer = AutoTokenizer.from_pretrained("Brizape/tmvar-PubMedBert-finetuned-24-02", model_max_length=512, padding=True, truncation=True)
-mutations_pipeline = pipeline("ner", model="Brizape/tmvar-PubMedBert-finetuned-24-02", tokenizer=mutations_tokenizer, aggregation_strategy="first",  device=device)
+mutations_tokenizer = AutoTokenizer.from_pretrained("Brizape/tmvar-PubMedBert-finetuned-24-02", model_max_length=512, max_length=512, truncation=True)
+mutations_pipeline = pipeline("ner", model="Brizape/tmvar-PubMedBert-finetuned-24-02", tokenizer=mutations_tokenizer, aggregation_strategy="first",  device=device1)
 
-neg_tokenizer = AutoTokenizer.from_pretrained("bvanaken/clinical-assertion-negation-bert", model_max_length=512, padding=True, truncation=True)
+neg_tokenizer = AutoTokenizer.from_pretrained("bvanaken/clinical-assertion-negation-bert", model_max_length=512, max_length=512, truncation=True)
 neg_model = AutoModelForSequenceClassification.from_pretrained("bvanaken/clinical-assertion-negation-bert")
-classifier = pipeline("text-classification", model=neg_model, tokenizer=neg_tokenizer)
+neg_classifier = pipeline("text-classification", model=neg_model, tokenizer=neg_tokenizer, device=device2)
 
 
 def query_plain(text, url="http://localhost:8888/plain"):
@@ -180,7 +182,6 @@ def add_custom_entity(doc, entity):
     return doc
 
 
-
 def negation_handling(sentence, entity):
     """
     Perform negation handling on a sentence with a given entity.
@@ -223,7 +224,7 @@ def is_entity_negated(sentence, entity):
     sentence_with_entity = re.sub(rf'\b{re.escape(entity_text)}\b', f"[entity]{entity_text}[entity]", sentence)
 
     # Classify the modified sentence to check for negation
-    classification = classifier(sentence_with_entity)[0]
+    classification = neg_classifier(sentence_with_entity, max_length=512, truncation=True)[0]
     is_negated = classification['label'] == 'ABSENT'
     if is_negated:
         entity["is_negated"] = "yes"
@@ -420,7 +421,7 @@ class EntityRecognizer:
                     and 'start' in next_entity
                     and 'end' in next_entity
                     and current_entity['entity_group'] == next_entity['entity_group']
-                    and next_entity['start'] - current_entity['end'] - 1 <= 5
+                    and next_entity['start'] - current_entity['end'] - 1 <= 3
                 ):
                     current_entity['text'] += ' ' + next_entity['text']
                     current_entity['end'] = next_entity['end']
@@ -452,34 +453,37 @@ class EntityRecognizer:
             aux_entities = get_dictionaries_of_specific_entities(aux_entities, "entity_group", AUXILIARY_ENTITIES_LIST)
             aux_entities = [{"text" if k == "word" else k: v for k, v in d.items()} for d in aux_entities]
             
-            combined_entities  = self.merge_lists_without_priority(variants_entities, main_entities)
-            combined_entities  = self.merge_lists_without_priority(combined_entities, aux_entities)
+            combined_entities  = self.merge_lists_with_priority_to_first(variants_entities, main_entities)
+            combined_entities  = self.merge_lists_with_priority_to_first(combined_entities, aux_entities)
             combined_entities  = self.merge_lists_without_priority(combined_entities, pregnancy_entities)
             combined_entities  = self.merge_lists_with_priority_to_first(combined_entities, aberration_type_entities)
             combined_entities  = self.merge_similar_consecutive_entities(combined_entities)
             
             # Convert the selected_entries dictionary back to a list
             if len(combined_entities) > 0:
-                clean_entities = self.find_and_remove_overlaps(combined_entities, if_overlap_keep=["gene", "ProteinMutation", "DNAMutation", "SNP"])
-                for e in clean_entities:
-                    if (("score" in e and e["score"] > 0.7) or ("score" not in e)) and len(e["text"]) > 1:
-                        ent = is_entity_negated(sent, e)
-                        ent["text"] = re.sub(r'([,.-])\s+', r'\1', e["text"]) 
-                        is_negated.append(ent["is_negated"]) 
-                        _ids.append(row["id"])
-                        sentences.append(sent)
-                        entities_groups.append(ent['entity_group'])
-                        entities_texts.append(ent['text'])
-                        start.append(ent["start"])
-                        end.append(ent["end"])
-                        if "normalized_id" in ent:
-                            normalized_ids.append(ent["normalized_id"])
-                        else: 
-                            normalized_ids.append("CUI-less")
-                        if self.data_source=="clinical trials":
-                            field.append(row["criteria"])
-                        elif self.data_source=="patient notes":
-                            field.append(row["field"])
+                # clean_entities = self.find_and_remove_overlaps(combined_entities, if_overlap_keep=["gene", "ProteinMutation", "DNAMutation", "SNP"])
+                for e in combined_entities:
+                    if 'text' in e and 'entity_group' in e:
+                        if (("score" in e and e["score"] > 0.7) or ("score" not in e)) and len(e["text"]) > 1:
+                            ent = is_entity_negated(sent, e)
+                            ent["text"] = re.sub(r'([,.-])\s+', r'\1', e["text"]) 
+                            is_negated.append(ent["is_negated"]) 
+                            _ids.append(row["id"])
+                            sentences.append(sent)
+                            entities_groups.append(ent['entity_group'])
+                            entities_texts.append(ent['text'])
+                            start.append(ent["start"])
+                            end.append(ent["end"])
+                            if "normalized_id" in ent:
+                                normalized_ids.append(ent["normalized_id"])
+                            else: 
+                                normalized_ids.append("CUI-less")
+                            if self.data_source=="clinical trials":
+                                field.append(row["criteria"])
+                            elif self.data_source=="patient notes":
+                                field.append(row["field"])
+                    else:
+                        continue
         return pd.DataFrame({
                             'nct_id': _ids,
                             'text': sentences,

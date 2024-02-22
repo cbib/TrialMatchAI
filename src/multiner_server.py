@@ -48,3 +48,5 @@ def stop_multiner_server():
     stop_process = subprocess.Popen(["bash", stop_path], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     stop_process.wait()
     print("Multi-NER server instance terminated.")
+
+    
