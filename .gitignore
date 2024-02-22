@@ -17,3 +17,4 @@ src/langchain_demo.py
 src/chroma/*
 logs/*
 src/inference.ipynb
+src/SynthethicData.ipynb
