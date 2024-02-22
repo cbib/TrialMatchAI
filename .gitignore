@@ -18,3 +18,4 @@ src/chroma/*
 logs/*
 src/inference.ipynb
 src/SynthethicData.ipynb
+src/fine-tune-data.ipynb
