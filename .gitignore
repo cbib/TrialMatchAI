@@ -1,3 +1,4 @@
+.gitignore
 data/
 src/output/
 src/models/
@@ -8,16 +9,12 @@ resources/
 filter-config.yml
 git-filter-repo
 filter-config.yml
-.gitignore
-src/mongo_vector_embedded.py
-src/chromaDB_trial.py
-src/connect_to_mongodb.py
-src/add_parsed_eligibility_to_json.py
-src/langchain_demo.py
+src/MISC/add_parsed_eligibility_to_json.py
 src/chroma/*
 logs/*
 src/inference.ipynb
-src/SynthethicData.ipynb
-src/fine-tune-data.ipynb
-src/mongo_vector_embedded.py
+src/MISC/SynthethicData.ipynb
+src/MISC/fine-tune-data.ipynb
+src/Embedder/mongo_vector_embedded.py
 src/.env
+logs/
