@@ -1,4 +1,4 @@
-# TrialMatchAI <img src="logo.webp" alt="Logo" align="right" width="100" height="100"> 
+# TrialMatchAI <img src="logo.webp" alt="Logo" align="right" width="200" height="200"> 
 
 TrialMatchAI is a tool designed to harness the capabilities of AI and Natural Language Processing (NLP) to generate personalized recommendations for clinical trials. Specifically designed for cancer patients, TrialMatchAI utilizes state-of-the-art techniques based on Large Language Models (LLMS) to parse and structure clinical texts, such as trial eligibility criteria, patient clinical notes, and genetic mutation reports. The tool uses AI-based information retrieval and NoSQL techniques to find optimal matches between patient profiles and clinical trials. The ultimate goal of TrialMatchAI is to streamline the process of identifying relevant and potentially beneficial clinical trials for individuals undergoing cancer treatment based on their unique genetic and clinical profiles.
 
