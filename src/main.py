@@ -19,9 +19,6 @@ def save_result(output_filename, data):
     # For example, write data to an output file.
     pass
 
-class ClinicalTrialParser:
-    def __init__(self, id_list)
-
 def main():
     parser = argparse.ArgumentParser(description='A program to demonstrate argparse')
 

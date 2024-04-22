@@ -1,0 +1,5 @@
+joblib==1.3.2
+numpy==1.24.4
+Requests==2.31.0
+tenacity==8.2.3
+tqdm==4.65.0

@@ -164,6 +164,7 @@ def extract_eligibility_criteria(trial_id):
     logging.warning(f"XML file for trial ID {trial_id} not found.")
     return None
 
+
 def split_by_leading_char_from_regex_patterns(line, regex_patterns, exceptions_path = "../data/exception_regex_patterns.json"):
     """
     Split a line of text into sentences using leading characters defined by regex patterns.

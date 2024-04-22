@@ -6,6 +6,7 @@ import time
 import joblib 
 from tqdm.auto import tqdm
 import numpy as np
+from tenacity import retry, wait_random_exponential, stop_after_attempt
 
 # # Open the log file
 # log_file = open('../logs/download.log', 'w')
@@ -15,6 +16,8 @@ import numpy as np
 def normalize_whitespace(s):
     return ' '.join(s.split())
 
+
+@retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(10))
 def get_cancer_trials_list(max_trials=15000):
     base_url = "https://clinicaltrials.gov/api/query/full_studies"
     trials_set = set()
@@ -179,6 +182,11 @@ class Downloader:
         elapsed_time = end_time - start_time
         print(f"Elapsed time: {elapsed_time} seconds")
         return updated_cts
-    
-    
-    
+
+
+if __name__ == "__main__":
+    id_list = [...]  # Replace [...] with your list of IDs
+    n_jobs = ...  # Replace ... with the number of parallel jobs
+    downloader = Downloader(id_list, n_jobs)
+    downloader.download_and_update_trials()
+
