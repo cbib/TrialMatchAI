@@ -18,11 +18,6 @@ import bioregistry
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from convert import pubtator2dict_list, get_pub_annotation
-
-
-import pymongo
-from pymongo import MongoClient
 
 class RunBioMedNER():
     def __init__(self, 
