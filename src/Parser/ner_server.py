@@ -5,7 +5,7 @@ import struct
 import argparse
 
 from datetime import datetime
-from main import BioMedNER
+from biomedner_init import BioMedNER
 from ops import filter_entities, pubtator2dict_list
 
 def count_entities(data):
