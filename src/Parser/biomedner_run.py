@@ -311,6 +311,6 @@ if __name__ == '__main__':
         keep_files=args.keep_files,
         no_cuda=args.no_cuda,
     )
-
-    result = biomedner.annotate_text("monocytes")
+    text = ""
+    result = biomedner.annotate_text(text.lower())
     print(result)

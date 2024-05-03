@@ -19,6 +19,7 @@ from transformers import (
     AutoTokenizer,
     set_seed,
     PreTrainedTokenizer,
+    BertTokenizerFast
 )
 
 from ops import (
@@ -134,7 +135,7 @@ class NerDataset(Dataset):
         self,
         predict_examples,
         labels: List[str],
-        tokenizer: AutoTokenizer,
+        tokenizer: PreTrainedTokenizer,
         config,
         params,
         base_name
@@ -492,7 +493,7 @@ class BioMedNER:
             id2label=self.id2label,
             label2id=self.label2id,
         )
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        self.tokenizer = BertTokenizerFast.from_pretrained(
             self.params.model_name_or_path,
         )
         self.model = BERTMultiNER2.from_pretrained(

@@ -19,4 +19,4 @@ src/Embedder/mongo_vector_embedded.py
 src/.env
 logs/
 finetuning/
-src/Parser/biomedBERT_finetuned/
+src/Parser/biomedner_finetuned/
