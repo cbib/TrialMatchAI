@@ -504,8 +504,6 @@ class BioMedNER:
         if not self.params.no_cuda:
             self.model = self.model.cuda()
         self.entity_types = ['disease', 'drug', 'gene', 'species', 'cell_line', 'DNA', 'RNA', 'cell_type']
-                            #  'biological_structure', 'diagnostic_procedure', 'duration', 'date', 'therapeutic_procedure',
-                            #  'sign_symptom', 'lab_value']
         self.estimator_dict = {}
         for etype in self.entity_types:
             self.estimator_dict[etype] = {}
@@ -717,13 +715,6 @@ class BioMedNER:
         dna_preds: torch.Tensor = None
         rna_preds: torch.Tensor = None
         ct_preds: torch.Tensor = None
-        # biological_preds: torch.Tensor = None
-        # diagnostic_preds: torch.Tensor = None
-        # duration_preds: torch.Tensor = None
-        # date_preds: torch.Tensor = None
-        # therapeutic_preds: torch.Tensor = None
-        # sign_symptom_preds: torch.Tensor = None
-        # lab_value_preds: torch.Tensor = None
         label_ids: torch.Tensor = None
         model.eval()
 
@@ -744,8 +735,6 @@ class BioMedNER:
 
             if not prediction_loss_only:
                 (dise_logits, chem_logits, gene_logits, spec_logits, cl_logits, dna_logits, rna_logits, ct_logits) = logits
-                #  biological_logits, diagnostic_logits, duration_logits, date_logits, therapeutic_logits, 
-                #  sign_symptom_logits, lab_value_logits) = logits
                 
                 if dise_preds is None \
                 and chem_preds is None \
@@ -755,13 +744,6 @@ class BioMedNER:
                 and dna_preds is None \
                 and rna_preds is None \
                 and ct_preds is None :
-                # and biological_preds is None \
-                # and diagnostic_preds is None \
-                # and duration_preds is None \
-                # and date_preds is None \
-                # and therapeutic_preds is None \
-                # and sign_symptom_preds is None \
-                # and lab_value_preds is None:
                         
                     dise_preds = dise_logits.detach()
                     chem_preds = chem_logits.detach()
@@ -771,13 +753,6 @@ class BioMedNER:
                     dna_preds = dna_logits.detach()
                     rna_preds = rna_logits.detach()
                     ct_preds = ct_logits.detach()
-                    # biological_preds = biological_logits.detach()
-                    # diagnostic_preds = diagnostic_logits.detach()
-                    # duration_preds = duration_logits.detach()
-                    # date_preds = date_logits.detach()
-                    # therapeutic_preds = therapeutic_logits.detach()
-                    # sign_symptom_preds = sign_symptom_logits.detach()
-                    # lab_value_preds = lab_value_logits.detach()
                 else:
                     dise_preds = torch.cat((dise_preds, dise_logits.detach()), dim=0)
                     chem_preds = torch.cat((chem_preds, chem_logits.detach()), dim=0)
@@ -787,13 +762,6 @@ class BioMedNER:
                     dna_preds = torch.cat((dna_preds, dna_logits.detach()), dim=0)
                     rna_preds = torch.cat((rna_preds, rna_logits.detach()), dim=0)
                     ct_preds = torch.cat((ct_preds, ct_logits.detach()), dim=0)
-                    # biological_preds = torch.cat((biological_preds, biological_logits.detach()), dim=0)
-                    # diagnostic_preds = torch.cat((diagnostic_preds, diagnostic_logits.detach()), dim=0)
-                    # duration_preds = torch.cat((duration_preds, duration_logits.detach()), dim=0)
-                    # date_preds = torch.cat((date_preds, date_logits.detach()), dim=0)
-                    # therapeutic_preds = torch.cat((therapeutic_preds, therapeutic_logits.detach()), dim=0)
-                    # sign_symptom_preds = torch.cat((sign_symptom_preds, sign_symptom_logits.detach()), dim=0)
-                    # lab_value_preds = torch.cat((lab_value_preds, lab_value_logits.detach()), dim=0)
                 if inputs.get("labels") is not None:
                     if label_ids is None:
                         label_ids = inputs["labels"].detach()
@@ -809,13 +777,6 @@ class BioMedNER:
         and dna_preds is not None \
         and rna_preds is not None \
         and ct_preds is not None :
-        # and biological_preds is not None \
-        # and diagnostic_preds is not None \
-        # and duration_preds is not None \
-        # and date_preds is not None \
-        # and therapeutic_preds is not None \
-        # and sign_symptom_preds is not None \
-        # and lab_value_preds is not None:
         
             dise_preds = dise_preds.cpu().numpy()
             chem_preds = chem_preds.cpu().numpy()
@@ -825,14 +786,7 @@ class BioMedNER:
             dna_preds = dna_preds.cpu().numpy()
             rna_preds = rna_preds.cpu().numpy()
             ct_preds = ct_preds.cpu().numpy()
-            # biological_preds = biological_preds.cpu().numpy()
-            # diagnostic_preds = diagnostic_preds.cpu().numpy()
-            # duration_preds = duration_preds.cpu().numpy()
-            # date_preds = date_preds.cpu().numpy()
-            # therapeutic_preds = therapeutic_preds.cpu().numpy()
-            # sign_symptom_preds = sign_symptom_preds.cpu().numpy()
-            # lab_value_preds = lab_value_preds.cpu().numpy()
-            
+
         if label_ids is not None:
             label_ids = label_ids.cpu().numpy()
 
@@ -844,14 +798,6 @@ class BioMedNER:
                         PredictionOutput(predictions=dna_preds, label_ids=label_ids), \
                         PredictionOutput(predictions=rna_preds, label_ids=label_ids), \
                         PredictionOutput(predictions=ct_preds, label_ids=label_ids))
-                        # PredictionOutput(predictions=biological_preds, label_ids=label_ids),
-                        # PredictionOutput(predictions=diagnostic_preds, label_ids=label_ids),
-                        # PredictionOutput(predictions=duration_preds, label_ids=label_ids),
-                        # PredictionOutput(predictions=date_preds, label_ids=label_ids),
-                        # PredictionOutput(predictions=therapeutic_preds, label_ids=label_ids),
-                        # PredictionOutput(predictions=sign_symptom_preds, label_ids=label_ids),
-                        # PredictionOutput(predictions=lab_value_preds, label_ids=label_ids))
-                        
         return return_output
 
     def align_predictions(self, predictions: np.ndarray) -> List[int]:

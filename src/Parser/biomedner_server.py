@@ -75,7 +75,7 @@ if __name__ == "__main__":
                             default=1)
     argparser.add_argument('--model_name_or_path', default='dmis-lab/bern2-ner')
     argparser.add_argument('--max_seq_length', type=int, help='The maximum total input sequence length after tokenization. Sequences longer than this will be truncated, sequences shorter will be padded.',
-                            default=128)
+                            default=512)
     argparser.add_argument('--biomedner_home',
                            help='biomedical language model home')         
     argparser.add_argument('--biomedner_host',

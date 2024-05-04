@@ -61,6 +61,7 @@ class RunBioMedNER():
             text = self.preprocess_input(text, base_name)
             output = self.tag_entities(text, base_name)
             output['error_code'], output['error_message'] = 0, ""
+            output = transform_results(output)
         except Exception as e:
             errStr = traceback.format_exc()
             print(errStr)
@@ -279,6 +280,35 @@ def delete_files(dirname):
         os.remove(f_path)
         n_deleted += 1
     print(dirname, n_deleted)
+    
+def transform_results(data):
+    all_entities = []
+
+    # Extract entities and probabilities from different categories
+    for category, entities in data['entities'].items():
+        if data['prob'][category]:
+            for entity, prob in zip(entities, data['prob'][category]):
+                all_entities.append({
+                    'entity_group': category,
+                    'score': prob[1],
+                    'word': data['abstract'][entity['start']:entity['end']+1],  # Adjust slicing here
+                    'start': entity['start'],
+                    'end': entity['end']
+                })
+
+    # Sort entities by start, end, and -score (negative score for descending order)
+    all_entities.sort(key=lambda x: (x['start'], x['end'], -x['score']))
+
+    # Filter out overlapping entities, keeping only the one with the highest score
+    non_overlapping_entities = []
+    last_end = -1
+
+    for entity in all_entities:
+        if entity['start'] >= last_end:
+            non_overlapping_entities.append(entity)
+            last_end = entity['end']
+
+    return non_overlapping_entities
 
 if __name__ == '__main__':
     import argparse
@@ -311,6 +341,6 @@ if __name__ == '__main__':
         keep_files=args.keep_files,
         no_cuda=args.no_cuda,
     )
-    text = "KRAS is a proto-oncogene involved in various cancers."
+    text = "The patient was prescribed 10 mg of Lisinopril."
     result = biomedner.annotate_text(text.lower())
     print(result)
