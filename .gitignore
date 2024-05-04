@@ -19,6 +19,8 @@ src/Embedder/mongo_vector_embedded.py
 src/.env
 logs/
 finetuning/
-src/Parser/biomedner_finetuned/*
+src/Parser/models/*
+src/Parser/input/
+src.Parser/output/
 **/__pycache__/
 **/.ipynb_checkpoints/
