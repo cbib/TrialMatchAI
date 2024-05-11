@@ -15,6 +15,9 @@ from datetime import datetime
 from collections import OrderedDict
 import traceback
 import bioregistry
+import re
+import torch
+from transformers import AutoTokenizer, pipeline
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -103,6 +106,8 @@ class BioMedNER():
             append_synonyms(biomed_output, dict_paths)
             maccrobat_output.extend(biomed_output)
             output = maccrobat_output
+            # print(output)
+            output = process_bio_med_negation(text, output)
         except Exception as e:
             errStr = traceback.format_exc()
             print(errStr)
@@ -397,8 +402,6 @@ class BioMedNER():
                                             self.maccrobat_port,
                                             pubtator_text)
             
-            print(maccrobat_resp)
-            
             maccrobat_elapse_time = time.time() - start_time
             print(datetime.now().strftime(self.time_format),
                 f'[{base_name}] Maccrobat {maccrobat_elapse_time} sec')
@@ -495,7 +498,7 @@ def delete_files(dirname):
 def get_synonyms(text, dictionary):
     synonyms = []
     for entry in dictionary:
-        if entry['word'] == text:
+        if entry['text'] == text:
             synonyms = entry['synonyms']
             break
     return synonyms
@@ -509,7 +512,7 @@ def transform_results(data):
             entity = {
                 'entity_group': annotation['obj'],  # Group by object type, e.g., 'Cell_type'
                 'score': annotation['prob'],  # Probability score
-                'word': annotation['mention'],  # Text mention
+                'text': annotation['mention'],  # Text mention
                 'start': annotation['span']['begin'],  # Start position
                 'end': annotation['span']['end'],  # End position
                 'normalized_id': annotation['id'],  # Include the ID(s) associated with the entity
@@ -615,7 +618,25 @@ def append_synonyms(ner_results, dict_paths):
         else:
             entity['synonyms'] = []
 
+def process_bio_med_negation(text, entities):
+    # Initialize tokenizer and classification pipeline
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = "bvanaken/clinical-assertion-negation-bert"
+    tokenizer = AutoTokenizer.from_pretrained(model, model_max_length=512, truncation=True)
+    ner_pipeline = pipeline("text-classification", model=model, tokenizer=tokenizer, device=device)
 
+    # Helper function to check if an entity is negated
+    def is_entity_negated(sentence, entity, classify):
+        entity_text = entity["text"]
+        sentence_with_entity = re.sub(rf'\b{re.escape(entity_text)}\b', f"[entity]{entity_text}[entity]", sentence)
+        classification = classify(sentence_with_entity)[0]
+        is_negated = classification['label'] == 'ABSENT'
+        entity["is_negated"] = "yes" if is_negated else "no"
+    
+    # Process each entity to assert negation
+    for entity in entities:
+        is_entity_negated(text, entity, ner_pipeline)
+    return entities
 
 if __name__ == '__main__':
     import argparse
@@ -674,5 +695,5 @@ if __name__ == '__main__':
         no_cuda=args.no_cuda,
     )
 
-    result = biomedner.annotate_text("Patients with microsatellite stable tumor and a tumor mutation burden (TMB) level measured at > 20 mutations per megabase pairs (MB)")
+    result = biomedner.annotate_text("The patient is not pregnant.")
     print(result)

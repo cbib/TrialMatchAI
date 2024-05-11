@@ -85,94 +85,14 @@ class EntityRecognizer:
                 if os.path.exists(file_path):
                     df = pd.read_csv(file_path)
                     to_concat.append(df)
-            elif self.data_source=="patient notes":
-                df = pd.read_csv(INPUT_FILEPATH + "patient_notes/" + "%s_preprocessed.csv"%idx)
+            elif self.data_source=="patient":
+                df = pd.read_csv(INPUT_FILEPATH + "patient/" + "%s_preprocessed.csv"%idx)
                 to_concat.append(df)
             else:
-                warnings.warn("Unexpected data source encountered. Please choose between 'clinical trials' or 'patient notes'", UserWarning)
+                warnings.warn("Unexpected data source encountered. Please choose between 'clinical trials' or 'patient'", UserWarning)
         return to_concat
     
-    def mtner_normalize_format(self, json_data):
-        spacy_format_entities = []
-        for annotation in json_data["annotations"]:
-            start = annotation["span"]["begin"]
-            end = annotation["span"]["end"]
-            label = annotation["obj"]
-            mention = annotation["mention"]
-            score = annotation["prob"]
-            normalized_id = annotation["id"]
-            spacy_format_entities.append({
-                "entity_group": label,
-                "text": mention,
-                "score": score,
-                "start": start,
-                "end": end,
-                "normalized_id": normalized_id
-            })
-        spacy_result = {
-            "text": json_data["text"],
-            "ents": spacy_format_entities,
-        }
-        return spacy_result
-    
-    def merge_lists_with_priority_to_first(self, list1, list2):
-        merged_list = list1.copy()  
-        for dict2 in list2:
-            overlap = False
-            for dict1 in list1:
-                if (dict1['start'] <= dict2['end'] and dict2['start'] <= dict1['start']) or (dict2['start'] <= dict1['end'] and dict1['start'] <= dict2['start']):
-                    overlap = True
-                    break
-            
-            if not overlap:
-                merged_list.append(dict2)
-        return merged_list
-    
-    def merge_lists_without_priority(self, list1, list2):
-        merged_list = list1.copy()  
-        for dict2 in list2:
-            merged_list.append(dict2)
-        return merged_list
-    
-    def find_and_remove_overlaps(self, dictionary_list, if_overlap_keep):
-        # Create a dictionary to store non-overlapping entries
-        non_overlapping = {}
-        # Create a set of entity groups to keep
-        preferred_set = set(if_overlap_keep)
-
-        # Iterate through the input list
-        for entry in dictionary_list:
-            if 'text' in entry and 'entity_group' in entry:
-                text = entry['text']
-                group = entry['entity_group']
-
-                # Check if the text is already in the non_overlapping dictionary
-                if text in non_overlapping:
-                    # Compare groups and keep the entry if it belongs to one of the preferred groups
-                    if group in preferred_set:
-                        non_overlapping[text] = entry
-                else:
-                    non_overlapping[text] = entry
-
-        # Convert the non-overlapping dictionary back to a list
-        result_list = list(non_overlapping.values())
-
-        return result_list
-
-        med_nlp.add_pipe("pregnancy-ner", before='medspacy_context')
-        doc = med_nlp(text)
-        
-        ent_list =[] 
-        for entity in doc.ents:
-            ent_list.append({
-                "entity_group": entity.label_,
-                "text": entity.text,
-                "start": entity.start_char,
-                "end": entity.end_char})
-    
-        return ent_list
-    
-    def merge_similar_consecutive_entities(self, entities):
+    def _merge_similar_consecutive_entities(self, entities):
         combined_entities = []
         if entities:
             current_entity = entities[0]
@@ -211,20 +131,8 @@ class EntityRecognizer:
         df = df.dropna()
         for _,row in df.iterrows():
             sent = row["sentence"].replace(",", "")
-            main_entities = self.mtner_normalize_format(query_plain(sent))["ents"]
-            variants_entities = mutations_pipeline(sent)
-            aberration_type_entities = self.aberration_type_recognizer(sent)
-            pregnancy_entities = self.pregnancy_recognizer(sent)
-            aux_entities = aux_pipeline(sent)
-            aux_entities = get_dictionaries_of_specific_entities(aux_entities, "entity_group", AUXILIARY_ENTITIES_LIST)
-            aux_entities = [{"text" if k == "word" else k: v for k, v in d.items()} for d in aux_entities]
-            
-            combined_entities  = self.merge_lists_with_priority_to_first(variants_entities, main_entities)
-            combined_entities  = self.merge_lists_with_priority_to_first(combined_entities, aux_entities)
-            combined_entities  = self.merge_lists_without_priority(combined_entities, pregnancy_entities)
-            combined_entities  = self.merge_lists_with_priority_to_first(combined_entities, aberration_type_entities)
-            combined_entities  = self.merge_similar_consecutive_entities(combined_entities)
-            
+            entities = self.biomedner(sent)
+            entities = self.merge_similar_consecutive_entities(entities)
             # Convert the selected_entries dictionary back to a list
             if len(combined_entities) > 0:
                 # clean_entities = self.find_and_remove_overlaps(combined_entities, if_overlap_keep=["gene", "ProteinMutation", "DNAMutation", "SNP"])
@@ -245,9 +153,7 @@ class EntityRecognizer:
                             else: 
                                 normalized_ids.append("CUI-less")
                             if self.data_source=="clinical trials":
-                                field.append(row["criteria"])
-                            elif self.data_source=="patient notes":
-                                field.append(row["field"])
+                                eligibility_type.append(row["criteria"])
                     else:
                         continue
         return pd.DataFrame({
@@ -256,7 +162,7 @@ class EntityRecognizer:
                             'entity_text': entities_texts,
                             'entity_group': entities_groups,
                             'normalized_id': normalized_ids,
-                            'field' : field,
+                            'eligibility_type' : field,
                             "is_negated" : is_negated,
                         })
             
@@ -282,7 +188,7 @@ class EntityRecognizer:
 
 if __name__ == "__main__":
     # Load the list of NCT IDs
-    folder_path = '/home/mabdallah/TrialMatchAI/data/trials_xmls' # Replace this with the path to your folder
+    folder_path = '/home/mabdallah/TrialMatchAI/data/trials_xmls' 
     file_names = []
     # List all files in the folder
     for file in os.listdir(folder_path):
@@ -292,9 +198,3 @@ if __name__ == "__main__":
     nct_ids = file_names
     reco = EntityRecognizer(n_jobs=5, id_list=nct_ids, data_source="clinical trials")
     entities = reco()
-    # # Load the list of patient IDs
-    # pat_ids = pd.read_csv("../data/patient_ids.csv")
-    # pat_ids = pat_ids["id"].tolist()
-    # reco = EntityRecognizer(n_jobs=50, id_list=pat_ids, data_source="patient notes")
-    # entities = reco()
-    # entities.to_csv("../data/ner_patients_clinical_notes/entities_parsed.csv", index = False)

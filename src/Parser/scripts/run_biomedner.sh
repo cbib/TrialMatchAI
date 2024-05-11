@@ -11,9 +11,14 @@ nohup python biomedner_server.py \
     --model_name_or_path models/biomedner_multi \
     --biomedner_home . \
     --biomedner_port 18894 >> logs/nohup_multi_ner.out 2>&1 &
+
+
+# nohup python maccrobat_server.py \
+#     --model_name_or_path d4data/biomedical-ner-all \
+#     --maccrobat_home . \
+#     --maccrobat_port 18783 >> logs/nohup_maccrobat.out 2>&1 &
+
 cd resources
-
-
 # run gnormplus
 cd GNormPlusJava
 nohup java -Xmx16G -Xms16G -jar GNormPlusServer.main.jar 18895 >> ../../logs/nohup_gnormplus.out 2>&1 &
