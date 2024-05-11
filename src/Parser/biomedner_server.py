@@ -47,6 +47,7 @@ def biomedner_recognize(model, dict_path, base_name, args):
     with open(output_mt_ner, 'w', encoding='utf-8') as f:
         json.dump(res[0], f)
 
+
 def run_server(model, args):
     host = args.biomedner_host
     port = args.biomedner_port
@@ -73,7 +74,7 @@ if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--seed', type=int, help='random seed for initialization',
                             default=1)
-    argparser.add_argument('--model_name_or_path', default='dmis-lab/bern2-ner')
+    argparser.add_argument('--model_name_or_path')
     argparser.add_argument('--max_seq_length', type=int, help='The maximum total input sequence length after tokenization. Sequences longer than this will be truncated, sequences shorter will be padded.',
                             default=512)
     argparser.add_argument('--biomedner_home',
