@@ -25,52 +25,10 @@ import transformers
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 import warnings
 
-# Filepaths
-INPUT_FILEPATH = '/home/mabdallah/TrialMatchAI/data/preprocessed_data'
-OUTPUT_FILEPATH_CT = '/home/mabdallah/TrialMatchAI/data/ner_clinical_trials/'
-# OUTPUT_FILEPATH_PAT = "../data/ner_patients_clinical_notes/"
-
-# List of auxiliary entities
-AUXILIARY_ENTITIES_LIST = ["Sign_symptom", "Biological_structure", "Date", "Duration", "Time", "Frequency", 
-                           "Severity", "Lab_value", "Dosage", "Diagnostic_procedure", "Therapeutic_procedure", "Medication", 
-                           "Clinical_event", "Outcome", "History", "Subject", "Family_history", "Detailed_description", "Area"]
-
-# Check if CUDA is available
-device0 = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-device1 = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-device2 = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
-# Load auxiliary tokenizer and pipeline
-aux_tokenizer = AutoTokenizer.from_pretrained("d4data/biomedical-ner-all", model_max_length=512, max_length=512, truncation=True)
-aux_pipeline = pipeline("ner", model="d4data/biomedical-ner-all", tokenizer=aux_tokenizer, aggregation_strategy="first", device=device0)
-
-# Load mutations tokenizer and pipeline
-mutations_tokenizer = AutoTokenizer.from_pretrained("Brizape/tmvar-PubMedBert-finetuned-24-02", model_max_length=512, max_length=512, truncation=True)
-mutations_pipeline = pipeline("ner", model="Brizape/tmvar-PubMedBert-finetuned-24-02", tokenizer=mutations_tokenizer, aggregation_strategy="first",  device=device1)
-
-neg_tokenizer = AutoTokenizer.from_pretrained("bvanaken/clinical-assertion-negation-bert", model_max_length=512, max_length=512, truncation=True)
-neg_model = AutoModelForSequenceClassification.from_pretrained("bvanaken/clinical-assertion-negation-bert")
-neg_classifier = pipeline("text-classification", model=neg_model, tokenizer=neg_tokenizer, device=device2)
-
-
-def query_plain(text, url="http://localhost:8888/plain"):
-    """
-    Send a plain text query to a specified URL.
-
-    This function sends a plain text query to a specified URL using the POST method. The query is sent as a JSON object with the 'text' key.
-    The response is received as a JSON object and is decoded into a string.
-
-    Parameters:
-        text (str): The plain text query to be sent.
-        url (str): The URL to which the query is sent. Default is "http://localhost:8888/plain".
-
-    Returns:
-        dict: The response received as a JSON object.
-
-    Example:
-        query_plain("Hello, world!")
-        # Output: {'response': 'Hello, world!'}
-    """
-    return json.loads(requests.post(url, json={'text': text}).content.decode('utf-8'))
+# # Filepaths
+# INPUT_FILEPATH = '/home/mabdallah/TrialMatchAI/data/preprocessed_data'
+# OUTPUT_FILEPATH_CT = '/home/mabdallah/TrialMatchAI/data/ner_clinical_trials/'
+# # OUTPUT_FILEPATH_PAT = "../data/ner_patients_clinical_notes/"
 
 # Memory caching for function calls
 memory = joblib.Memory(".")
@@ -112,125 +70,6 @@ def ParallelExecutor(use_bar="tqdm", **joblib_args):
         return tmp
 
     return aprun
-
-def get_dictionaries_of_specific_entities(list_of_dicts, key, values):
-    """
-    Filter a list of dictionaries based on the presence of specific values in a specified key.
-
-    This function takes a list of dictionaries and filters them based on the presence of specific values in a specified key.
-    The function checks each dictionary in the input list and includes only those dictionaries where any of the given values
-    are present in the specified key. The filtering is performed using list comprehensions.
-
-    Parameters:
-        list_of_dicts (list): A list of dictionaries to be filtered.
-        key (str): The key in the dictionaries where the filtering is applied.
-        values (list): A list of values. The function will filter dictionaries where any of these values are present in the specified key.
-
-    Returns:
-        list: A list of dictionaries that meet the filtering criteria.
-
-    Example:
-        list_of_dicts = [
-            {"name": "Alice", "age": 30},
-            {"name": "Bob", "age": 25},
-            {"name": "Charlie", "age": 35},
-            {"name": "David", "age": 30},
-        ]
-
-        get_dictionaries_of_specific_entities(list_of_dicts, "age", [30, 35])
-        # Output: [
-        #   {"name": "Alice", "age": 30},
-        #   {"name": "Charlie", "age": 35},
-        #   {"name": "David", "age": 30}
-        # ]
-    """
-    return [d for d in list_of_dicts if any(val in d.get(key, []) for val in values)]
-
-def add_custom_entity(doc, entity):
-    """
-    Add a custom entity to a spaCy document.
-
-    This function takes a spaCy document and a custom entity dictionary and adds the custom entity to the document.
-    The function finds the token indices corresponding to the character span of the entity and sets the entity span in the document.
-
-    Parameters:
-        doc (spacy.tokens.Doc): The spaCy document to which the entity is added.
-        entity (dict): The custom entity dictionary containing the text, start, end, and entity_group.
-
-    Returns:
-        spacy.tokens.Doc: The modified spaCy document with the custom entity added.
-
-    Example:
-        doc = nlp("The patient has a fever.")
-        entity = {"text": "fever", "start": 16, "end": 21, "entity_group": "Symptom"}
-        doc = add_custom_entity(doc, entity)
-    """
-    entity["text"] = re.sub(r'([,.-])\s+', r'\1', entity["text"]) 
-    entity_text = entity["text"].lower()
-    start_char = entity["start"] 
-    end_char = entity["end"] 
-    # Find the token indices corresponding to the character span
-    start_indices = [i for i, token in enumerate(doc) if (start_char <= token.idx <= end_char) or (entity_text in token.text and token.idx <= start_char)]
-    if start_indices:
-        # You can choose the first matching window or handle multiple matches
-        start_index = start_indices[0]
-        start_token = doc[start_index]
-        end_index = min(start_index + len(entity_text.split()) - 1, len(doc) - 1)
-        end_token = doc[end_index]
-        doc.set_ents([Span(doc, start_token.i, end_token.i + 1, entity["entity_group"])])
-        
-    return doc
-
-
-def negation_handling(sentence, entity):
-    """
-    Perform negation handling on a sentence with a given entity.
-
-    This function takes a sentence and an entity dictionary and performs negation handling on the sentence.
-    The function uses medSpaCy to identify negation cues and determines if the entity is negated or not.
-
-    Parameters:
-        sentence (str): The sentence in which the entity is present.
-        entity (dict): The entity dictionary containing the text, start, and end.
-
-    Returns:
-        dict: The modified entity dictionary with the "is_negated" field indicating if the entity is negated or not.
-
-    Example:
-        sentence = "The patient does not have a fever."
-        entity = {"text": "fever", "start": 23, "end": 28}
-        entity = negation_handling(sentence, entity)
-    """
-    nlp = spacy.load("en_core_web_sm", disable={"ner"})
-    doc = nlp(sentence.lower())
-    nlp = medspacy.load(nlp)
-    nlp.disable_pipe('medspacy_target_matcher')
-    nlp.disable_pipe('medspacy_pyrush')
-    doc = nlp(add_custom_entity(doc, entity))
-    for e in doc.ents:
-        rs = str(e._.is_negated)
-        if rs:
-            if rs == "True": 
-                entity["is_negated"] = "yes"
-            elif rs == 'False':
-                entity["is_negated"] = "no"
-        else:
-            entity["is_negated"] = "no"
-    return entity
-
-def is_entity_negated(sentence, entity):
-    # Surround the entity with [entity] on both sides
-    entity_text = entity["text"]
-    sentence_with_entity = re.sub(rf'\b{re.escape(entity_text)}\b', f"[entity]{entity_text}[entity]", sentence)
-
-    # Classify the modified sentence to check for negation
-    classification = neg_classifier(sentence_with_entity, max_length=512, truncation=True)[0]
-    is_negated = classification['label'] == 'ABSENT'
-    if is_negated:
-        entity["is_negated"] = "yes"
-    else:
-        entity["is_negated"] = "no"
-    return entity
 
 class EntityRecognizer:
     def __init__(self, id_list, n_jobs, data_source="clinical trials"):
@@ -319,77 +158,6 @@ class EntityRecognizer:
         result_list = list(non_overlapping.values())
 
         return result_list
-    
-    def aberration_type_recognizer(self, text):
-        med_nlp = medspacy.load()
-        med_nlp.disable_pipe('medspacy_target_matcher')
-        @Language.component("aberrations-ner")
-        def regex_pattern_matcher_for_aberrations(doc):
-            df_regex = pd.read_csv("/home/mabdallah/TrialMatchAI/data/regex_variants.tsv", sep="\t", header=None)
-            df_regex = df_regex.rename(columns={1 : "label", 2:"regex_pattern"}).drop(columns=[0])
-            dict_regex = df_regex.set_index('label')['regex_pattern'].to_dict()
-            original_ents = list(doc.ents)
-            # Compile the regex patterns
-            compiled_patterns = {
-                label: re.compile(pattern)
-                for label, pattern in dict_regex.items()
-            }
-            mwt_ents = []
-            for label, pattern in compiled_patterns.items():
-                for match in re.finditer(pattern, doc.text):
-                    start, end = match.span()
-                    span = doc.char_span(start, end)
-                    if span is not None:
-                        mwt_ents.append((label, span.start, span.end, span.text))
-                        
-            for ent in mwt_ents:
-                label, start, end, name = ent
-                per_ent = Span(doc, start, end, label=label)
-                original_ents.append(per_ent)
-
-            doc.ents = filter_spans(original_ents)
-            
-            return doc
-        med_nlp.add_pipe("aberrations-ner", before='medspacy_context')
-        doc = med_nlp(text)
-        ent_list =[] 
-        for entity in doc.ents:
-            ent_list.append({"entity_group" : entity.label_, 
-                            "text" : entity.text, 
-                            "start": entity.start_char, 
-                            "end": entity.end_char, 
-                            "is_negated" : "yes" if entity._.is_negated else "no"})
-        return ent_list
-    
-
-    def pregnancy_recognizer(self, text):
-        med_nlp = medspacy.load()
-        med_nlp.disable_pipe('medspacy_target_matcher')
-        
-        # Updated regex pattern
-        regex_pattern = r"(?i)\b(?:pregn\w+|matern\w+|gestat\w+|lactat\w+|breastfeed\w+|prenat\w+|antenat\w+|postpartum|childbear\w+|parturient|conceiv\w+|obstetr\w+)\b"
-
-        @Language.component("pregnancy-ner")
-        def regex_pattern_matcher_for_pregnancy(doc):
-            compiled_pattern = re.compile(regex_pattern)
-
-            original_ents = list(doc.ents)
-            mwt_ents = []
-
-            for match in re.finditer(compiled_pattern, doc.text):
-                start, end = match.span()
-                span = doc.char_span(start, end)
-                if span is not None:
-                    mwt_ents.append((span.start, span.end, span.text))
-
-            for ent in mwt_ents:
-                start, end, name = ent
-                per_ent = Span(doc, start, end, label="pregnancy")  # Assigning the label "pregnancy"
-                original_ents.append(per_ent)
-
-            doc.ents = filter_spans(original_ents)
-
-            return doc
 
         med_nlp.add_pipe("pregnancy-ner", before='medspacy_context')
         doc = med_nlp(text)
@@ -400,9 +168,7 @@ class EntityRecognizer:
                 "entity_group": entity.label_,
                 "text": entity.text,
                 "start": entity.start_char,
-                "end": entity.end_char,
-                "is_negated": "yes" if entity._.is_negated else "no"
-            })
+                "end": entity.end_char})
     
         return ent_list
     
