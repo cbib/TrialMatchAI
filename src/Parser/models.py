@@ -34,15 +34,6 @@ class BERTMultiNER2(BertForTokenClassification):
         self.dna_classifier = torch.nn.Linear(config.hidden_size, self.num_labels) # dna
         self.rna_classifier = torch.nn.Linear(config.hidden_size, self.num_labels) # rna
         self.celltype_classifier = torch.nn.Linear(config.hidden_size, self.num_labels) # cell type
-        
-        # self.biological_structure_classifier = torch.nn.Linear(config.hidden_size, self.num_labels) # biological structure
-        # self.diagnostic_procedure_classifier = torch.nn.Linear(config.hidden_size, self.num_labels) # diagnostic procedure
-        # self.duration_classifier = torch.nn.Linear(config.hidden_size, self.num_labels) # duration
-        # self.date_classifier = torch.nn.Linear(config.hidden_size, self.num_labels) # date
-        # self.therapeutic_procedure_classifier = torch.nn.Linear(config.hidden_size, self.num_labels) # therapeutic procedure
-        # self.sign_symptom_classifier = torch.nn.Linear(config.hidden_size, self.num_labels) # sign/symptom
-        # self.lab_value_classifier = torch.nn.Linear(config.hidden_size, self.num_labels) # lab value
-        
 
         self.dise_classifier_2 = torch.nn.Linear(config.hidden_size, config.hidden_size)
         self.chem_classifier_2 = torch.nn.Linear(config.hidden_size, config.hidden_size)
@@ -52,14 +43,6 @@ class BERTMultiNER2(BertForTokenClassification):
         self.dna_classifier_2 = torch.nn.Linear(config.hidden_size, config.hidden_size)
         self.rna_classifier_2 = torch.nn.Linear(config.hidden_size, config.hidden_size)
         self.celltype_classifier_2 = torch.nn.Linear(config.hidden_size, config.hidden_size)
-        
-        # self.biological_structure_classifier_2 = torch.nn.Linear(config.hidden_size, config.hidden_size)
-        # self.diagnostic_procedure_classifier_2 = torch.nn.Linear(config.hidden_size, config.hidden_size)    
-        # self.duration_classifier_2 = torch.nn.Linear(config.hidden_size, config.hidden_size)    
-        # self.date_classifier_2 = torch.nn.Linear(config.hidden_size, config.hidden_size)
-        # self.therapeutic_procedure_classifier_2 = torch.nn.Linear(config.hidden_size, config.hidden_size)
-        # self.sign_symptom_classifier_2 = torch.nn.Linear(config.hidden_size, config.hidden_size)
-        # self.lab_value_classifier_2 = torch.nn.Linear(config.hidden_size, config.hidden_size)
 
         self.init_weights()
 

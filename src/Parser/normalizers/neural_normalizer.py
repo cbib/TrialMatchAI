@@ -37,7 +37,7 @@ class NeuralNormalizer(object):
         self.k = 1 # top 1
 
         self.no_cuda = no_cuda
-        self.device = "cuda:0" if torch.cuda.is_available() and not self.no_cuda else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() and not self.no_cuda else "cpu"
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         self.model = AutoModel.from_pretrained(model_name_or_path).to(self.device)

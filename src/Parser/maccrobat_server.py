@@ -21,12 +21,12 @@ def get_dictionaries_of_specific_entities(list_of_dicts, key, values):
 class BioMedNERMacrobbat:
     def __init__(self, params):
         self.params = params
-        self.entities = ["Sign_symptom", "Biological_structure", "Date", "Duration", "Time", "Frequency", 
-                         "Severity", "Lab_value", "Dosage", "Diagnostic_procedure", "Therapeutic_procedure", "Medication", 
-                         "Clinical_event", "Outcome", "History", "Subject", "Family_history", "Detailed_description", "Area"]
+        self.entities = ["Sign_symptom", "Biological_structure", "Date", "Duration",  
+                         "Lab_value", "Diagnostic_procedure", "Therapeutic_procedure", 
+                         "Medication", "Detailed_description"]
         
-        self.tokenizer = AutoTokenizer.from_pretrained(self.params.model_path_or_name, model_max_length=512, truncation=True)
-        self.ner_pipeline = pipeline("ner", model=self.params.model_path_or_name, tokenizer=self.tokenizer, aggregation_strategy="first", device=self.params.device)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.params.model_name_or_path, model_max_length=512, truncation=True)
+        self.ner_pipeline = pipeline("ner", model=self.params.model_name_or_path, tokenizer=self.tokenizer, aggregation_strategy="first", device=self.params.device)
 
     def recognize(self, text):
         entities = self.ner_pipeline(text)
@@ -49,20 +49,17 @@ class BioMedNERMacrobbat:
 def pregnancy_recognizer(text):
     med_nlp = medspacy.load()
     med_nlp.disable_pipe('medspacy_target_matcher')
-    regex_pattern = r"(?ix)\b(?:pregn\w*|matern\w*|gestat\w*|lactat\w*|breastfeed\w*|prenat\w*|antenat\w*|postpartum|childbear\w*|parturient|conceiv\w*|obstetr\w*|fertil\w*|gravid\w*|perinat\w*|neonat\w*|postnatal|childbirth|delivery|birthing|expectant\ mother|nursing\ mother|puerperal|midwifery|reproductive\ health|expecting(\ a\ child|\ baby)?)\b"
-    
+    regex_pattern = r"(?ix)\b(?:pregn\w*|matern\w*|gestat\w*|lactat\w*|breastfeed\w*|prenat\w*|antenat\w*|postpartum|childbear\w*|parturient|conceiv\w*|obstetr\w*|fertil\w*|gravid\w*|perinat\w*|neonat\w*|postnatal|childbirth|delivery|birthing|expectant\ mother|nursing\ mother|puerperal|midwifery|reproductive\ health|expecting(\ a\ child|\ baby)?|(pregn\w*|lactat\w*|fertil\w*|reproductive\ health)\ potential)\b" 
     @Language.component("pregnancy-ner")
     def regex_pattern_matcher_for_pregnancy(doc):
         compiled_pattern = re.compile(regex_pattern)
         original_ents = list(doc.ents)
         mwt_ents = []
-        
         for match in re.finditer(compiled_pattern, doc.text):
             start, end = match.span()
             span = doc.char_span(start, end)
             if span is not None:
                 mwt_ents.append((span.start, span.end, span.text))
-        
         for ent in mwt_ents:
             start, end, name = ent
             per_ent = Span(doc, start, end, label="pregnancy")  # Assigning the label "PREGNANCY"
@@ -154,7 +151,7 @@ def run_server(model, args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="BioMedNERMacrobbat Server")
-    parser.add_argument("--model_path_or_name", type=str, help="Path to the model")
+    parser.add_argument("--model_name_or_path", type=str, help="Path to the model")
     parser.add_argument("--device", type=str, default=torch.device("cuda" if torch.cuda.is_available() else "cpu"), help="Device to use")
     parser.add_argument("--host", type=str, default="localhost", help="Server host")
     parser.add_argument("--port", type=int, default=5000, help="Server port")

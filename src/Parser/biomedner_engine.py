@@ -16,14 +16,13 @@ from collections import OrderedDict
 import traceback
 import bioregistry
 import re
-import torch
 from transformers import AutoTokenizer, pipeline
+import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from convert import pubtator2dict_list, get_pub_annotation
 from normalizer import Normalizer
-
 # Example usage:
 DICT_PATH = "resources/normalization/dictionary"
 dict_paths = {
@@ -106,12 +105,12 @@ class BioMedNER():
             append_synonyms(biomed_output, dict_paths)
             maccrobat_output.extend(biomed_output)
             output = maccrobat_output
-            # print(output)
             output = process_bio_med_negation(text, output)
+            output = resolve_overlaps(output, priority_groups=['species', 'cell_type', 'drug', 'gene', 'disease'])
+            print(output)
         except Exception as e:
             errStr = traceback.format_exc()
             print(errStr)
-
             output = {"error_code": 1, "error_message": "Something went wrong. Try again."}
 
         return output
@@ -582,7 +581,7 @@ def get_gene_synonyms_from_file(file_path, entity_ids):
         if nid in gene_dict:
             synonyms.extend(gene_dict[nid])
         else:
-            synonyms.append("ID not found")
+            continue
     return synonyms
 
 
@@ -620,7 +619,7 @@ def append_synonyms(ner_results, dict_paths):
 
 def process_bio_med_negation(text, entities):
     # Initialize tokenizer and classification pipeline
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = "cuda:7"
     model = "bvanaken/clinical-assertion-negation-bert"
     tokenizer = AutoTokenizer.from_pretrained(model, model_max_length=512, truncation=True)
     ner_pipeline = pipeline("text-classification", model=model, tokenizer=tokenizer, device=device)
@@ -637,6 +636,38 @@ def process_bio_med_negation(text, entities):
     for entity in entities:
         is_entity_negated(text, entity, ner_pipeline)
     return entities
+
+def resolve_overlaps(entities, priority_groups):
+    df = pd.read_csv("../../data/regex_variants.tsv", sep="\t", header=None)
+    variants_list = df[0].values.tolist()
+    variants_list.extend(priority_groups)
+    priority_groups = variants_list
+    # Sort entities by start position, and by end position in descending order for ties
+    entities_sorted = sorted(entities, key=lambda x: (x['start'], -x['end']))
+    # This will hold the final list of non-overlapping entities
+    accepted_entities = []
+
+    # Iterate through sorted entities
+    for current in entities_sorted:
+        overlap = False
+        # Check for overlap with previously accepted entities
+        for i, accepted in enumerate(list(accepted_entities)):  # Using list copy to modify original while iterating
+            if (accepted['start'] < current['end'] and current['start'] < accepted['end']):
+                overlap = True
+                if accepted['entity_group'] not in priority_groups:
+                    # Replace non-priority entity with a priority one, if current is in priority
+                    if current['entity_group'] in priority_groups:
+                        accepted_entities[i] = current
+                elif current['entity_group'] in priority_groups:
+                    # Both are priority groups; keep the later one (current)
+                    accepted_entities[i] = current
+                break
+        # If no overlap was found, simply add the current entity
+        if not overlap:
+            accepted_entities.append(current)
+
+    return accepted_entities
+
 
 if __name__ == '__main__':
     import argparse

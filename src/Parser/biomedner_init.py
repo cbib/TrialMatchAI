@@ -37,6 +37,8 @@ logger = logging.getLogger(__name__)
 InputDataClass = NewType("InputDataClass", Any)
 DataCollator = NewType("DataCollator", Callable[[List[InputDataClass]], Dict[str, torch.Tensor]])
 
+os.environ["CUDA_VISIBLE_DEVICES"]="5,6,7,8"
+
 @dataclass
 class InputExample:
     """

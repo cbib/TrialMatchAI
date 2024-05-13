@@ -25,10 +25,31 @@ import transformers
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 import warnings
 
+from biomedner_engine import BioMedNER
 # # Filepaths
-# INPUT_FILEPATH = '/home/mabdallah/TrialMatchAI/data/preprocessed_data'
-# OUTPUT_FILEPATH_CT = '/home/mabdallah/TrialMatchAI/data/ner_clinical_trials/'
+INPUT_FILEPATH = '/home/mabdallah/TrialMatchAI/data/preprocessed_data'
+OUTPUT_FILEPATH_CT = '/home/mabdallah/TrialMatchAI/data/ner_trial/'
 # # OUTPUT_FILEPATH_PAT = "../data/ner_patients_clinical_notes/"
+
+
+biomedner = BioMedNER(
+    max_word_len=50,
+    seed=2019,
+    gnormplus_home="resources/GNormPlusJava/",
+    gnormplus_host="localhost",
+    gnormplus_port=18895,
+    gene_norm_port=18888,
+    disease_norm_port=18892,
+    biomedner_home=".",
+    biomedner_host="localhost",
+    biomedner_port=18894,
+    maccrobat_host="localhost",
+    maccrobat_port=18783,
+    time_format='[%d/%b/%Y %H:%M:%S.%f]',
+    use_neural_normalizer=True,
+    keep_files=True,
+    no_cuda=False,
+)
 
 # Memory caching for function calls
 memory = joblib.Memory(".")
@@ -71,6 +92,42 @@ def ParallelExecutor(use_bar="tqdm", **joblib_args):
 
     return aprun
 
+def merge_similar_consecutive_entities(entities):
+    if not entities:
+        return []
+
+    # Define groups of interest directly as a set for faster membership testing
+    groups_of_interest = {"Lab_value", "Diagnostic_procedure", "Therapeutic_procedure", "Detailed_description"}
+    combined_entities = []
+    current_entity = entities[0]
+
+    # Ensure the current entity meets basic structure requirements
+    necessary_keys = {'text', 'entity_group', 'start', 'end'}
+    if not all(key in current_entity for key in necessary_keys):
+        raise ValueError("Each entity must have 'text', 'entity_group', 'start', and 'end' keys.")
+
+    for next_entity in entities[1:]:
+        if not all(key in next_entity for key in necessary_keys):
+            raise ValueError("Each entity must have 'text', 'entity_group', 'start', and 'end' keys.")
+
+        # Check if both entities are in the groups of interest and are consecutive or nearly so (gap up to 3 characters)
+        if (current_entity['entity_group'] == next_entity['entity_group'] and
+            current_entity['entity_group'] in groups_of_interest and
+            0 <= next_entity['start'] - current_entity['end'] - 1 <= 3):
+
+            # Merge entities by updating the 'text' and 'end' of the current entity
+            current_entity['text'] += ' ' + next_entity['text']
+            current_entity['end'] = next_entity['end']
+        else:
+            # If not mergeable, add current to combined and move to next
+            combined_entities.append(current_entity)
+            current_entity = next_entity
+
+    # Append the last processed entity
+    combined_entities.append(current_entity)
+    return combined_entities
+
+
 class EntityRecognizer:
     def __init__(self, id_list, n_jobs, data_source="clinical trials"):
         self.id_list = id_list
@@ -91,95 +148,44 @@ class EntityRecognizer:
             else:
                 warnings.warn("Unexpected data source encountered. Please choose between 'clinical trials' or 'patient'", UserWarning)
         return to_concat
-    
-    def _merge_similar_consecutive_entities(self, entities):
-        combined_entities = []
-        if entities:
-            current_entity = entities[0]
-            for next_entity in entities[1:]:
-                if (
-                    'text' in current_entity
-                    and 'text' in next_entity
-                    and 'entity_group' in current_entity
-                    and 'entity_group' in next_entity
-                    and 'start' in current_entity
-                    and 'end' in current_entity
-                    and 'start' in next_entity
-                    and 'end' in next_entity
-                    and current_entity['entity_group'] == next_entity['entity_group']
-                    and next_entity['start'] - current_entity['end'] - 1 <= 3
-                ):
-                    current_entity['text'] += ' ' + next_entity['text']
-                    current_entity['end'] = next_entity['end']
-                else:
-                    combined_entities.append(current_entity)
-                    current_entity = next_entity
-
-            combined_entities.append(current_entity)
-        return combined_entities
 
     def recognize_entities(self, df):
-        _ids = []
-        sentences = []
-        entities_groups = []
-        entities_texts = []
-        normalized_ids = []
-        is_negated = []
-        field = []
-        start= []
-        end = []
         df = df.dropna()
+        df = df.rename(columns={"Unnamed: 0": "index"})
+        df = df.loc[df['index'] != 0]
+        criteria_list = []
+        trans_table = str.maketrans({
+            '"': '',
+            '{': '(',
+            '}': ')'})
         for _,row in df.iterrows():
-            sent = row["sentence"].replace(",", "")
-            entities = self.biomedner(sent)
-            entities = self.merge_similar_consecutive_entities(entities)
-            # Convert the selected_entries dictionary back to a list
-            if len(combined_entities) > 0:
-                # clean_entities = self.find_and_remove_overlaps(combined_entities, if_overlap_keep=["gene", "ProteinMutation", "DNAMutation", "SNP"])
-                for e in combined_entities:
-                    if 'text' in e and 'entity_group' in e:
-                        if (("score" in e and e["score"] > 0.7) or ("score" not in e)) and len(e["text"]) > 1:
-                            ent = is_entity_negated(sent, e)
-                            ent["text"] = re.sub(r'([,.-])\s+', r'\1', e["text"]) 
-                            is_negated.append(ent["is_negated"]) 
-                            _ids.append(row["id"])
-                            sentences.append(sent)
-                            entities_groups.append(ent['entity_group'])
-                            entities_texts.append(ent['text'])
-                            start.append(ent["start"])
-                            end.append(ent["end"])
-                            if "normalized_id" in ent:
-                                normalized_ids.append(ent["normalized_id"])
-                            else: 
-                                normalized_ids.append("CUI-less")
-                            if self.data_source=="clinical trials":
-                                eligibility_type.append(row["criteria"])
-                    else:
-                        continue
-        return pd.DataFrame({
-                            'nct_id': _ids,
-                            'text': sentences,
-                            'entity_text': entities_texts,
-                            'entity_group': entities_groups,
-                            'normalized_id': normalized_ids,
-                            'eligibility_type' : field,
-                            "is_negated" : is_negated,
-                        })
-            
-    def save_output(self, df, output_filepath):
-        df.to_csv(output_filepath, index=False)
+            sentence = row["sentence"].translate(trans_table)
+            entities = biomedner.annotate_text(sentence)
+            entities = merge_similar_consecutive_entities(entities)
+            if len(entities) > 0:
+                for e in entities:
+                    e["entity"] = e.pop("text")
+                    e["class"] = e.pop("entity_group")
+                    for key in ["start", "end", "score"]:
+                        e.pop(key, None) 
+            criteria_list.append({"criterion": sentence, "entities": entities, "type": row["criteria"]})
+        trial_json = {"nct_id": df["id"].iloc[0], "criteria": criteria_list}
+        return trial_json
+    
+    def save_json_output(self, dict, output_filepath):
+        with open(output_filepath, 'w') as f:
+            json.dump(dict, f,  indent=4)
 
     def __call__(self):
         all_df = self.data_loader(self.id_list)
 
         def process_dataframe(df):
-            output_filepath = OUTPUT_FILEPATH_CT + df["id"].iloc[0] + ".csv"
+            output_filepath = OUTPUT_FILEPATH_CT + df["id"].iloc[0] + ".json"
             if not os.path.exists(output_filepath):
-                result_df = self.recognize_entities(df)
+                result_json = self.recognize_entities(df)
                 if self.data_source == "clinical trials":
-                    self.save_output(result_df, output_filepath)
-                return result_df
-
+                    self.save_json_output(result_json, output_filepath)
+                
         parallel_runner = ParallelExecutor(n_jobs=self.n_jobs)(total=len(self.id_list))
         
         parallel_runner(delayed(process_dataframe)(df) for df in all_df)

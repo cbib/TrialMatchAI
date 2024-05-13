@@ -1,7 +1,7 @@
 import joblib
 from tqdm.auto import tqdm
 from preprocessing_utils import eic_text_preprocessing
-from TrialMatchAI.src.Preporcessor.preprocess_clinical_notes import tokenize_clinical_note
+from preprocess_clinical_notes import tokenize_clinical_note
 import pandas as pd
 import os
 
@@ -51,3 +51,17 @@ class Preprocessor:
         )     
         return pd.concat(X).reset_index(drop=True)
         
+        
+if __name__ == "__main__":
+    # Load the list of NCT IDs
+    folder_path = '/home/mabdallah/TrialMatchAI/data/trials_xmls' 
+    file_names = []
+    # List all files in the folder
+    for file in os.listdir(folder_path):
+        if os.path.isfile(os.path.join(folder_path, file)):
+            file_name, file_extension = os.path.splitext(file)
+            file_names.append(file_name)
+    nct_ids = file_names
+    n_jobs = 10
+    preprocessor = Preprocessor(nct_ids, n_jobs)
+    preprocessor.preprocess_clinical_trials_text()

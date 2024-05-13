@@ -143,7 +143,7 @@ def extract_eligibility_criteria(trial_id):
     """
     Extract the eligibility criteria text for a clinical trial with the given trial ID.
     """
-    xml_file_path = os.path.join('..', 'data', 'trials_xmls', f'{trial_id}.xml')
+    xml_file_path = os.path.join('..', '..', 'data', 'trials_xmls', f'{trial_id}.xml')
 
     if os.path.exists(xml_file_path):
         xml_content = read_xml_file(xml_file_path)
@@ -165,7 +165,7 @@ def extract_eligibility_criteria(trial_id):
     return None
 
 
-def split_by_leading_char_from_regex_patterns(line, regex_patterns, exceptions_path = "../data/exception_regex_patterns.json"):
+def split_by_leading_char_from_regex_patterns(line, regex_patterns, exceptions_path = "../../data/exception_regex_patterns.json"):
     """
     Split a line of text into sentences using leading characters defined by regex patterns.
 
@@ -624,7 +624,7 @@ def extract_seperate_inclusion_exclusion(text, regex_patterns):
     return criteria
 
 
-def eic_text_preprocessing(_ids, regex_path = "../data/regex_patterns.json", output_path = "../data/preprocessed_data/clinical_trials/"):
+def eic_text_preprocessing(_ids, regex_path = "../../data/regex_patterns.json", output_path = "../../data/preprocessed_data/clinical_trials/"):
     """
     Main preprocessing function for eligibility criteria text from a list of clinical trial IDs.
 

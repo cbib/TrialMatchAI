@@ -12,11 +12,10 @@ nohup python biomedner_server.py \
     --biomedner_home . \
     --biomedner_port 18894 >> logs/nohup_multi_ner.out 2>&1 &
 
-
-# nohup python maccrobat_server.py \
-#     --model_name_or_path d4data/biomedical-ner-all \
-#     --maccrobat_home . \
-#     --maccrobat_port 18783 >> logs/nohup_maccrobat.out 2>&1 &
+nohup python maccrobat_server.py \
+    --model_name_or_path d4data/biomedical-ner-all \
+    --device "cuda:7" \
+    --port 18783 >> logs/nohup_maccrobat.out 2>&1 &
 
 cd resources
 # run gnormplus
