@@ -1,4 +1,3 @@
-
 import os
 import joblib
 from joblib import delayed
@@ -9,7 +8,7 @@ import numpy as np
 import pandas as pd
 import glob
 import json
-
+import unicodedata
 import torch
 import medspacy
 import spacy
@@ -26,18 +25,14 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipe
 import warnings
 
 from biomedner_engine import BioMedNER
-# # Filepaths
+
+# Filepaths
 INPUT_FILEPATH = '/home/mabdallah/TrialMatchAI/data/preprocessed_data'
 OUTPUT_FILEPATH_CT = '/home/mabdallah/TrialMatchAI/data/ner_trial/'
-# # OUTPUT_FILEPATH_PAT = "../data/ner_patients_clinical_notes/"
-
 
 biomedner = BioMedNER(
     max_word_len=50,
     seed=2019,
-    gnormplus_home="resources/GNormPlusJava/",
-    gnormplus_host="localhost",
-    gnormplus_port=18895,
     gene_norm_port=18888,
     disease_norm_port=18892,
     biomedner_home=".",
@@ -47,31 +42,18 @@ biomedner = BioMedNER(
     maccrobat_port=18783,
     time_format='[%d/%b/%Y %H:%M:%S.%f]',
     use_neural_normalizer=True,
-    keep_files=True,
     no_cuda=False,
 )
 
 # Memory caching for function calls
+import joblib
+from tqdm import tqdm
+
 memory = joblib.Memory(".")
 
 def ParallelExecutor(use_bar="tqdm", **joblib_args):
     """
     Utility function for tqdm progress bar in joblib.Parallel.
-
-    This function is a utility for using tqdm progress bar with joblib.Parallel. It returns a function that can be used as a wrapper
-    for the operation iterator in joblib.Parallel. The function takes a 'bar' argument which specifies the type of progress bar to use.
-    The available options are 'tqdm', 'False', and 'None'. The function also accepts additional arguments that are passed to tqdm.
-
-    Parameters:
-        use_bar (str): The type of progress bar to use. Default is "tqdm".
-        **tq_args: Additional arguments to be passed to tqdm.
-
-    Returns:
-        function: The wrapper function that can be used with joblib.Parallel.
-
-    Example:
-        executor = ParallelExecutor(use_bar="tqdm", ncols=80)
-        results = executor(op_iter)
     """
     all_bar_funcs = {
         "tqdm": lambda args: lambda x: tqdm(x, **args),
@@ -85,23 +67,22 @@ def ParallelExecutor(use_bar="tqdm", **joblib_args):
                 bar_func = all_bar_funcs[str(bar)](tq_args)
             else:
                 raise ValueError("Value %s not supported as bar type" % bar)
-            # Pass n_jobs from joblib_args
-            return joblib.Parallel(n_jobs=joblib_args.get("n_jobs", 10))(bar_func(op_iter))
+            # Pass n_jobs from joblib_args and set the backend to 'threading'
+            return joblib.Parallel(n_jobs=joblib_args.get("n_jobs", 10), backend='threading')(bar_func(op_iter))
 
         return tmp
 
     return aprun
 
+
 def merge_similar_consecutive_entities(entities):
     if not entities:
         return []
 
-    # Define groups of interest directly as a set for faster membership testing
     groups_of_interest = {"Lab_value", "Diagnostic_procedure", "Therapeutic_procedure", "Detailed_description"}
     combined_entities = []
     current_entity = entities[0]
 
-    # Ensure the current entity meets basic structure requirements
     necessary_keys = {'text', 'entity_group', 'start', 'end'}
     if not all(key in current_entity for key in necessary_keys):
         raise ValueError("Each entity must have 'text', 'entity_group', 'start', and 'end' keys.")
@@ -110,22 +91,29 @@ def merge_similar_consecutive_entities(entities):
         if not all(key in next_entity for key in necessary_keys):
             raise ValueError("Each entity must have 'text', 'entity_group', 'start', and 'end' keys.")
 
-        # Check if both entities are in the groups of interest and are consecutive or nearly so (gap up to 3 characters)
         if (current_entity['entity_group'] == next_entity['entity_group'] and
             current_entity['entity_group'] in groups_of_interest and
             0 <= next_entity['start'] - current_entity['end'] - 1 <= 3):
 
-            # Merge entities by updating the 'text' and 'end' of the current entity
             current_entity['text'] += ' ' + next_entity['text']
             current_entity['end'] = next_entity['end']
         else:
-            # If not mergeable, add current to combined and move to next
             combined_entities.append(current_entity)
             current_entity = next_entity
 
-    # Append the last processed entity
     combined_entities.append(current_entity)
     return combined_entities
+
+def replace_unicode_symbols(text):
+    def unicode_to_readable(match):
+        char = match.group(0)
+        try:
+            name = unicodedata.name(char).lower() + ' '
+            return name
+        except ValueError:
+            return char
+
+    return re.sub(r'[\u0080-\uFFFF]', unicode_to_readable, text)
 
 
 class EntityRecognizer:
@@ -158,10 +146,16 @@ class EntityRecognizer:
             '"': '',
             '{': '(',
             '}': ')'})
-        for _,row in df.iterrows():
+        df["sentence"] = df["sentence"].apply(lambda x: x.translate(trans_table))
+        df["sentence"] = df["sentence"].apply(replace_unicode_symbols)  # Corrected the apply here
+
+        # Annotate text using .apply
+        df["entities"] = df["sentence"].apply(biomedner.annotate_text)
+        df["entities"] = df["entities"].apply(merge_similar_consecutive_entities)
+
+        for _, row in df.iterrows():
             sentence = row["sentence"].translate(trans_table)
-            entities = biomedner.annotate_text(sentence)
-            entities = merge_similar_consecutive_entities(entities)
+            entities = row["entities"]
             if len(entities) > 0:
                 for e in entities:
                     e["entity"] = e.pop("text")
@@ -174,7 +168,7 @@ class EntityRecognizer:
     
     def save_json_output(self, dict, output_filepath):
         with open(output_filepath, 'w') as f:
-            json.dump(dict, f,  indent=4)
+            json.dump(dict, f, indent=4)
 
     def __call__(self):
         all_df = self.data_loader(self.id_list)
@@ -202,5 +196,5 @@ if __name__ == "__main__":
             file_name, file_extension = os.path.splitext(file)
             file_names.append(file_name)
     nct_ids = file_names
-    reco = EntityRecognizer(n_jobs=5, id_list=nct_ids, data_source="clinical trials")
+    reco = EntityRecognizer(n_jobs=20, id_list=nct_ids, data_source="clinical trials")
     entities = reco()

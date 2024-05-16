@@ -35,21 +35,17 @@ dict_paths = {
 }
 class BioMedNER():
     def __init__(self, 
-        gnormplus_home,
-        gnormplus_port,
         biomedner_home,
         biomedner_port,
         maccrobat_port,
         gene_norm_port,
         disease_norm_port,
-        gnormplus_host='localhost',
         biomedner_host='localhost',
         maccrobat_host='localhost',
         time_format='[%d/%b/%Y %H:%M:%S.%f]',
         max_word_len=50, 
         seed=2019,
         use_neural_normalizer=True,
-        keep_files=False,
         no_cuda=False):
 
         self.time_format = time_format
@@ -62,18 +58,12 @@ class BioMedNER():
             os.mkdir('output')
 
         # delete prev. version outputs
-        if not keep_files:
-            delete_files('./output')
-            delete_files(os.path.join(gnormplus_home, 'input'))
-            delete_files(os.path.join('./multi_ner', 'input'))
-            delete_files(os.path.join('./multi_ner', 'tmp'))
-            delete_files(os.path.join('./multi_ner', 'output'))
+        delete_files('./output')
+        delete_files(os.path.join('./multi_ner', 'input'))
+        delete_files(os.path.join('./multi_ner', 'tmp'))
+        delete_files(os.path.join('./multi_ner', 'output'))
 
         # FOR NER
-        self.gnormplus_home =  gnormplus_home
-        self.gnormplus_host = gnormplus_host
-        self.gnormplus_port = gnormplus_port
-
         self.biomedner_home =  biomedner_home
         self.biomedner_host = biomedner_host
         self.biomedner_port = biomedner_port
@@ -107,7 +97,7 @@ class BioMedNER():
             output = maccrobat_output
             output = process_bio_med_negation(text, output)
             output = resolve_overlaps(output, priority_groups=['species', 'cell_type', 'drug', 'gene', 'disease'])
-            print(output)
+            # print(output)
         except Exception as e:
             errStr = traceback.format_exc()
             print(errStr)
@@ -242,12 +232,10 @@ class BioMedNER():
             text = 'No ascii letters. Please enter your text in English.'
 
         base_name = self.generate_base_name(text)
-        print(datetime.now().strftime(self.time_format),
-              f'id: {base_name}')
+        # print(datetime.now().strftime(self.time_format),
+        #       f'id: {base_name}')
 
         pubtator_file = f'{base_name}.PubTator'
-        input_gnormplus = os.path.join(self.gnormplus_home, 'input', pubtator_file)
-        output_gnormplus = os.path.join(self.gnormplus_home, 'output', pubtator_file)
 
         input_biomedner = os.path.join(self.biomedner_home, 'input',
                                      f'{pubtator_file}.PubTator')
@@ -260,22 +248,19 @@ class BioMedNER():
             os.mkdir(self.biomedner_home + '/output')
 
         # Write input str to a .PubTator format file
-        with open(input_gnormplus, 'w', encoding='utf-8') as f:
+        with open(input_biomedner, 'w', encoding='utf-8') as f:
             # only abstract
             f.write(f'{base_name}|t|\n')
             f.write(f'{base_name}|a|{text}\n\n')
 
-        shutil.copy(input_gnormplus, input_biomedner)
         ner_start_time = time.time()
         
-        # async call for gnormplus 
         arguments_for_coroutines = []
         loop = asyncio.new_event_loop()
-        for ner_type in ['gnormplus', 'biomedner', 'maccrobat']:
+        for ner_type in ['biomedner', 'maccrobat']:
             arguments_for_coroutines.append([ner_type, pubtator_file, output_biomedner, base_name, loop])
         async_result = loop.run_until_complete(self.async_ner(arguments_for_coroutines))
         loop.close()
-        gnormplus_elapse_time = async_result['gnormplus_elapse_time']
         biomedner_elapse_time = async_result['biomedner_elapse_time']
         maccrobat_elapse_time = async_result['maccrobat_elapse_time']
         # get output result to merge
@@ -284,8 +269,8 @@ class BioMedNER():
         maccrobat_entities = async_result['maccrobat_resp']
         
         ner_elapse_time = time.time() - ner_start_time
-        print(datetime.now().strftime(self.time_format),
-              f'[{base_name}] ALL NER {ner_elapse_time} sec')
+        # print(datetime.now().strftime(self.time_format),
+        #       f'[{base_name}] ALL NER {ner_elapse_time} sec')
 
         # Rule-based Normalization models
         r_norm_start_time = time.time()
@@ -312,19 +297,18 @@ class BioMedNER():
 
         n_norm_elapse_time = time.time() - n_norm_start_time
 
-        print(datetime.now().strftime(self.time_format),
-            f'[{base_name}] Neural Normalization {n_norm_elapse_time} sec')
+        # print(datetime.now().strftime(self.time_format),
+        #     f'[{base_name}] Neural Normalization {n_norm_elapse_time} sec')
 
         # Convert to PubAnnotation JSON
         tagged_docs[0] = get_pub_annotation(tagged_docs[0])
 
         norm_elapse_time = r_norm_elapse_time + n_norm_elapse_time
-        print(datetime.now().strftime(self.time_format),
-              f'[{base_name}] ALL NORM {norm_elapse_time} sec')
+        # print(datetime.now().strftime(self.time_format),
+        #       f'[{base_name}] ALL NORM {norm_elapse_time} sec')
 
         # time record
         tagged_docs[0]['elapse_time'] = {
-            'gnormplus_elapse_time': gnormplus_elapse_time,
             'biomedner_elapse_time':biomedner_elapse_time,
             'ner_elapse_time': ner_elapse_time,
             'r_norm_elapse_time':r_norm_elapse_time,
@@ -333,7 +317,6 @@ class BioMedNER():
         } 
 
         # Delete temp files
-        os.remove(input_gnormplus)
         os.remove(input_biomedner)
         os.remove(output_biomedner)
         # print(tagged_docs[0])
@@ -352,22 +335,8 @@ class BioMedNER():
         return result
 
     async def _ner_wrap(self, ner_type, pubtator_file, output_biomedner, base_name, loop):
-        if ner_type == 'gnormplus':
-            # Run GNormPlus
-            gnormplus_start_time = time.time()
-            gnormplus_resp = await async_tell_inputfile(self.gnormplus_host,
-                                            self.gnormplus_port,
-                                            pubtator_file,
-                                            loop)
-            # Print time for GNormPlus
-            gnormplus_elapse_time = time.time() - gnormplus_start_time
-            print(datetime.now().strftime(self.time_format),
-                f'[{base_name}] GNormPlus {gnormplus_elapse_time} sec')
-
-            return {"gnormplus_elapse_time": gnormplus_elapse_time,
-                    "gnormplus_resp": gnormplus_resp}
-
-        elif ner_type == 'biomedner':            
+        
+        if ner_type == 'biomedner':            
             # Run neural model
             start_time = time.time()
             biomedner_resp = await async_tell_inputfile(self.biomedner_host,
@@ -384,8 +353,8 @@ class BioMedNER():
 
             assert len(tagged_docs) == 1
             biomedner_elapse_time = time.time() - start_time
-            print(datetime.now().strftime(self.time_format),
-                f'[{base_name}] Multi-task NER {biomedner_elapse_time} sec, #entities: {num_entities}')
+            # print(datetime.now().strftime(self.time_format),
+            #     f'[{base_name}] Multi-task NER {biomedner_elapse_time} sec, #entities: {num_entities}')
 
             return {"biomedner_elapse_time": biomedner_elapse_time,
                     "tagged_docs": tagged_docs,
@@ -402,8 +371,8 @@ class BioMedNER():
                                             pubtator_text)
             
             maccrobat_elapse_time = time.time() - start_time
-            print(datetime.now().strftime(self.time_format),
-                f'[{base_name}] Maccrobat {maccrobat_elapse_time} sec')
+            # print(datetime.now().strftime(self.time_format),
+            #     f'[{base_name}] Maccrobat {maccrobat_elapse_time} sec')
             return {"maccrobat_elapse_time": maccrobat_elapse_time,
                     "maccrobat_resp": maccrobat_resp} 
             
@@ -676,14 +645,6 @@ if __name__ == '__main__':
     argparser.add_argument('--max_word_len', type=int, help='word max chars',
                            default=50)
     argparser.add_argument('--seed', type=int, help='seed value', default=2019)
-    argparser.add_argument('--gnormplus_home',
-                           help='GNormPlus home',
-                           default=os.path.join(os.path.expanduser('~'),
-                                                'resources', 'GNormPlusJava'))
-    argparser.add_argument('--gnormplus_host',
-                           help='GNormPlus host', default='localhost')
-    argparser.add_argument('--gnormplus_port', type=int,
-                           help='GNormPlus port', default=18895)
     argparser.add_argument('--biomedner_home',
                            help='biomedical language model home',
                            default=os.path.join(os.path.expanduser('~'),
@@ -697,22 +658,18 @@ if __name__ == '__main__':
     argparser.add_argument('--maccrobat_port', type=int,
                             help='maccrobat port', default=18783)
     argparser.add_argument('--gene_norm_port', type=int,
-                           help='GNormPlus port', default=18888)
+                           help='Gene port', default=18888)
     argparser.add_argument('--disease_norm_port', type=int,
                            help='Sieve port', default=18892)
     argparser.add_argument('--time_format',
                            help='time format', default='[%d/%b/%Y %H:%M:%S.%f]')
     argparser.add_argument("--use_neural_normalizer", action="store_true")
-    argparser.add_argument("--keep_files", action="store_true")
     argparser.add_argument("--no_cuda", action="store_true", help="Avoid using CUDA when available")
     args = argparser.parse_args()
 
     biomedner = BioMedNER(
         max_word_len=args.max_word_len,
         seed=args.seed,
-        gnormplus_home=args.gnormplus_home,
-        gnormplus_host=args.gnormplus_host,
-        gnormplus_port=args.gnormplus_port,
         gene_norm_port=args.gene_norm_port,
         disease_norm_port=args.disease_norm_port,
         biomedner_home=args.biomedner_home,
@@ -722,9 +679,8 @@ if __name__ == '__main__':
         maccrobat_port=args.maccrobat_port,
         time_format=args.time_format,
         use_neural_normalizer=args.use_neural_normalizer,
-        keep_files=args.keep_files,
         no_cuda=args.no_cuda,
     )
 
     result = biomedner.annotate_text("The patient is not pregnant.")
-    print(result)
+    # print(result)

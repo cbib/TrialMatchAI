@@ -19,9 +19,9 @@ nohup python maccrobat_server.py \
 
 cd resources
 # run gnormplus
-cd GNormPlusJava
-nohup java -Xmx16G -Xms16G -jar GNormPlusServer.main.jar 18895 >> ../../logs/nohup_gnormplus.out 2>&1 &
-cd ..
+# cd GNormPlusJava
+# nohup java -Xmx16G -Xms16G -jar GNormPlusServer.main.jar 18895 >> ../../logs/nohup_gnormplus.out 2>&1 &
+# cd ..
 ####################################
 #####     Normalization        #####
 ####################################
@@ -44,19 +44,3 @@ nohup java -Xmx20G -jar gnormplus-normalization_21.jar \
     18888 \
     >> ../../../../logs/nohup_gene_normalize.out 2>&1 &
 cd ../../../..
-
-# ####################################
-# #####       Run BERN2          #####
-# ####################################
-# env "PATH=$PATH" nohup python -u server.py \
-#     --biomedner_home ./multi_ner \
-#     --biomedner_port 18894 \
-#     --gnormplus_home ./resources/GNormPlusJava \
-#     --gnormplus_port 18895 \
-#     --gene_norm_port 18888 \
-#     --disease_norm_port 18892 \
-#     --use_neural_normalizer \
-#     --port 8888 \
-#     >> logs/nohup_bern2.out 2>&1 &
-
-# tail -f logs/nohup_bern2.out

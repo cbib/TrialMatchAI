@@ -20,7 +20,7 @@ src/.env
 logs/
 finetuning/
 src/Parser/models/*
-src/Parser/input/
-src.Parser/output/
+src/Parser/input/*
+src/Parser/output/*
 **/__pycache__/
 **/.ipynb_checkpoints/

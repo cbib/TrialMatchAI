@@ -73,27 +73,27 @@ class Normalizer:
         self.use_neural_normalizer = use_neural_normalizer
 
         if self.use_neural_normalizer:
-            print("start loading neural normalizer..")
+            # print("start loading neural normalizer..")
             self.neural_disease_normalizer = NeuralNormalizer(
                 model_name_or_path=self.NEURAL_NORM_MODEL_PATH['disease'],
                 cache_path=self.NEURAL_NORM_CACHE_PATH['disease'],
                 no_cuda=no_cuda,
             )
-            print(f"neural_disease_normalizer is loaded.. model={self.NEURAL_NORM_MODEL_PATH['disease']} , dictionary={self.NEURAL_NORM_CACHE_PATH['disease']}")
+            # print(f"neural_disease_normalizer is loaded.. model={self.NEURAL_NORM_MODEL_PATH['disease']} , dictionary={self.NEURAL_NORM_CACHE_PATH['disease']}")
 
             self.neural_chemical_normalizer = NeuralNormalizer(
                 model_name_or_path=self.NEURAL_NORM_MODEL_PATH['drug'],
                 cache_path=self.NEURAL_NORM_CACHE_PATH['drug'],
                 no_cuda=no_cuda,
             )
-            print(f"neural_chemical_normalizer is loaded.. model={self.NEURAL_NORM_MODEL_PATH['drug']} , dictionary={self.NEURAL_NORM_CACHE_PATH['drug']}")
+            # print(f"neural_chemical_normalizer is loaded.. model={self.NEURAL_NORM_MODEL_PATH['drug']} , dictionary={self.NEURAL_NORM_CACHE_PATH['drug']}")
 
             self.neural_gene_normalizer = NeuralNormalizer(
                 model_name_or_path=self.NEURAL_NORM_MODEL_PATH['gene'],
                 cache_path=self.NEURAL_NORM_CACHE_PATH['gene'],
                 no_cuda=no_cuda,
             )
-            print(f"neural_gene_normalizer is loaded.. model={self.NEURAL_NORM_MODEL_PATH['gene']} , dictionary={self.NEURAL_NORM_CACHE_PATH['gene']}")
+            # print(f"neural_gene_normalizer is loaded.. model={self.NEURAL_NORM_MODEL_PATH['gene']} , dictionary={self.NEURAL_NORM_CACHE_PATH['gene']}")
 
 
     def normalize(self, base_name, doc_dict_list):
@@ -167,11 +167,11 @@ class Normalizer:
                     loc['is_neural_normalized'] = False
                     oid_cnt += 1
 
-        print(datetime.now().strftime(time_format),
-              '[{}] Rule-based normalization '
-              '{:.3f} sec ({} article(s), {} entity type(s))'
-              .format(base_name, time.time() - start_time, abs_cnt,
-                      len(names.keys())))
+        # print(datetime.now().strftime(time_format),
+        #       '[{}] Rule-based normalization '
+        #       '{:.3f} sec ({} article(s), {} entity type(s))'
+        #       .format(base_name, time.time() - start_time, abs_cnt,
+        #               len(names.keys())))
 
         return saved_items
 
@@ -188,7 +188,7 @@ class Normalizer:
         
         if len(cuiless_entity_names) == 0:
             return tagged_docs
-        print(f"# cui-less in {ent_type}={len(cuiless_entity_names)}")
+        # print(f"# cui-less in {ent_type}={len(cuiless_entity_names)}")
         if ent_type == 'disease':
             norm_entities = self.neural_disease_normalizer.normalize(
                 names=cuiless_entity_names, 
@@ -227,7 +227,7 @@ class Normalizer:
         input_filename = base_thread_name + '.concept'
         output_filename = base_thread_name + '.oid'
 
-        print(f'ent_type = {ent_type}')
+        # print(f'ent_type = {ent_type}')
 
         # call sieve normalizer
         if ent_type == 'disease':
@@ -251,7 +251,7 @@ class Normalizer:
                 s.send('{}'.format(base_thread_name).encode('utf-8'))
                 s.recv(bufsize)
             except ConnectionRefusedError as cre:
-                print('Check Sieve jar', cre)
+                # print('Check Sieve jar', cre)
                 os.remove(norm_inp_path)
                 os.remove(norm_abs_path)
                 s.close()
@@ -271,7 +271,7 @@ class Normalizer:
                             oids.append(self.NO_ENTITY_ID)
                 os.remove(norm_out_path)
             else:
-                print('Not found!!!', norm_out_path)
+                # print('Not found!!!', norm_out_path)
 
                 # Sad error handling
                 for _ in range(len(name_ptr)):
@@ -326,7 +326,7 @@ class Normalizer:
             try:
                 s.connect((self.HOST, self.GENE_PORT))
             except ConnectionRefusedError as cre:
-                print('Check GNormPlus jar', cre)
+                # print('Check GNormPlus jar', cre)
                 s.close()
                 return oids
 
@@ -403,7 +403,7 @@ class Normalizer:
                 # 5. Remove output files
                 os.remove(norm_out_path)
             else:
-                print('Not found!!!', norm_out_path)
+                # print('Not found!!!', norm_out_path)
 
                 # Sad error handling
                 for _ in range(len(name_ptr)):
@@ -414,7 +414,7 @@ class Normalizer:
             os.remove(norm_abs_path)
 
         else:
-            print(f"WARN! {ent_type} is not supported yet")
+            # print(f"WARN! {ent_type} is not supported yet")
             names = [ptr[0] for ptr in name_ptr]
             for name in names:
                 oids.append(self.NO_ENTITY_ID)
@@ -432,9 +432,9 @@ class Normalizer:
             if self.NO_ENTITY_ID == oid:
                 cui_less_count += 1
 
-        print(datetime.now().strftime(time_format),
-              '[{}] [{}] {:.3f} sec, CUI-less: {:.1f}% ({}/{})'.format(
-                  base_name, ent_type, time.time() - start_time,
-                  cui_less_count * 100. / len(oids),
-                  cui_less_count, len(oids)))
+        # print(datetime.now().strftime(time_format),
+        #       '[{}] [{}] {:.3f} sec, CUI-less: {:.1f}% ({}/{})'.format(
+        #           base_name, ent_type, time.time() - start_time,
+        #           cui_less_count * 100. / len(oids),
+        #           cui_less_count, len(oids)))
         return oids

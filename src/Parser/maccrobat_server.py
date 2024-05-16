@@ -21,7 +21,7 @@ def get_dictionaries_of_specific_entities(list_of_dicts, key, values):
 class BioMedNERMacrobbat:
     def __init__(self, params):
         self.params = params
-        self.entities = ["Sign_symptom", "Biological_structure", "Date", "Duration",  
+        self.entities = ["Disease_disorder", "Sign_symptom", "Date", "Duration",  
                          "Lab_value", "Diagnostic_procedure", "Therapeutic_procedure", 
                          "Medication", "Detailed_description"]
         

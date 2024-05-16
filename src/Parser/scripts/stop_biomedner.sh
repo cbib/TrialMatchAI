@@ -17,8 +17,6 @@ stop_process() {
 
 # Call the function for each process
 stop_process "biomedner_server.py"
-stop_process "GNormPlusServer.main.jar"
-stop_process "tmVar2Server.main.jar"
 stop_process "disease_normalizer_21.jar"
 stop_process "gnormplus-normalization_21.jar"
 stop_process "maccrobat_server.py"
