@@ -2,29 +2,13 @@ import os
 import joblib
 from joblib import delayed
 from tqdm.auto import tqdm
-import requests
-from typing import List, Dict, Union
-import numpy as np
 import pandas as pd
-import glob
 import json
 import unicodedata
-import torch
-import medspacy
-import spacy
-from spacy.matcher import PhraseMatcher
-from spacy.tokens import Span
-from spacy.language import Language
-from spacy.util import filter_spans
-from spacy.tokens import Doc, Token
-from spacy.matcher import Matcher
-from srsly import read_json
 import re
-import transformers
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 import warnings
 
-from biomedner_engine import BioMedNER
+from biomedner_engine import BioMedNER, annotate_texts_in_parallel
 
 # Filepaths
 INPUT_FILEPATH = '/home/mabdallah/TrialMatchAI/data/preprocessed_data'
@@ -115,6 +99,36 @@ def replace_unicode_symbols(text):
 
     return re.sub(r'[\u0080-\uFFFF]', unicode_to_readable, text)
 
+def count_sentence_ending_fullstops(text):
+    # Regular expression to match sentence-ending full stops
+    sentence_endings = re.compile(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!) ')
+    return len(sentence_endings.findall(text))
+
+def split_text_into_sentences(text):
+    # Regular expression to split text on sentence-ending punctuation
+    sentence_endings = re.compile(r'(?<=[.!?]) +')
+    sentences = sentence_endings.split(text)
+    return sentences
+
+def process_dataframe(df, text_column):
+    new_data = []
+    for _, row in df.iterrows():
+        row_copy = row.to_dict()
+        text = row_copy.pop(text_column)
+        word_count = len(text.split())
+        sentence_end_count = count_sentence_ending_fullstops(text)
+        if word_count > 256 and sentence_end_count > 1:
+            sentences = split_text_into_sentences(text)
+            for sentence in sentences:
+                new_row = row_copy.copy()
+                new_row[text_column] = sentence
+                new_data.append(new_row)
+        else:
+            row_copy[text_column] = text
+            new_data.append(row_copy)
+    
+    new_df = pd.DataFrame(new_data)
+    return new_df
 
 class EntityRecognizer:
     def __init__(self, id_list, n_jobs, data_source="clinical trials"):
@@ -138,20 +152,31 @@ class EntityRecognizer:
         return to_concat
 
     def recognize_entities(self, df):
+        print(f"Processing {df['id'].iloc[0]}")
         df = df.dropna()
         df = df.rename(columns={"Unnamed: 0": "index"})
         df = df.loc[df['index'] != 0]
+        df = process_dataframe(df, "sentence")
         criteria_list = []
-        trans_table = str.maketrans({
+        trans_table = str.maketrans(
+            {
             '"': '',
             '{': '(',
             '}': ')'})
         df["sentence"] = df["sentence"].apply(lambda x: x.translate(trans_table))
-        df["sentence"] = df["sentence"].apply(replace_unicode_symbols)  # Corrected the apply here
+        df["sentence"] = df["sentence"].apply(replace_unicode_symbols)
 
-        # Annotate text using .apply
-        df["entities"] = df["sentence"].apply(biomedner.annotate_text)
-        df["entities"] = df["entities"].apply(merge_similar_consecutive_entities)
+        # Convert sentences to a list
+        sentences = df["sentence"].tolist()
+
+        # Annotate sentences in parallel
+        annotated_sentences = annotate_texts_in_parallel(biomedner, sentences)
+
+        # Merge similar consecutive entities
+        merged_entities = [merge_similar_consecutive_entities(entities) for entities in annotated_sentences]
+        
+        # Assign the merged entities back to the dataframe
+        df["entities"] = merged_entities
 
         for _, row in df.iterrows():
             sentence = row["sentence"].translate(trans_table)
@@ -196,5 +221,5 @@ if __name__ == "__main__":
             file_name, file_extension = os.path.splitext(file)
             file_names.append(file_name)
     nct_ids = file_names
-    reco = EntityRecognizer(n_jobs=20, id_list=nct_ids, data_source="clinical trials")
+    reco = EntityRecognizer(n_jobs=1, id_list=nct_ids, data_source="clinical trials")
     entities = reco()

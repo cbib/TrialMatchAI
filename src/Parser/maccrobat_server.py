@@ -25,10 +25,11 @@ class BioMedNERMacrobbat:
                          "Lab_value", "Diagnostic_procedure", "Therapeutic_procedure", 
                          "Medication", "Detailed_description"]
         
-        self.tokenizer = AutoTokenizer.from_pretrained(self.params.model_name_or_path, model_max_length=512, truncation=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.params.model_name_or_path, model_max_length=512, max_length=512, truncation=True, padding= True)
         self.ner_pipeline = pipeline("ner", model=self.params.model_name_or_path, tokenizer=self.tokenizer, aggregation_strategy="first", device=self.params.device)
 
     def recognize(self, text):
+        print(text)
         entities = self.ner_pipeline(text)
         entities = get_dictionaries_of_specific_entities(entities, "entity_group", self.entities)
         pregnancy_entities = pregnancy_recognizer(text)

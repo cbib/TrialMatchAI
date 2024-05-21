@@ -18,6 +18,7 @@ import bioregistry
 import re
 from transformers import AutoTokenizer, pipeline
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -43,7 +44,7 @@ class BioMedNER():
         biomedner_host='localhost',
         maccrobat_host='localhost',
         time_format='[%d/%b/%Y %H:%M:%S.%f]',
-        max_word_len=50, 
+        max_word_len=100, 
         seed=2019,
         use_neural_normalizer=True,
         no_cuda=False):
@@ -218,6 +219,7 @@ class BioMedNER():
             print(datetime.now().strftime(self.time_format),
                   f'[{base_name}] Found a too long word -> cut the suffix of the word')
             text = ' '.join(tokens)
+            
 
         return text
 
@@ -593,17 +595,18 @@ def process_bio_med_negation(text, entities):
     tokenizer = AutoTokenizer.from_pretrained(model, model_max_length=512, truncation=True)
     ner_pipeline = pipeline("text-classification", model=model, tokenizer=tokenizer, device=device)
 
-    # Helper function to check if an entity is negated
-    def is_entity_negated(sentence, entity, classify):
-        entity_text = entity["text"]
-        sentence_with_entity = re.sub(rf'\b{re.escape(entity_text)}\b', f"[entity]{entity_text}[entity]", sentence)
-        classification = classify(sentence_with_entity)[0]
-        is_negated = classification['label'] == 'ABSENT'
-        entity["is_negated"] = "yes" if is_negated else "no"
-    
+    # Run the classification pipeline on the sentence
+    classification = ner_pipeline(text)[0]
+    is_negated = classification['label'] == 'ABSENT'
+
     # Process each entity to assert negation
     for entity in entities:
-        is_entity_negated(text, entity, ner_pipeline)
+        entity_text = entity["text"]
+        if re.search(rf'\b{re.escape(entity_text)}\b', text):
+            entity["is_negated"] = "yes" if is_negated else "no"
+        else:
+            entity["is_negated"] = "not found"
+    
     return entities
 
 def resolve_overlaps(entities, priority_groups):
@@ -636,6 +639,30 @@ def resolve_overlaps(entities, priority_groups):
             accepted_entities.append(current)
 
     return accepted_entities
+
+
+def annotate_single_text_with_retry(biomedner, text, retries=5, delay=5):
+    for attempt in range(retries):
+        try:
+            return biomedner.annotate_text(text)
+        except (ConnectionResetError, ConnectionRefusedError) as e:
+            print(f"Error: {e}. Retrying {attempt + 1}/{retries} in {delay} seconds...")
+            time.sleep(delay)
+    raise Exception(f"Failed to annotate text after {retries} attempts: {text}")
+
+def annotate_texts_in_parallel(biomedner, texts, max_workers=10, retries=5, delay=5):
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_text = {executor.submit(annotate_single_text_with_retry, biomedner, text, retries, delay): text for text in texts}
+        for future in as_completed(future_to_text):
+            text = future_to_text[future]
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as exc:
+                print(f'{text} generated an exception: {exc}')
+    return results
+
 
 
 if __name__ == '__main__':
@@ -682,5 +709,7 @@ if __name__ == '__main__':
         no_cuda=args.no_cuda,
     )
 
-    result = biomedner.annotate_text("The patient is not pregnant.")
-    # print(result)
+    texts = ["KRAS mutation is found in cancer", "Patients with COVID-19 have a high fever", "The drug is effective in treating diabetes"] 
+    results = annotate_texts_in_parallel(biomedner, texts)
+    for result in results:
+        print(result)

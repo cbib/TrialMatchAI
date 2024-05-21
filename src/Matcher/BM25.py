@@ -62,5 +62,3 @@ class BM25Retriever(BaseRetriever):
         # Sort documents by their score and return top k
         sorted_docs = sorted(scores, key=lambda x: x[0], reverse=True)
         return [doc for _, doc in sorted_docs[:self.k]]
-
-# Note: This implementation assumes the presence of an entity_extractor with an extract method.
