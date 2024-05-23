@@ -80,15 +80,24 @@ class DocumentIndexer:
 
         requests = []
         for doc in documents:
-            vector = self.embedder.get_embeddings(doc['criterion'])
+            trial_data = {
+                "nct_id": doc['nct_id'],
+                "eligibility_criteria": []
+            }
+            for criterion in doc['criteria']:
+                vector = self.embedder.get_embeddings(criterion['criterion'])
+                trial_data["eligibility_criteria"].append({
+                    "criterion": criterion['criterion'],
+                    "criterion_vector": vector,
+                    "entities": criterion['entities'],
+                    "eligibility_type": criterion['type']
+                })
             requests.append({
                 "_op_type": "index",
                 "_index": self.index_name,
-                "criterion": doc['criterion'],
-                "criterion_vector": vector,
-                "entities": doc['entities'],
-                "eligibility_type": doc['eligibility_type'],
-                "nct_id": doc['nct_id']
+                "_id": doc['nct_id'],  # Use nct_id as the document ID
+                "nct_id": doc['nct_id'],
+                "eligibility_criteria": trial_data["eligibility_criteria"]
             })
 
         try:
@@ -113,15 +122,11 @@ class DocumentIndexer:
                 file_path = os.path.join(folder_path, filename)
                 with open(file_path, 'r') as file:
                     data = json.load(file)
-                    nct_id = data['nct_id']
-                    for criterion in data['criteria']:
-                        document = {
-                            'criterion': criterion['criterion'],
-                            'entities': criterion['entities'],
-                            'eligibility_type': criterion['type'],
-                            'nct_id': nct_id
-                        }
-                        documents.append(document)
+                    document = {
+                        'nct_id': data['nct_id'],
+                        'criteria': data['criteria']
+                    }
+                    documents.append(document)
         return documents
 
 def create_index(es_client: Elasticsearch, index_name: str, vector_dims: int):
@@ -141,19 +146,25 @@ def create_index(es_client: Elasticsearch, index_name: str, vector_dims: int):
             },
             "mappings": {
                 "properties": {
-                    "criterion": {"type": "text", "analyzer": "standard_lowercase"},
-                    "criterion_vector": {"type": "dense_vector", "dims": vector_dims},
-                    "entities": {
+                    "nct_id": {"type": "keyword", "index": False},
+                    "eligibility_criteria": {
                         "type": "nested",
                         "properties": {
-                            "normalized_id": {"type": "keyword"},
-                            "synonyms": {"type": "text", "analyzer": "standard_lowercase"},
-                            "is_negated": {"type": "keyword"},
-                            "entity": {"type": "text", "analyzer": "standard_lowercase"},
-                            "class": {"type": "keyword"}
+                            "criterion": {"type": "text", "analyzer": "standard_lowercase"},
+                            "criterion_vector": {"type": "dense_vector", "dims": vector_dims},
+                            "entities": {
+                                "type": "nested",
+                                "properties": {
+                                    "normalized_id": {"type": "keyword"},
+                                    "synonyms": {"type": "text", "analyzer": "standard_lowercase"},
+                                    "is_negated": {"type": "keyword"},
+                                    "entity": {"type": "text", "analyzer": "standard_lowercase"},
+                                    "class": {"type": "keyword"}
+                                }
+                            },
+                            "eligibility_type": {"type": "keyword"}
                         }
-                    },
-                    "nct_id": {"type": "keyword", "index": False}
+                    }
                 }
             }
         }
@@ -172,13 +183,13 @@ if __name__ == "__main__":
     info = es_client.info()
     print(info)
 
-    embedder = SentenceEmbedder() 
-    vector_dims = 768 
+    embedder = SentenceEmbedder()
+    vector_dims = 768
 
     folder_path = '../../data/ner_trial/'
     documents = DocumentIndexer.prepare_documents(folder_path)
     print(f"Prepared {len(documents)} documents for indexing.")
 
-    index_name = "eligibility_criteria"
+    index_name = "clinicaltrials"
     indexer = DocumentIndexer(es_client, index_name, embedder, vector_dims)
     indexer.index_data(documents)

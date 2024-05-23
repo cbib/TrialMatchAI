@@ -57,7 +57,7 @@ def generate_sentences_from_keywords(keywords):
 
 # Example usage
 if __name__ == "__main__":
-    keywords = ["KRAS", "BRCA1", "TP53", "Adjuvant Chemotherapy", "Immunotherapy", "Clinicl trial"]  # Replace with the actual keywords as needed
+    keywords = ["KRAS", "BRCA1", "TP53", "Adjuvant Chemotherapy", "Immunotherapy"]  # Replace with the actual keywords as needed
     expanded_sentences = generate_sentences_from_keywords(keywords)
     for keyword, sentence in zip(keywords, expanded_sentences):
         print(f"Keyword: {keyword}, Expanded Sentence: {sentence}")

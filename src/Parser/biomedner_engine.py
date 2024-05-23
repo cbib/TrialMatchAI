@@ -373,11 +373,32 @@ class BioMedNER():
                                             pubtator_text)
             
             maccrobat_elapse_time = time.time() - start_time
-            # print(datetime.now().strftime(self.time_format),
-            #     f'[{base_name}] Maccrobat {maccrobat_elapse_time} sec')
+
             return {"maccrobat_elapse_time": maccrobat_elapse_time,
                     "maccrobat_resp": maccrobat_resp} 
             
+    def annotate_single_text_with_retry(self, text, retries=5, delay=5):
+        for attempt in range(retries):
+            try:
+                return self.annotate_text(text)
+            except (ConnectionResetError, ConnectionRefusedError) as e:
+                print(f"Error: {e}. Retrying {attempt + 1}/{retries} in {delay} seconds...")
+                time.sleep(delay)
+        raise Exception(f"Failed to annotate text after {retries} attempts: {text}")
+
+    def annotate_texts_in_parallel(self, texts, max_workers=10, retries=5, delay=5):
+        results = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_text = {executor.submit(self.annotate_single_text_with_retry, text, retries, delay): text for text in texts}
+            for future in as_completed(future_to_text):
+                text = future_to_text[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as exc:
+                    print(f'{text} generated an exception: {exc}')
+        return results
+                
 
 async def async_send_text_to_maccrobat_server(host, port, text):
     reader, writer = await asyncio.open_connection(host, port)
@@ -641,30 +662,6 @@ def resolve_overlaps(entities, priority_groups):
     return accepted_entities
 
 
-def annotate_single_text_with_retry(biomedner, text, retries=5, delay=5):
-    for attempt in range(retries):
-        try:
-            return biomedner.annotate_text(text)
-        except (ConnectionResetError, ConnectionRefusedError) as e:
-            print(f"Error: {e}. Retrying {attempt + 1}/{retries} in {delay} seconds...")
-            time.sleep(delay)
-    raise Exception(f"Failed to annotate text after {retries} attempts: {text}")
-
-def annotate_texts_in_parallel(biomedner, texts, max_workers=10, retries=5, delay=5):
-    results = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_text = {executor.submit(annotate_single_text_with_retry, biomedner, text, retries, delay): text for text in texts}
-        for future in as_completed(future_to_text):
-            text = future_to_text[future]
-            try:
-                result = future.result()
-                results.append(result)
-            except Exception as exc:
-                print(f'{text} generated an exception: {exc}')
-    return results
-
-
-
 if __name__ == '__main__':
     import argparse
 
@@ -710,6 +707,6 @@ if __name__ == '__main__':
     )
 
     texts = ["KRAS mutation is found in cancer", "Patients with COVID-19 have a high fever", "The drug is effective in treating diabetes"] 
-    results = annotate_texts_in_parallel(biomedner, texts)
+    results = biomedner.annotate_texts_in_parallel(texts, max_workers=10)
     for result in results:
         print(result)
