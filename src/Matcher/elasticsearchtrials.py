@@ -123,11 +123,38 @@ class DocumentIndexer:
                 with open(file_path, 'r') as file:
                     data = json.load(file)
                     document = {
-                        'nct_id': data['nct_id'],
-                        'criteria': data['criteria']
+                        'nct_id': data.get('nct_id', ''),
+                        'brief_title': data.get('brief_title', ''),
+                        'official_title': data.get('official_title', ''),
+                        'brief_summary': data.get('brief_summary', ''),
+                        'detailed_description': data.get('detailed_description', ''),
+                        'overall_status': data.get('overall_status', ''),
+                        'start_date': data.get('start_date', ''),
+                        'completion_date': data.get('completion_date', ''),
+                        'phase': data.get('phase', ''),
+                        'study_type': data.get('study_type', ''),
+                        'condition': data.get('condition', ''),
+                        'intervention': {
+                            'intervention_type': data.get('intervention', {}).get('intervention_type', ''),
+                            'intervention_name': data.get('intervention', {}).get('intervention_name', '')
+                        },
+                        'gender': data.get('gender', ''),
+                        'minimum_age': data.get('minimum_age', ''),
+                        'maximum_age': data.get('maximum_age', ''),
+                        'location': {
+                            'location_name': data.get('location', {}).get('location_name', ''),
+                            'location_address': data.get('location', {}).get('location_address', '')
+                        },
+                        'reference': [
+                            {
+                                'citation': ref.get('citation', ''),
+                                'PMID': ref.get('PMID', '')
+                            } for ref in data.get('reference', [])
+                        ]
                     }
                     documents.append(document)
         return documents
+
 
 def create_index(es_client: Elasticsearch, index_name: str, vector_dims: int):
     es_client.indices.create(

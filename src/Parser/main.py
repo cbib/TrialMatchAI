@@ -14,7 +14,7 @@ import warnings
 warnings.filterwarnings('ignore', category=UserWarning, message='TypedStorage is deprecated')
 # Filepaths
 INPUT_FILEPATH = '/home/mabdallah/TrialMatchAI/data/preprocessed_data'
-OUTPUT_FILEPATH_CT = '/home/mabdallah/TrialMatchAI/data/ner_trial/'
+OUTPUT_FILEPATH_CT = '/home/mabdallah/TrialMatchAI/data/trial_ner_2/'
 
 biomedner = BioMedNER(
     max_word_len=50,
@@ -148,7 +148,6 @@ class EntityRecognizer:
 
         # Annotate sentences in parallel
         annotated_sentences = biomedner.annotate_texts_in_parallel(sentences)
-
         # Merge similar consecutive entities
         merged_entities = [merge_similar_consecutive_entities(entities) for entities in annotated_sentences]
         

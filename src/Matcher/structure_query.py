@@ -52,7 +52,6 @@ def generate_sentences_from_keywords(keywords):
     for keyword in keywords:
         sentence = generate_sentence_from_keyword(keyword, pipe)
         sentences.append(sentence)
-
     return sentences
 
 # Example usage

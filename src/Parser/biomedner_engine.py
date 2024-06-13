@@ -18,7 +18,8 @@ import bioregistry
 import re
 from transformers import AutoTokenizer, pipeline
 import pandas as pd
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED, ALL_COMPLETED
+import gc
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -98,7 +99,6 @@ class BioMedNER():
             output = maccrobat_output
             output = process_bio_med_negation(text, output)
             output = resolve_overlaps(output, priority_groups=['species', 'cell_type', 'drug', 'gene', 'disease'])
-            # print(output)
         except Exception as e:
             errStr = traceback.format_exc()
             print(errStr)
@@ -321,6 +321,7 @@ class BioMedNER():
         # Delete temp files
         os.remove(input_biomedner)
         os.remove(output_biomedner)
+        gc.collect()
         # print(tagged_docs[0])
         return tagged_docs[0], maccrobat_entities
 
@@ -387,18 +388,21 @@ class BioMedNER():
         raise Exception(f"Failed to annotate text after {retries} attempts: {text}")
 
     def annotate_texts_in_parallel(self, texts, max_workers=10, retries=5, delay=5):
-        results = []
+        results = [None] * len(texts)  # Initialize results list with None
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_text = {executor.submit(self.annotate_single_text_with_retry, text, retries, delay): text for text in texts}
-            for future in as_completed(future_to_text):
-                text = future_to_text[future]
-                try:
-                    result = future.result()
-                    results.append(result)
-                except Exception as exc:
-                    print(f'{text} generated an exception: {exc}')
+            future_to_index = {executor.submit(self.annotate_single_text_with_retry, text, retries, delay): i for i, text in enumerate(texts)}
+            while future_to_index:
+                done, _ = wait(future_to_index, return_when=ALL_COMPLETED)
+                for future in done:
+                    index = future_to_index.pop(future)
+                    try:
+                        result = future.result()
+                        results[index] = result
+                    except Exception as exc:
+                        print(f'Text at index {index} generated an exception: {exc}')
+                        results[index] = {"error_code": 1, "error_message": str(exc)}
         return results
-                
+
 
 async def async_send_text_to_maccrobat_server(host, port, text):
     reader, writer = await asyncio.open_connection(host, port)

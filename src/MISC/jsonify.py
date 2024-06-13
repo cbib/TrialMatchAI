@@ -52,6 +52,6 @@ def process_files(input_dir, output_dir):
                 f.write(json_data)
 
 if __name__ == "__main__":
-    input_dir = '../data/trials_xmls/'
-    output_dir = '../data/trials_jsons/'
+    input_dir = '../../data/trials_xmls/'
+    output_dir = '../../data/trials_jsons/'
     process_files(input_dir, output_dir)

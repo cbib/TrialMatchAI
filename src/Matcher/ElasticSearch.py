@@ -1,10 +1,12 @@
 import os
 import json
+import hashlib
 from elasticsearch import Elasticsearch, NotFoundError
 from elasticsearch.helpers import bulk
 from transformers import AutoTokenizer, AutoModel
 import torch
 import torch.nn.functional as F
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, message='TypedStorage is deprecated')
@@ -33,21 +35,24 @@ class DocumentIndexer:
         self.index_name = index_name
         self.embedder = embedder
         self.vector_dims = vector_dims
-        self.existing_nct_ids = self.get_existing_nct_ids()
+        self.existing_criteria_ids = self.get_existing_criteria_ids()
 
-    def get_existing_nct_ids(self):
+    def generate_criteria_id(self, nct_id, criterion):
+        return hashlib.sha256(f"{nct_id}_{criterion}".encode('utf-8')).hexdigest()
+
+    def get_existing_criteria_ids(self):
         try:
             query = {
-                "_source": ["nct_id"],
+                "_source": ["criteria_id"],
                 "query": {"match_all": {}},
                 "size": 1000  # Fetch 1000 documents per batch
             }
 
-            nct_ids = set()
+            criteria_ids = set()
             response = self.es_client.search(
                 index=self.index_name,
                 body=query,
-                scroll='3m'  # Keep the search context for 3 minutes
+                scroll='5m'  # Keep the search context for 3 minutes
             )
 
             scroll_id = response['_scroll_id']
@@ -55,7 +60,7 @@ class DocumentIndexer:
 
             while len(hits) > 0:
                 for hit in hits:
-                    nct_ids.add(hit['_source']['nct_id'])
+                    criteria_ids.add(hit['_source']['criteria_id'])
 
                 response = self.es_client.scroll(
                     scroll_id=scroll_id,
@@ -67,38 +72,54 @@ class DocumentIndexer:
             # Clear the scroll context
             self.es_client.clear_scroll(scroll_id=scroll_id)
 
-            return nct_ids
+            return criteria_ids
 
         except NotFoundError:
             return set()
 
-    def index_data(self, documents, refresh=True):
+    def index_data(self, documents, refresh=True, batch_size=100, max_workers=4):
         if not self.es_client.indices.exists(index=self.index_name):
             self.create_index()
         else:
             print(f"Index {self.index_name} already exists. Skipping index creation.")
 
-        requests = []
-        for doc in documents:
-            vector = self.embedder.get_embeddings(doc['criterion'])
-            requests.append({
-                "_op_type": "index",
-                "_index": self.index_name,
-                "criterion": doc['criterion'],
-                "criterion_vector": vector,
-                "entities": doc['entities'],
-                "eligibility_type": doc['eligibility_type'],
-                "nct_id": doc['nct_id']
-            })
+        def index_batch(batch):
+            requests = []
+            for doc in batch:
+                criteria_id = self.generate_criteria_id(doc['nct_id'], doc['criterion'])
+                if criteria_id not in self.existing_criteria_ids:
+                    vector = self.embedder.get_embeddings(doc['criterion'])
+                    requests.append({
+                        "_op_type": "index",
+                        "_index": self.index_name,
+                        "criteria_id": criteria_id,
+                        "criterion": doc['criterion'],
+                        "criterion_vector": vector,
+                        "entities": doc['entities'],
+                        "eligibility_type": doc['eligibility_type'],
+                        "nct_id": doc['nct_id']
+                    })
+            if requests:
+                return bulk(self.es_client, requests, raise_on_error=False)
+            return 0, []
 
-        try:
-            success, failed = bulk(self.es_client, requests, raise_on_error=False)
-            print(f"Successfully indexed {len(success)} documents.")
-            if failed:
-                print("Some documents failed to index:", failed)
-        except Exception as e:
-            print("An error occurred during indexing:", str(e))
-
+        batches = [documents[i:i + batch_size] for i in range(0, len(documents), batch_size)]
+        results = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(index_batch, batch): batch for batch in batches}
+            for future in as_completed(futures):
+                try:
+                    success_count, failed = future.result()
+                    results.append((success_count, failed))
+                except Exception as e:
+                    print(f"An error occurred during indexing batch: {str(e)}")
+        
+        total_success = sum(success_count for success_count, _ in results)
+        total_failed = sum(len(failed) for _, failed in results)
+        print(f"Successfully indexed {total_success} documents.")
+        if total_failed > 0:
+            print(f"{total_failed} documents failed to index.")
+        
         if refresh:
             self.es_client.indices.refresh(index=self.index_name)
 
@@ -141,8 +162,19 @@ def create_index(es_client: Elasticsearch, index_name: str, vector_dims: int):
             },
             "mappings": {
                 "properties": {
+                    "criteria_id": {"type": "keyword"},
                     "criterion": {"type": "text", "analyzer": "standard_lowercase"},
-                    "criterion_vector": {"type": "dense_vector", "dims": vector_dims},
+                    "criterion_vector": {
+                        "type": "dense_vector",
+                        "dims": vector_dims,
+                        "index": True,
+                        "similarity": "cosine",
+                        "index_options": {
+                            "type": "hnsw",
+                            "m": 16,
+                            "ef_construction": 100
+                        }
+                    },
                     "entities": {
                         "type": "nested",
                         "properties": {
@@ -160,13 +192,17 @@ def create_index(es_client: Elasticsearch, index_name: str, vector_dims: int):
     )
 
 if __name__ == "__main__":
-    es_url = "https://4616afc5fbda42dfa82407bdaf369e18.us-central1.gcp.cloud.es.io"
+    es_url = "https://localhost:9200"
     username = "elastic"
-    password = "gWQzXpyXFfQp9q3tWgBwCGNG"
+    password = "QQ7wWoB_WnKe*L*X9tAW"
 
     es_client = Elasticsearch(
         hosts=[es_url],
-        http_auth=(username, password)
+        ca_certs="certs/ca/ca.crt",
+        basic_auth=(username, password),
+        max_retries=50,
+        request_timeout=60,
+        retry_on_timeout=True
     )
 
     info = es_client.info()
@@ -181,4 +217,4 @@ if __name__ == "__main__":
 
     index_name = "eligibility_criteria"
     indexer = DocumentIndexer(es_client, index_name, embedder, vector_dims)
-    indexer.index_data(documents)
+    indexer.index_data(documents, batch_size=100, max_workers=4)
