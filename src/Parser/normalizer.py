@@ -3,17 +3,18 @@ import os
 import time
 import socket
 import threading
+import spacy
 
-from normalizers.chemical_normalizer import ChemicalNormalizer
-from normalizers.species_normalizer import SpeciesNormalizer
-from normalizers.cellline_normalizer import CellLineNormalizer
-from normalizers.celltype_normalizer import CellTypeNormalizer
 from normalizers.neural_normalizer import NeuralNormalizer
+from normalizers.normalizer_all import CellTypeNormalizer, ProcedureNormalizer, ChemicalNormalizer, SpeciesNormalizer, CellLineNormalizer
 
 time_format = '[%d/%b/%Y %H:%M:%S.%f]'
 
 class Normalizer:
-    def __init__(self, use_neural_normalizer, gene_port=18888, disease_port=18892, no_cuda=False):
+    def __init__(self, use_neural_normalizer, gene_port=18888, disease_port=18892, no_cuda=False, nlp=None):
+        # Load SpaCy model once
+        self.nlp = nlp
+
         # Normalizer paths
         self.BASE_DIR = 'resources/normalization/'
         self.NORM_INPUT_DIR = {
@@ -24,35 +25,31 @@ class Normalizer:
             'disease': os.path.join(self.BASE_DIR, 'outputs/disease'),
             'gene': os.path.join(self.BASE_DIR, 'outputs/gene'),
         }
+
         self.NORM_DICT_PATH = {
-            'drug': os.path.join(self.BASE_DIR,
-                                'dictionary/dict_ChemicalCompound_20210630.txt'),
+            'drug': os.path.join(self.BASE_DIR, 'dictionary/dict_ChemicalCompound_20210630.txt'),
             'gene': 'setup.txt',
-            'species': os.path.join(self.BASE_DIR,
-                                    'dictionary/dict_Species.txt'),
-            'cell_line': os.path.join(self.BASE_DIR,
-                                    'dictionary/dict_CellLine_20210520.txt'),
-            'cell_type': os.path.join(self.BASE_DIR,
-                                    'dictionary/dict_CellType_20210810.txt'),
+            'species': os.path.join(self.BASE_DIR, 'dictionary/dict_Species.txt'),
+            'cell line': os.path.join(self.BASE_DIR, 'dictionary/dict_CellLine_20210520.txt'),
+            'cell type': os.path.join(self.BASE_DIR, 'dictionary/dict_CellType_20210810.txt'),
+            'procedure': os.path.join(self.BASE_DIR, 'dictionary/dict_Procedures.txt')  
         }
+
+        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Loading dictionaries...')
 
         # checkpoint on huggingface hub
         self.NEURAL_NORM_MODEL_PATH = {
-            'disease':'dmis-lab/biosyn-sapbert-bc5cdr-disease',
-            'drug':'dmis-lab/biosyn-sapbert-bc5cdr-chemical',
-            'gene':'dmis-lab/biosyn-sapbert-bc2gn',
+            'disease': 'dmis-lab/biosyn-sapbert-bc5cdr-disease',
+            'drug': 'dmis-lab/biosyn-sapbert-bc5cdr-chemical',
+            'gene': 'dmis-lab/biosyn-sapbert-bc2gn',
         }
         self.NEURAL_NORM_CACHE_PATH = {
-            'disease':os.path.join(self.BASE_DIR,
-                    'normalizers/neural_norm_caches/dict_Disease_20210630.txt.pk'),
-            'drug':os.path.join(self.BASE_DIR,
-                    'normalizers/neural_norm_caches/dict_ChemicalCompound_20210630.txt.pk'),
-            'gene':os.path.join(self.BASE_DIR,
-                    'normalizers/neural_norm_caches/dict_Gene.txt.pk'),
+            'disease': os.path.join(self.BASE_DIR, 'normalizers/neural_norm_caches/dict_Disease_20210630.txt.pk'),
+            'drug': os.path.join(self.BASE_DIR, 'normalizers/neural_norm_caches/dict_ChemicalCompound_20210630.txt.pk'),
+            'gene': os.path.join(self.BASE_DIR, 'normalizers/neural_norm_caches/dict_Gene.txt.pk')
         }
-        
-        self.NORM_MODEL_VERSION = 'dmis ne norm v.20220226'
 
+        self.NORM_MODEL_VERSION = 'dmis ne norm v.20220226'
         self.HOST = '127.0.0.1'
 
         # normalizer port
@@ -61,10 +58,25 @@ class Normalizer:
 
         self.NO_ENTITY_ID = 'CUI-less'
 
-        self.chemical_normalizer = ChemicalNormalizer(self.NORM_DICT_PATH['drug'])
+        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Initializing chemical normalizer...')
+        self.chemical_normalizer = ChemicalNormalizer(self.NORM_DICT_PATH['drug'], self.nlp)
+        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Chemical normalizer initialized.')
+
+        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Initializing species normalizer...')
         self.species_normalizer = SpeciesNormalizer(self.NORM_DICT_PATH['species'])
-        self.cellline_normalizer = CellLineNormalizer(self.NORM_DICT_PATH['cell_line'])
-        self.celltype_normalizer = CellTypeNormalizer(self.NORM_DICT_PATH['cell_type'])
+        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Species normalizer initialized.')
+
+        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Initializing cell line normalizer...')
+        self.cellline_normalizer = CellLineNormalizer(self.NORM_DICT_PATH['cell line'])
+        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Cell line normalizer initialized.')
+
+        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Initializing cell type normalizer...')
+        self.celltype_normalizer = CellTypeNormalizer(self.NORM_DICT_PATH['cell type'], self.nlp)
+        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Cell type normalizer initialized.')
+
+        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Initializing procedure normalizer...')
+        self.procedure_normalizer = ProcedureNormalizer(self.NORM_DICT_PATH['procedure'], self.nlp)
+        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Procedure normalizer initialized.')
         
         # neural normalizer
         self.neural_disease_normalizer = None
@@ -73,29 +85,25 @@ class Normalizer:
         self.use_neural_normalizer = use_neural_normalizer
 
         if self.use_neural_normalizer:
-            # print("start loading neural normalizer..")
+            print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Initializing neural normalizers...')
             self.neural_disease_normalizer = NeuralNormalizer(
                 model_name_or_path=self.NEURAL_NORM_MODEL_PATH['disease'],
                 cache_path=self.NEURAL_NORM_CACHE_PATH['disease'],
                 no_cuda=no_cuda,
             )
-            # print(f"neural_disease_normalizer is loaded.. model={self.NEURAL_NORM_MODEL_PATH['disease']} , dictionary={self.NEURAL_NORM_CACHE_PATH['disease']}")
-
             self.neural_chemical_normalizer = NeuralNormalizer(
                 model_name_or_path=self.NEURAL_NORM_MODEL_PATH['drug'],
                 cache_path=self.NEURAL_NORM_CACHE_PATH['drug'],
                 no_cuda=no_cuda,
             )
-            # print(f"neural_chemical_normalizer is loaded.. model={self.NEURAL_NORM_MODEL_PATH['drug']} , dictionary={self.NEURAL_NORM_CACHE_PATH['drug']}")
-
             self.neural_gene_normalizer = NeuralNormalizer(
                 model_name_or_path=self.NEURAL_NORM_MODEL_PATH['gene'],
                 cache_path=self.NEURAL_NORM_CACHE_PATH['gene'],
                 no_cuda=no_cuda,
             )
-            # print(f"neural_gene_normalizer is loaded.. model={self.NEURAL_NORM_MODEL_PATH['gene']} , dictionary={self.NEURAL_NORM_CACHE_PATH['gene']}")
+            print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Neural normalizers initialized.')
 
-
+            
     def normalize(self, base_name, doc_dict_list):
         start_time = time.time()
 
@@ -120,10 +128,9 @@ class Normalizer:
                     loc['end'] += 1
 
                     if ent_type == 'mutation':
-                        name = loc['normalizedName']
-
-                        if ';' in name:
-                            name = name.split(';')[0]
+                        name = content[loc['start']:loc['end']]
+                        # if ';' in name:
+                        #     name = name.split(';')[0]
                     else:
                         name = content[loc['start']:loc['end']]
 
@@ -166,12 +173,6 @@ class Normalizer:
                     loc['id'] = type_oids[oid_cnt]
                     loc['is_neural_normalized'] = False
                     oid_cnt += 1
-
-        # print(datetime.now().strftime(time_format),
-        #       '[{}] Rule-based normalization '
-        #       '{:.3f} sec ({} article(s), {} entity type(s))'
-        #       .format(base_name, time.time() - start_time, abs_cnt,
-        #               len(names.keys())))
 
         return saved_items
 
@@ -265,7 +266,7 @@ class Normalizer:
                 with open(norm_out_path, 'r') as norm_out_f:
                     for line in norm_out_f:
                         oid = line[:-1]
-                        if oid != self.NO_ENTITY_ID:
+                        if oid != self.NO_ENTITY_ID: 
                             oids.append(oid)
                         else:
                             oids.append(self.NO_ENTITY_ID)
@@ -299,7 +300,7 @@ class Normalizer:
                 else:
                     oids.append(self.NO_ENTITY_ID)
         
-        elif ent_type == 'cell_line':
+        elif ent_type == 'cell line':
             names = [ptr[0] for ptr in name_ptr]
             preds = self.cellline_normalizer.normalize(names)
             for pred in preds:
@@ -308,7 +309,7 @@ class Normalizer:
                 else:
                     oids.append(self.NO_ENTITY_ID)
 
-        elif ent_type == 'cell_type':
+        elif ent_type == 'cell type':
             names = [ptr[0] for ptr in name_ptr]
             preds = self.celltype_normalizer.normalize(names)
             for pred in preds:
@@ -412,6 +413,12 @@ class Normalizer:
             # 4. Remove input files
             os.remove(norm_inp_path)
             os.remove(norm_abs_path)
+        
+        elif ent_type == 'diagnostic procedure' or ent_type == 'therapeutic procedure' or ent_type == 'laboratory procedure':
+            names = [ptr[0] for ptr in name_ptr]
+            preds = self.procedure_normalizer.normalize(names)
+            for pred in preds:
+                oids.append(pred)
 
         else:
             # print(f"WARN! {ent_type} is not supported yet")
@@ -432,9 +439,4 @@ class Normalizer:
             if self.NO_ENTITY_ID == oid:
                 cui_less_count += 1
 
-        # print(datetime.now().strftime(time_format),
-        #       '[{}] [{}] {:.3f} sec, CUI-less: {:.1f}% ({}/{})'.format(
-        #           base_name, ent_type, time.time() - start_time,
-        #           cui_less_count * 100. / len(oids),
-        #           cui_less_count, len(oids)))
         return oids

@@ -1,20 +1,21 @@
 import os
-import joblib
-from joblib import delayed
-from tqdm.auto import tqdm
 import pandas as pd
 import json
 import unicodedata
 import re
 import warnings
-from memory_profiler import profile
 from biomedner_engine import BioMedNER
 import gc
 import warnings
-warnings.filterwarnings('ignore', category=UserWarning, message='TypedStorage is deprecated')
+import string
+
+warnings.filterwarnings("ignore", message="The sentencepiece tokenizer that you are converting to a fast tokenizer uses the byte fallback option which is not implemented in the fast tokenizers.")
+warnings.filterwarnings("ignore", message="`resume_download` is deprecated and will be removed in version 1.0.0.")
+warnings.filterwarnings("ignore", message="TypedStorage is deprecated. It will be removed in the future and UntypedStorage will be the only storage class.")
+
 # Filepaths
-INPUT_FILEPATH = '/home/mabdallah/TrialMatchAI/data/preprocessed_data'
-OUTPUT_FILEPATH_CT = '/home/mabdallah/TrialMatchAI/data/trial_ner_2/'
+INPUT_FILEPATH = '../../data/preprocessed_data'
+OUTPUT_FILEPATH_CT = '../../data/parsed_trials/'
 
 biomedner = BioMedNER(
     max_word_len=50,
@@ -24,48 +25,12 @@ biomedner = BioMedNER(
     biomedner_home=".",
     biomedner_host="localhost",
     biomedner_port=18894,
-    maccrobat_host="localhost",
-    maccrobat_port=18783,
+    gner_host="localhost",
+    gner_port=18783,
     time_format='[%d/%b/%Y %H:%M:%S.%f]',
     use_neural_normalizer=True,
     no_cuda=False,
 )
-
-# Memory caching for function calls
-import joblib
-from tqdm import tqdm
-
-memory = joblib.Memory(".")
-
-def merge_similar_consecutive_entities(entities):
-    if not entities:
-        return []
-
-    groups_of_interest = {"Lab_value", "Diagnostic_procedure", "Therapeutic_procedure", "Detailed_description"}
-    combined_entities = []
-    current_entity = entities[0]
-
-    necessary_keys = {'text', 'entity_group', 'start', 'end'}
-    if not all(key in current_entity for key in necessary_keys):
-        raise ValueError("Each entity must have 'text', 'entity_group', 'start', and 'end' keys.")
-
-    for next_entity in entities[1:]:
-        if not all(key in next_entity for key in necessary_keys):
-            raise ValueError("Each entity must have 'text', 'entity_group', 'start', and 'end' keys.")
-
-        if (current_entity['entity_group'] == next_entity['entity_group'] and
-            current_entity['entity_group'] in groups_of_interest and
-            0 <= next_entity['start'] - current_entity['end'] - 1 <= 3):
-
-            current_entity['text'] += ' ' + next_entity['text']
-            current_entity['end'] = next_entity['end']
-        else:
-            combined_entities.append(current_entity)
-            current_entity = next_entity
-
-    combined_entities.append(current_entity)
-    return combined_entities
-
 def replace_unicode_symbols(text):
     def unicode_to_readable(match):
         char = match.group(0)
@@ -128,6 +93,14 @@ class EntityRecognizer:
             else:
                 warnings.warn("Unexpected data source encountered. Please choose between 'clinical trials' or 'patient'", UserWarning)
 
+    def clean_entity(self, entity):
+        # Remove unnecessary white space and punctuation
+        entity = entity.strip()  # Remove leading/trailing white space
+        entity = re.sub(r'\s+', ' ', entity)  # Replace multiple spaces with a single space
+        entity = entity.translate(str.maketrans('', '', string.punctuation))  # Remove punctuation
+        entity = re.sub(r'[\(\)\[\]\{\}]', '', entity)  # Remove brackets
+        return entity
+
     def recognize_entities(self, df):
         print(f"Now Processing {df['id'].iloc[0]}")
         df = df.dropna()
@@ -147,19 +120,16 @@ class EntityRecognizer:
         sentences = df["sentence"].tolist()
 
         # Annotate sentences in parallel
-        annotated_sentences = biomedner.annotate_texts_in_parallel(sentences)
-        # Merge similar consecutive entities
-        merged_entities = [merge_similar_consecutive_entities(entities) for entities in annotated_sentences]
-        
-        # Assign the merged entities back to the dataframe
-        df["entities"] = merged_entities
+        annotated_sentences = biomedner.annotate_texts_in_parallel(sentences, max_workers=5)
 
+        df["entities"] = [entities for entities in annotated_sentences]
+        
         for _, row in df.iterrows():
             sentence = row["sentence"].translate(trans_table)
             entities = row["entities"]
             if len(entities) > 0:
                 for e in entities:
-                    e["entity"] = e.pop("text")
+                    e["entity"] = self.clean_entity(e.pop("text"))
                     e["class"] = e.pop("entity_group")
                     for key in ["start", "end", "score"]:
                         e.pop(key, None)

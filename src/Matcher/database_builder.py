@@ -64,7 +64,7 @@ class CriteriaDatabaseBuilder:
                 with open(file_path, 'r') as file:
                     json_data = json.load(file)
                     extracted_data = {field: json_data.get(field) for field in self.desired_fields}
-                    eligibility_criteria = json_data.get("eligibility")
+                    eligibility_criteria = json_data.get("criteria")
                     if eligibility_criteria is not None:
                         for index, criterion in enumerate(eligibility_criteria):
                             metadata = {
@@ -89,8 +89,8 @@ def main():
     load_dotenv('../.env')
     openai_access_key = os.getenv('OPENAI_ACCESS_KEY')
     huggingface_token = os.getenv('HUGGINGFACEHUB_API_TOKEN')
-    json_directory = '../../data/trials_jsons/'
-    desired_fields_criteria = ["nct_id", "eligibility"]
+    json_directory = '../../data/parsed_trials/'
+    desired_fields_criteria = ["nct_id", "criteria"]
 
     criteriadb_builder = CriteriaDatabaseBuilder(json_directory, desired_fields_criteria)
     criteriadb_builder.load_json_files()
@@ -101,8 +101,5 @@ def main():
     trialdb_builder.load_json_files()
     trialdb_builder.build_vectorstore()
 
-
 if __name__ == "__main__":
     main()
-    
-    

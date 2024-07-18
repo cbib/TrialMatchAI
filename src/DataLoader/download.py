@@ -7,7 +7,7 @@ import joblib
 from tqdm.auto import tqdm
 import numpy as np
 from tenacity import retry, wait_random_exponential, stop_after_attempt
-
+import pandas as pd
 # # Open the log file
 # log_file = open('../logs/download.log', 'w')
 # # Redirect standard output to the log file
@@ -55,8 +55,8 @@ def get_cancer_trials_list(max_trials=15000):
     return list(trials_set)  # Convert set to list for output
     
 
-def download_study_info(nct_id):
-    local_file_path = f"../data/trials_xmls/{nct_id}.xml"
+def download_study_info(nct_id, delay=1):
+    local_file_path = f"../../data/trials_xmls/{nct_id}.xml"
 
     if os.path.exists(local_file_path):
         # Read the content of the existing local XML file
@@ -130,9 +130,10 @@ def download_study_info(nct_id):
                 print(f"Error parsing online XML for trial {nct_id}: {e}")
         else:
             print(f"Error: received status code {response.status_code} when fetching XML for trial {nct_id}")
-    return []
-
     
+    # Add a delay between requests to avoid rate limiting
+    time.sleep(delay)
+    return []
 
 memory = joblib.Memory(".")
 def ParallelExecutor(use_bar="tqdm", **joblib_args):
@@ -169,7 +170,6 @@ def parallel_downloader(
     updated_cts = np.vstack(X).flatten()
     return updated_cts 
 
-
 class Downloader:
     def __init__(self, id_list, n_jobs):
         self.id_list = id_list
@@ -183,10 +183,9 @@ class Downloader:
         print(f"Elapsed time: {elapsed_time} seconds")
         return updated_cts
 
-
 if __name__ == "__main__":
-    id_list = [...]  # Replace [...] with your list of IDs
-    n_jobs = ...  # Replace ... with the number of parallel jobs
+    df = pd.read_csv("../../data/NCT_trialOncoX_basic.tsv", sep="\t", dtype=str)
+    id_list = df["nct_id"].unique().tolist()
+    n_jobs = 10
     downloader = Downloader(id_list, n_jobs)
     downloader.download_and_update_trials()
-

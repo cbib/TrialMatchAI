@@ -3,7 +3,6 @@
 Description: This script contains functions for pre-processing clinical trials eligibility criteria texts.  
 The functions serve to split the raw unstructured text into clean and structured sentences to be processed by a more advanced downstream NLP analysis
 """
-
 import numpy as np
 import re
 import itertools
@@ -14,30 +13,6 @@ import xml.etree.ElementTree as ET
 import os
 import re
 import logging
-# import nltk
-# from nltk.tokenize.punkt import PunktParameters, PunktSentenceTokenizer
-# # Customize Punkt parameters
-# punkt_params = PunktParameters()
-# punkt_params.abbrev_types = set(['e.g', 'i.e.'])
-# punkt_params.abbrev_types.add(r'\b(?:\d+\.?\d*|[A-Z]\.)\s*')
-# # Configure logging
-# # logging.basicConfig(filename='../logs/app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
-
-
-# def split_on_full_stops(text):
-#     """
-#     Splits a line of text on full stops (periods) but avoids splitting on regular dots (decimal points).
-
-#     Parameters:
-#         text (str): The input text.
-
-#     Returns:
-#         list: A list of sentences split on full stops.
-#     """
-#     # Create a custom Punkt tokenizer with the modified parameters
-#     custom_tokenizer = PunktSentenceTokenizer(punkt_params)
-#     sentences = custom_tokenizer.tokenize(text)
-#     return sentences
 
 def flatten_list_of_lists(list_of_lists):
     """
@@ -165,52 +140,49 @@ def extract_eligibility_criteria(trial_id):
     return None
 
 
-def split_by_leading_char_from_regex_patterns(line, regex_patterns, exceptions_path = "../../data/exception_regex_patterns.json"):
+def split_by_leading_char_from_regex_patterns(line, regex_patterns, exceptions_path="../../data/exception_regex_patterns.json"):
     """
     Split a line of text into sentences using leading characters defined by regex patterns.
 
     This function takes a line of text and splits it into sentences based on leading characters defined by regular expression (regex) patterns.
     It is useful for scenarios where sentences in the text are indicated by specific patterns at the beginning of a word.
 
-    The function iterates through the words in the input line and identifies the sentences by matching each word against the provided
-    regex patterns. If a word matches any of the regex patterns, it is considered the start of a new sentence. The function then appends
-    the completed sentence to the list of sentences. The process continues until all words are processed.
-
-    An exception pattern can also be provided to prevent sentence splitting based on certain word patterns. If a word matches any of
-    the exception patterns, it is included in the current sentence rather than being considered as the start of a new sentence.
+    The function uses regex to find matches of the provided patterns in the input line. If a word matches any of the regex patterns,
+    it is considered the start of a new sentence. The function then splits the text accordingly. Exception patterns can be used
+    to avoid splitting based on certain word patterns.
 
     Parameters:
         line (str): The input line of text to be split into sentences.
         regex_patterns (list): A list of regular expression patterns. Words matching any of these patterns are considered the start of new sentences.
-        exception_patterns (str): Optional. The file path to an exceptions file containing regex patterns. 
+        exceptions_path (str): Optional. The file path to an exceptions file containing regex patterns. 
         Words matching any of these exception patterns are included in the current sentence rather than starting new sentences.
 
     Returns:
         list: A list of sentences extracted from the input line.
     """
     sentences = []
-    sentence = ""
-    # Replace parentheses with braces in the line
-    words = line.split()  # Split the line into words
-    for i, word in enumerate(words):
-        if i < len(words) - 3:
-            is_match = any([
-                re.match(pattern, word) for pattern in list(load_regex_patterns(exceptions_path).values())
-            ])
-            if is_match:
-                sentence += word + " "
-            else:
-                for pattern in regex_patterns:
-                    if re.search(pattern, word):
-                        if sentence != "":
-                            sentences.append(sentence.strip())
-                            sentence = ""
-                        break
-                sentence += word + " "
-        else:
-            sentence += word + " "
-    if sentence != "":
-        sentences.append(sentence.strip())
+    exception_patterns = list(load_regex_patterns(exceptions_path).values())
+    combined_pattern = '|'.join(f'({pattern})' for pattern in regex_patterns)
+    exception_pattern = '|'.join(f'({pattern})' for pattern in exception_patterns)
+    # print("#", line)
+    last_split = 0
+    for match in re.finditer(combined_pattern, line):
+        start, end = match.span()
+
+        # Check for exceptions
+        if re.search(exception_pattern, line[start:end]):
+            continue
+
+        # Add the sentence up to this match
+        if last_split != start:
+            sentences.append(line[last_split:start].strip())
+        
+        last_split = start
+
+    # Add the last segment
+    if last_split < len(line):
+        sentences.append(line[last_split:].strip())
+
     return sentences
 
 
@@ -240,6 +212,9 @@ def is_header(line, next_line, regex_patterns):
         is_header(line, next_line, regex_patterns)
         # Output: True
     """
+    if not line:
+        return False
+
     line_indent = len(line) - len(line.lstrip())
     next_line_indent = len(next_line) - len(next_line.lstrip())
 
@@ -251,23 +226,10 @@ def is_header(line, next_line, regex_patterns):
     if line[0].isupper() and line.rstrip().endswith(":"):
         return True
 
-    # Check if the line doesn't start with an uppercase letter, but ends with a colon
-    if not line[0].isupper() and line.rstrip().endswith(":"):
-        return True
-
     # Check if the line starts with an uppercase letter and doesn't end with a colon,
     # and either the next line starts with a regex pattern or has a higher indentation level
-    if line[0].isupper() and not line.rstrip().endswith(":") and (any(re.match(pattern, next_line) for pattern in regex_patterns) or line_indent < next_line_indent):
-        return True
-
-    # Check if the line doesn't end with a colon and doesn't start with an uppercase letter,
-    # and the next line has a higher indentation level
-    if not line.rstrip().endswith(":") and not line[0].isupper() and line_indent < next_line_indent:
-        return True
-    # Check if the line doesn't end with a colon, doesn't start with an uppercase letter,
-    # doesn't match any regex pattern, and either the next line starts with a regex pattern
-    # or has a higher indentation level
-    if not line.rstrip().endswith(":") and not any(re.match(pattern, line) for pattern in regex_patterns) and not (re.match(r"^[A-Za-z]", line) or line[0].isupper()) and (any(re.match(pattern, next_line) for pattern in regex_patterns) or line_indent < next_line_indent):
+    if line[0].isupper() and not line.rstrip().endswith(":") and (
+        any(re.match(pattern, next_line) for pattern in regex_patterns) or line_indent < next_line_indent):
         return True
 
     return False  # If none of the conditions are met, it's not a header
@@ -383,7 +345,7 @@ def split_on_carriage_returns(text, regex_patterns):
 
 def split_lines_on_fullstop_or_semicolon(lines):
     """
-    Splits lines or sentences on a semi-colon.
+    Splits lines or sentences on a semi-colon, unless the semi-colon is followed by a '{' or within '{}' braces.
 
     Parameters:
         lines (list): A list of lines or sentences to be split.
@@ -395,14 +357,26 @@ def split_lines_on_fullstop_or_semicolon(lines):
     for i in range(len(lines)):
         line = lines[i][0].strip()
         line = replace_parentheses_with_braces(line)
-        if ";" in line and not (line.find("{") < line.find(";") < line.find("}")):
-            split_lines.extend(line.split(";"))
-        else:
-            split_lines.append(line)
+
+        parts = []
+        temp = ""
+        inside_braces = False
+        for j, char in enumerate(line):
+            if char == '{':
+                inside_braces = True
+            elif char == '}':
+                inside_braces = False
+            elif char == ';' and not inside_braces and not line[j+1:].strip().startswith('{'):
+                parts.append(temp.strip())
+                temp = ""
+                continue
+            temp += char
+        parts.append(temp.strip())
+
+        split_lines.extend(parts)
+
     return split_lines
 
-
-    
 def split_to_sentences(text, regex_patterns):
     """
     Split a text into sentences based on specific criteria.
@@ -431,18 +405,18 @@ def split_to_sentences(text, regex_patterns):
     lines = split_lines_on_fullstop_or_semicolon(lines)
     cleaned_lines = []
     for i, line in enumerate(lines):
-        # line = lines[i][0].strip()
+        # print(line)
         if i < len(lines) - 1:
             next_line = lines[i+1].strip()
             if not next_line or next_line.startswith('-') or re.search(r'\s{2,}', next_line) or re.search(r'^\d+\s*\.', next_line):
                 line += ' '
         line = re.sub(r"\n", " ", line)
+        line = re.sub(' +', ' ', line)
         line = split_by_leading_char_from_regex_patterns(line, regex_patterns)
         line = [string for string in line if len(string.split()) > 1]
         cleaned_lines.append(line)
     flat_list = [item for sublist in cleaned_lines for item in sublist]
     return flat_list
-
 
 
 def drop_leading_character(sentence, regex_patterns):
@@ -517,12 +491,12 @@ def extract_criteria_sections_headers(lines):
     criteria_sections = {}
     # Define explicit patterns for different writing styles of group-specific criteria headers
     patterns = [
-    r"^(?:Inclusion|Exclusion|Eligibility|Selection)\s(?:Criteria|Requirements?)?\s(?:for|in)?\s(?:Patients|Subjects|Population|Cohort|Group|Arm)\s?(?:with|without|who|where|having)?\s?[\w\d\s-]*[:\-]?",
-    r"^(?:Key\s)?(?:Inclusion|Exclusion|Eligibility|Selection)(?:\s(?:Criteria|Requirements))?(?:\s?[-+:]|\sfor)?(?:\s[\w\s+-]+)?(?:\([\w\s]+\))?\s?[-+:]?\s?[\w\s]+$",
-    r"^(?:Key\s)?(?:Inclusion|Exclusion|Eligibility|Selection)(?:\s(?:Criteria|Requirements?))(?:\s(?:for|in))?(?:\s(?:Patients|Subjects|Population|Cohort|Group|Arm))?(?:\s(?:with|without|who|where|having))?\s?(?:\([\w\s]+\))?\s?[\w\s+-]*[:\-]?",
-    r"^(?:[\w\d\s-]+)\s*-\s*(?:Inclusion|Exclusion|Eligibility|Selection)\s(?:Criteria|Requirements?)?$",
+    r"^(?:-?\s*)(?:Inclusion|INCLUSION|Exclusion|EXCLUSION|Eligibility|Selection)\s?(?:Criteria|Requirements?)?\s?(?:for|in)?\s?(?:Patients|Subjects|Population|Cohort|Group|Arm)?\s?(?:with|without|who|where|having)?\s?[\w\d\s-]*[:\-]?",
+    r"^(?:Key\s)?(?:Inclusion|INCLUSION|EXCLUSION|Exclusion|Eligibility|Selection)(?:\s(?:Criteria|Requirements))?(?:\s?[-+:]|\sfor)?(?:\s[\w\s+-]+)?(?:\([\w\s]+\))?\s?[-+:]?\s?[\w\s]+$",
+    r"^(?:Key\s)?(?:Inclusion|INCLUSION|EXCLUSION|Exclusion|Eligibility|Selection)(?:\s(?:Criteria|Requirements?))(?:\s(?:for|in))?(?:\s(?:Patients|Subjects|Population|Cohort|Group|Arm))?(?:\s(?:with|without|who|where|having))?\s?(?:\([\w\s]+\))?\s?[\w\s+-]*[:\-]?",
+    r"^(?:[\w\d\s-]+)\s*-\s*(?:Inclusion|INCLUSION|EXCLUSION|Exclusion|Eligibility|Selection)\s(?:Criteria|Requirements?)?$",
     r"^(?:[\w\s]+?)\s(?:group|patients|population|arm|subjects|cohort)\s(?:inclusion|exclusion|eligibility|selection|criteria)(?:\s?:|-)?",
-    r"^\b(?:\w+\s\w+|\w+)?\s(?:Inclusion|Exclusion|Eligibility|Selection)\s(?:Criteria|Requirements)\b",
+    r"^\b(?:\w+\s\w+|\w+)?\s(?:Inclusion|INCLUSION|EXCLUSION|Exclusion|Eligibility|Selection)\s(?:Criteria|Requirements)\b",
     ] 
     for i, line in enumerate(lines):       
         if ":" in line.rstrip():
@@ -538,7 +512,7 @@ def extract_criteria_sections_headers(lines):
     return criteria_sections
 
 
-def extract_seperate_inclusion_exclusion(text, regex_patterns):
+def extract_separate_inclusion_exclusion(text, regex_patterns):
     """
     Function to extract preprocessed inclusion and exclusion criteria from clinical trials eligibility criteria text.
 
@@ -551,14 +525,6 @@ def extract_seperate_inclusion_exclusion(text, regex_patterns):
 
     Returns:
         dict: A dictionary containing the extracted Inclusion Criteria, Exclusion Criteria, and Original Eligibility Criteria.
-
-    Note:
-    The function uses the regex patterns to split the text into sentences and identify headers for Inclusion and Exclusion Criteria
-    sections. It then processes the sentences to group them into corresponding criteria sections.
-
-    See Also:
-    split_to_sentences
-    extract_criteria_sections_headers
     """
     criteria = {
         "Inclusion Criteria": {},
@@ -568,61 +534,31 @@ def extract_seperate_inclusion_exclusion(text, regex_patterns):
     
     lines = split_to_sentences(text, regex_patterns)
     subsection_indices = extract_criteria_sections_headers(lines)
-    inclusion_pattern = r"(?<!\S)(?:inclusion|eligibility|selection|included|are eligible)(?!\S|$)"
-    exclusion_pattern = r"(?<!\S)(?:exclusion|non-inclusion|excluded|not eligible|non-selection)(?!\S|$)"
-    inclusion_indices = np.sort(list(itertools.chain(*[value for _, (key,value) in enumerate(subsection_indices.items()) if re.search(inclusion_pattern, key, re.IGNORECASE)])))
-    exclusion_indices = np.sort(list(itertools.chain(*[value for _, (key,value) in enumerate(subsection_indices.items()) if re.search(exclusion_pattern, key, re.IGNORECASE)])))
-    num_inclusion = len(inclusion_indices)
-    num_exclusion = len(exclusion_indices)
-    if num_inclusion >= 1 and num_exclusion == 0:
-            for i in range(num_inclusion):
-                inclusion_start_index = inclusion_indices[i]
-                inclusion_end_index = inclusion_indices[i+1] if i < num_inclusion - 1 else None
-                inclusion_criteria = lines[inclusion_start_index:inclusion_end_index]
-                criteria["Inclusion Criteria"][f"{lines[inclusion_indices[i]].strip()}"] = inclusion_criteria
-                    
-    elif num_inclusion == 0 and num_exclusion >= 1:
-            for i in range(num_exclusion):
-                exclusion_start_index = exclusion_indices[i]
-                exclusion_end_index = exclusion_indices[i + 1] if i < num_exclusion - 1 else None
-                exclusion_criteria = lines[exclusion_start_index:exclusion_end_index]
-                criteria["Exclusion Criteria"][f"{lines[exclusion_indices[i]].strip()}"] = exclusion_criteria
-                
-    elif num_inclusion == 1 and num_exclusion == 1:
-        inclusion_start_index = inclusion_indices[0]
-        exclusion_start_index = exclusion_indices[0] if num_exclusion > 0 else None
-        inclusion_criteria = lines[inclusion_start_index:exclusion_start_index] 
-        criteria["Inclusion Criteria"] = inclusion_criteria
-        exclusion_criteria = lines[exclusion_start_index:] if num_exclusion > 0 else None
-        criteria["Exclusion Criteria"] = exclusion_criteria
+    
+    inclusion_pattern = r"(?<!\S)(?:inclusion|INCLUSION|eligibility|selection|included|are eligible)(?!\S|$)"
+    exclusion_pattern = r"(?<!\S)(?:exclusion|EXCLUSION|non-inclusion|excluded|not eligible|non-selection)(?!\S|$)"
+    
+    inclusion_indices = np.sort(list(itertools.chain(*[value for key, value in subsection_indices.items() if re.search(inclusion_pattern, key, re.IGNORECASE)])))
+    exclusion_indices = np.sort(list(itertools.chain(*[value for key, value in subsection_indices.items() if re.search(exclusion_pattern, key, re.IGNORECASE)])))
+    
+    all_indices = sorted([(idx, "Inclusion") for idx in inclusion_indices] + [(idx, "Exclusion") for idx in exclusion_indices])
+    
+    for i, (start_index, section_type) in enumerate(all_indices):
+        end_index = all_indices[i + 1][0] if i + 1 < len(all_indices) else len(lines)
+        section_text = lines[start_index + 1:end_index]
+        section_header = lines[start_index].strip()
+        section_text = [line for line in section_text if line.strip()]  # Remove any empty lines
         
-    else:
-        for i in range(num_inclusion):
-            inclusion_start_index = inclusion_indices[i]
-            if i < num_inclusion - 1 and any(inclusion_indices[i+1] > x for x in exclusion_indices):
-                inclusion_end_index = exclusion_indices[np.argwhere(exclusion_indices < inclusion_indices[i+1])].flatten()[0]  
-            elif i == num_inclusion - 1 and any(inclusion_indices[i] < x for x in exclusion_indices): 
-                inclusion_end_index = exclusion_indices[np.argwhere(exclusion_indices > inclusion_indices[i])].flatten()[0] 
-            elif i < num_inclusion - 1 and not any(inclusion_indices[i+1] > x for x in exclusion_indices):
-                inclusion_end_index = inclusion_indices[i+1]
-            inclusion_criteria = lines[inclusion_start_index:inclusion_end_index]
-            criteria["Inclusion Criteria"][f"{lines[inclusion_indices[i]].strip()}"] = inclusion_criteria
-
-        for i in range(num_exclusion):
-            exclusion_start_index = exclusion_indices[i]
-            if  any(exclusion_indices[i] < x for x in inclusion_indices) and num_exclusion >= 1:
-                exclusion_end_index = inclusion_indices[np.argwhere(inclusion_indices > exclusion_indices[i])].flatten()[0] 
-            elif any(exclusion_indices[i] < x for x in inclusion_indices) and num_exclusion > 1 and exclusion_indices[i + 1] < inclusion_indices[np.argwhere(inclusion_indices > exclusion_indices[i])].flatten()[0]:
-                exclusion_end_index = exclusion_indices[i + 1]
-            elif all(exclusion_indices[i] > x for x in inclusion_indices) and num_exclusion > 1 and i < num_exclusion - 1 :
-                exclusion_end_index = exclusion_indices[i + 1]
-            elif all(exclusion_indices[i] > x for x in inclusion_indices) and num_exclusion >= 1 and i == num_exclusion - 1:
-                exclusion_end_index= None
-            exclusion_criteria = lines[exclusion_start_index:exclusion_end_index]
-            criteria["Exclusion Criteria"][f"{lines[exclusion_indices[i]].strip()}"] = exclusion_criteria
-
+        if section_type == "Inclusion":
+            if section_header not in criteria["Inclusion Criteria"]:
+                criteria["Inclusion Criteria"][section_header] = []
+            criteria["Inclusion Criteria"][section_header].extend(section_text)
+        elif section_type == "Exclusion":
+            if section_header not in criteria["Exclusion Criteria"]:
+                criteria["Exclusion Criteria"][section_header] = []
+            criteria["Exclusion Criteria"][section_header].extend(section_text)
+    
     return criteria
-
 
 def eic_text_preprocessing(_ids, regex_path = "../../data/regex_patterns.json", output_path = "../../data/preprocessed_data/clinical_trials/"):
     """
@@ -641,22 +577,23 @@ def eic_text_preprocessing(_ids, regex_path = "../../data/regex_patterns.json", 
 
     Note:
     The function calls extract_eligibility_criteria to obtain the eligibility criteria text for each trial.
-    It then uses the extract_seperate_inclusion_exclusion function to preprocess the eligibility criteria text for each trial,
+    It then uses the extract_separate_inclusion_exclusion function to preprocess the eligibility criteria text for each trial,
     extracting Inclusion Criteria, Exclusion Criteria, and Original Eligibility Criteria. The results are concatenated
     into a final DataFrame.
 
     See Also:
     extract_eligibility_criteria
-    extract_seperate_inclusion_exclusion
+    extract_separate_inclusion_exclusion
     drop_leading_character
     """
     regex_list = list(load_regex_patterns(regex_path).values())
     texts  = []
     trial_id = []
     for _, nid in enumerate(_ids):
+        print(nid)
         eic_text = extract_eligibility_criteria(nid)
         if eic_text:
-            texts.append(extract_seperate_inclusion_exclusion(eic_text, regex_list))
+            texts.append(extract_separate_inclusion_exclusion(eic_text, regex_list))
             trial_id.append(nid)
         else:
             continue
@@ -680,6 +617,7 @@ def eic_text_preprocessing(_ids, regex_path = "../../data/regex_patterns.json", 
                 to_concat.append(df)
     if to_concat:
         final_df = pd.concat(to_concat)
+        # print(final_df)
         final_df['sentence'] = final_df['sentence'].apply(drop_leading_character, regex_patterns=regex_list)
         final_df.to_csv(output_path + "%s_preprocessed.csv"%_ids[0])
         return final_df

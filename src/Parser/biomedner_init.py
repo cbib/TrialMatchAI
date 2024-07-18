@@ -505,7 +505,7 @@ class BioMedNER:
         )
         if not self.params.no_cuda:
             self.model = self.model.cuda()
-        self.entity_types = ['disease', 'drug', 'gene', 'species', 'cell_line', 'DNA', 'RNA', 'cell_type']
+        self.entity_types = ['disease', 'drug', 'gene', 'species', 'cell line', 'DNA', 'RNA', 'cell type']
         self.estimator_dict = {}
         for etype in self.entity_types:
             self.estimator_dict[etype] = {}

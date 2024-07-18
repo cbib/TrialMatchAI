@@ -1,25 +1,21 @@
 import random
-import requests
 import os
 import string
 import numpy as np
 import hashlib
 import time
-import shutil
 import asyncio
 import socket
 import struct
 import json
 import sys
 from datetime import datetime
-from collections import OrderedDict
 import traceback
 import bioregistry
-import re
-from transformers import AutoTokenizer, pipeline
 import pandas as pd
-from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED, ALL_COMPLETED
+from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 import gc
+import spacy
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -30,26 +26,14 @@ DICT_PATH = "resources/normalization/dictionary"
 dict_paths = {
     'gene': os.path.join(DICT_PATH, 'dict_Gene.txt'),
     'disease': os.path.join(DICT_PATH, 'dict_Disease_20210630.txt'),
-    'cell_line': os.path.join(DICT_PATH, 'dict_CellLine_20210520.txt'),
-    'cell_type': os.path.join(DICT_PATH, 'dict_CellType_20210810.txt'),
+    'cell type': os.path.join(DICT_PATH, 'dict_CellType_20210810.txt'),
     'drug': os.path.join(DICT_PATH, 'dict_ChemicalCompound_20210630.txt'),
-    'species': os.path.join(DICT_PATH, 'dict_Species.txt')
+    'procedure': os.path.join(DICT_PATH, 'dict_Procedures.txt'),
 }
-class BioMedNER():
-    def __init__(self, 
-        biomedner_home,
-        biomedner_port,
-        maccrobat_port,
-        gene_norm_port,
-        disease_norm_port,
-        biomedner_host='localhost',
-        maccrobat_host='localhost',
-        time_format='[%d/%b/%Y %H:%M:%S.%f]',
-        max_word_len=100, 
-        seed=2019,
-        use_neural_normalizer=True,
-        no_cuda=False):
-
+class BioMedNER:
+    def __init__(self, biomedner_home, biomedner_port, gner_port, gene_norm_port, disease_norm_port,
+                 biomedner_host='localhost', gner_host='localhost', time_format='[%d/%b/%Y %H:%M:%S.%f]',
+                 max_word_len=100, seed=2019, use_neural_normalizer=True, no_cuda=False):
         self.time_format = time_format
 
         print(datetime.now().strftime(self.time_format), 'BioMedNER LOADING...')
@@ -61,50 +45,60 @@ class BioMedNER():
 
         # delete prev. version outputs
         delete_files('./output')
-        delete_files(os.path.join('./multi_ner', 'input'))
-        delete_files(os.path.join('./multi_ner', 'tmp'))
-        delete_files(os.path.join('./multi_ner', 'output'))
+        delete_files('./input')
+        
+        # Load SpaCy model once
+        print(datetime.now().strftime(self.time_format), 'Loading SpaCy model...')
+        self.nlp = spacy.load("en_core_web_sm")
+        print(datetime.now().strftime(self.time_format), 'SpaCy model loaded.')
+
 
         # FOR NER
-        self.biomedner_home =  biomedner_home
+        self.biomedner_home = biomedner_home
         self.biomedner_host = biomedner_host
         self.biomedner_port = biomedner_port
         
-        self.maccrobat_host = maccrobat_host
-        self.maccrobat_port = maccrobat_port
+        self.gner_host = gner_host
+        self.gner_port = gner_port
 
         self.max_word_len = max_word_len
 
         # FOR NEN
         self.normalizer = Normalizer(
-            gene_port = gene_norm_port,
-            disease_port = disease_norm_port,
-            use_neural_normalizer = use_neural_normalizer,
-            no_cuda = no_cuda
+            gene_port=gene_norm_port,
+            disease_port=disease_norm_port,
+            use_neural_normalizer=use_neural_normalizer,
+            no_cuda=no_cuda,
+            nlp=self.nlp
         )
 
         print(datetime.now().strftime(self.time_format), 'BioMedNER LOADED...')
+
     
     def annotate_text(self, text, pmid=None):
         try:
             text = text.strip()
-            base_name = self.generate_base_name(text) # for the name of temporary files
+            base_name = self.generate_base_name(text) 
             text = self.preprocess_input(text, base_name)
-            biomed_output, maccrobat_output = self.tag_entities(text, base_name)
+            biomed_output, gner_output = self.tag_entities(text, base_name)
+            
             biomed_output['error_code'], biomed_output['error_message'] = 0, ""
             biomed_output = self.post_process_output(biomed_output)
             biomed_output = transform_results(biomed_output)
             append_synonyms(biomed_output, dict_paths)
-            maccrobat_output.extend(biomed_output)
-            output = maccrobat_output
-            output = process_bio_med_negation(text, output)
-            output = resolve_overlaps(output, priority_groups=['species', 'cell_type', 'drug', 'gene', 'disease'])
+            gner_output = self.post_process_output(gner_output)
+            gner_output = transform_results(gner_output)
+            append_synonyms(gner_output, dict_paths)
+            
+            gner_output.extend(biomed_output)
+            output = gner_output
+            output = resolve_overlaps(output, priority_groups=['cell type', 'drug', 'gene', 'disease', 'diagnostic procedure', 'therapeutic procedure', 'laboratory procedure'])
         except Exception as e:
             errStr = traceback.format_exc()
             print(errStr)
             output = {"error_code": 1, "error_message": "Something went wrong. Try again."}
 
-        return output
+        return output 
 
     def post_process_output(self, output):
         # hotfix
@@ -140,7 +134,7 @@ class BioMedNER():
         for anno in output['annotations']:
             cuis = anno['id']
             obj = anno['obj']
-            if obj not in ['disease', 'gene', 'drug', 'species', 'cell_line', 'cell_type']:
+            if obj not in ['disease', 'gene', 'drug', 'cell type']:
                 continue
 
             new_cuis = []
@@ -173,7 +167,6 @@ class BioMedNER():
             anno['id'] = new_cuis
 
         return output
-
     
     def preprocess_input(self, text, base_name):
         if '\r\n' in text:
@@ -234,15 +227,13 @@ class BioMedNER():
             text = 'No ascii letters. Please enter your text in English.'
 
         base_name = self.generate_base_name(text)
-        # print(datetime.now().strftime(self.time_format),
-        #       f'id: {base_name}')
 
         pubtator_file = f'{base_name}.PubTator'
 
         input_biomedner = os.path.join(self.biomedner_home, 'input',
-                                     f'{pubtator_file}.PubTator')
+                                       f'{pubtator_file}.PubTator')
         output_biomedner = os.path.join(self.biomedner_home, 'output',
-                                     f'{pubtator_file}.json')
+                                        f'{pubtator_file}.json')
 
         if not os.path.exists(self.biomedner_home + '/input'):
             os.mkdir(self.biomedner_home + '/input')
@@ -259,30 +250,30 @@ class BioMedNER():
         
         arguments_for_coroutines = []
         loop = asyncio.new_event_loop()
-        for ner_type in ['biomedner', 'maccrobat']:
+        for ner_type in ['biomedner', 'gner']:
             arguments_for_coroutines.append([ner_type, pubtator_file, output_biomedner, base_name, loop])
         async_result = loop.run_until_complete(self.async_ner(arguments_for_coroutines))
         loop.close()
         biomedner_elapse_time = async_result['biomedner_elapse_time']
-        maccrobat_elapse_time = async_result['maccrobat_elapse_time']
+        gner_elapse_time = async_result['gner_elapse_time']
         # get output result to merge
         tagged_docs = async_result['tagged_docs']
-        num_entities = async_result['num_entities']
-        maccrobat_entities = async_result['maccrobat_resp']
+        biomedner_num_entities = async_result['num_entities']
+        gner_num_entities = async_result['gner_num_entities']
+        gner_entities = async_result['gner_tagged_docs']
         
         ner_elapse_time = time.time() - ner_start_time
-        # print(datetime.now().strftime(self.time_format),
-        #       f'[{base_name}] ALL NER {ner_elapse_time} sec')
 
-        # Rule-based Normalization models
         r_norm_start_time = time.time()
-        if num_entities > 0:
+        if biomedner_num_entities > 0:
             tagged_docs = self.normalizer.normalize(base_name, tagged_docs)
+        if gner_num_entities > 0:
+            gner_entities = self.normalizer.normalize(base_name, gner_entities)
         r_norm_elapse_time = time.time() - r_norm_start_time
 
         # Neural-based normalization models
         n_norm_start_time = time.time()
-        if self.normalizer.use_neural_normalizer and num_entities > 0:
+        if self.normalizer.use_neural_normalizer and biomedner_num_entities > 0:
             tagged_docs = self.normalizer.neural_normalize(
                 ent_type='disease', 
                 tagged_docs=tagged_docs
@@ -295,19 +286,26 @@ class BioMedNER():
                 ent_type='gene', 
                 tagged_docs=tagged_docs
             )
-
-
+            gner_entities = self.normalizer.neural_normalize(
+                ent_type='disease', 
+                tagged_docs=gner_entities
+            )
+            gner_entities = self.normalizer.neural_normalize(
+                ent_type='drug',
+                tagged_docs=gner_entities
+            )
+            gner_entities = self.normalizer.neural_normalize(
+                ent_type='gene', 
+                tagged_docs=gner_entities
+            )
+            
+            
         n_norm_elapse_time = time.time() - n_norm_start_time
-
-        # print(datetime.now().strftime(self.time_format),
-        #     f'[{base_name}] Neural Normalization {n_norm_elapse_time} sec')
 
         # Convert to PubAnnotation JSON
         tagged_docs[0] = get_pub_annotation(tagged_docs[0])
 
         norm_elapse_time = r_norm_elapse_time + n_norm_elapse_time
-        # print(datetime.now().strftime(self.time_format),
-        #       f'[{base_name}] ALL NORM {norm_elapse_time} sec')
 
         # time record
         tagged_docs[0]['elapse_time'] = {
@@ -317,13 +315,18 @@ class BioMedNER():
             'n_norm_elapse_time':n_norm_elapse_time,
             'norm_elapse_time':norm_elapse_time,
         } 
+        
+        gner_entities[0] = get_pub_annotation(gner_entities[0])
+        gner_entities[0]['elapse_time'] = {
+            'gner_elapse_time':gner_elapse_time,
+        }
 
         # Delete temp files
         os.remove(input_biomedner)
         os.remove(output_biomedner)
         gc.collect()
-        # print(tagged_docs[0])
-        return tagged_docs[0], maccrobat_entities
+        return tagged_docs[0], gner_entities[0]
+
 
     # generate id for temporary files
     def generate_base_name(self, text):
@@ -338,45 +341,73 @@ class BioMedNER():
         return result
 
     async def _ner_wrap(self, ner_type, pubtator_file, output_biomedner, base_name, loop):
-        
-        if ner_type == 'biomedner':            
-            # Run neural model
-            start_time = time.time()
-            biomedner_resp = await async_tell_inputfile(self.biomedner_host,
-                                         self.biomedner_port,
-                                         pubtator_file,
-                                         loop)
+        retries = 3
+        delay = 2
+
+        for attempt in range(retries):
+            try:
+                if ner_type == 'biomedner':            
+                    # Run neural model
+                    start_time = time.time()
+                    biomedner_resp = await async_tell_inputfile(self.biomedner_host,
+                                                                self.biomedner_port,
+                                                                pubtator_file,
+                                                                loop)
+                    
+                    # Ensure the file content is valid JSON
+                    with open(output_biomedner, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        try:
+                            tagged_docs = [json.loads(content)]
+                        except json.JSONDecodeError as e:
+                            print(f"JSON decode error: {e}")
+                            continue
+
+                    num_entities = tagged_docs[0]['num_entities']
+                    if tagged_docs is None:
+                        return None
+
+                    assert len(tagged_docs) == 1
+                    biomedner_elapse_time = time.time() - start_time
+
+                    return {"biomedner_elapse_time": biomedner_elapse_time,
+                            "tagged_docs": tagged_docs,
+                            "num_entities": num_entities}
+                
+                if ner_type == 'gner':            
+                    # Run neural model
+                    start_time = time.time()
+                    gner_resp = await async_tell_inputfile(self.gner_host,
+                                                           self.gner_port,
+                                                           pubtator_file,
+                                                           loop)
+                    
+                    # Ensure the file content is valid JSON
+                    with open(output_biomedner, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        try:
+                            tagged_docs = [json.loads(content)]
+                        except json.JSONDecodeError as e:
+                            print(f"JSON decode error: {e}")
+                            continue
+
+                    num_entities = tagged_docs[0]['num_entities']
+                    if tagged_docs is None:
+                        return None
+
+                    assert len(tagged_docs) == 1
+                    gner_elapse_time = time.time() - start_time
+
+                    return {"gner_elapse_time": gner_elapse_time,
+                            "gner_tagged_docs": tagged_docs,
+                            "gner_num_entities": num_entities}
             
-            with open(output_biomedner, 'r', encoding='utf-8') as f:
-                tagged_docs = [json.load(f)]
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error on attempt {attempt + 1}/{retries}: {e}")
+                time.sleep(delay)
+                continue
 
-            num_entities = tagged_docs[0]['num_entities']
-            if tagged_docs is None:
-                return None
-
-            assert len(tagged_docs) == 1
-            biomedner_elapse_time = time.time() - start_time
-            # print(datetime.now().strftime(self.time_format),
-            #     f'[{base_name}] Multi-task NER {biomedner_elapse_time} sec, #entities: {num_entities}')
-
-            return {"biomedner_elapse_time": biomedner_elapse_time,
-                    "tagged_docs": tagged_docs,
-                    "num_entities": num_entities}
-            
-        elif ner_type == 'maccrobat':
-            # Run MacCrobat
-            start_time = time.time()
-            input_biomedner = os.path.join(self.biomedner_home, 'input',
-                                f'{pubtator_file}.PubTator')
-            pubtator_text = pubtator2dict_list(input_biomedner)[0]["abstract"]
-            maccrobat_resp = await async_send_text_to_maccrobat_server(self.maccrobat_host,
-                                            self.maccrobat_port,
-                                            pubtator_text)
-            
-            maccrobat_elapse_time = time.time() - start_time
-
-            return {"maccrobat_elapse_time": maccrobat_elapse_time,
-                    "maccrobat_resp": maccrobat_resp} 
+        raise Exception("Failed to decode JSON after multiple attempts")
             
     def annotate_single_text_with_retry(self, text, retries=5, delay=5):
         for attempt in range(retries):
@@ -403,29 +434,6 @@ class BioMedNER():
                         results[index] = {"error_code": 1, "error_message": str(exc)}
         return results
 
-
-async def async_send_text_to_maccrobat_server(host, port, text):
-    reader, writer = await asyncio.open_connection(host, port)
-
-    message = text.encode('utf-8')
-    message_length = struct.pack('>H', len(message))
-    writer.write(message_length + message)
-    await writer.drain()
-
-    response_length_data = await reader.readexactly(2)
-    if len(response_length_data) < 2:
-        print("Error: Server sent an incomplete response.")
-        writer.close()
-        await writer.wait_closed()
-        return {}
-
-    response_length = struct.unpack('>H', response_length_data)[0]
-    response_data = await reader.readexactly(response_length)
-
-    writer.close()
-    await writer.wait_closed()
-    return json.loads(response_data.decode('utf-8'))
-                
 async def async_tell_inputfile(host, port, inputfile, loop):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -461,7 +469,6 @@ def sync_tell_inputfile(host, port, inputfile):
             'utf-8')
         sock.send(input_stream)
         output_stream = sock.recv(512) # for sync
-        # output_stream = await loop.run_in_executor(None, sock.recv, 512)
         resp = output_stream.decode('utf-8')[2:]
 
         sock.close()
@@ -505,7 +512,7 @@ def transform_results(data):
     for annotation in data['annotations']:
         if annotation['prob'] > 0.5:
             entity = {
-                'entity_group': annotation['obj'],  # Group by object type, e.g., 'Cell_type'
+                'entity_group': annotation['obj'],  # Group by object type, e.g., 'cell type'
                 'score': annotation['prob'],  # Probability score
                 'text': annotation['mention'],  # Text mention
                 'start': annotation['span']['begin'],  # Start position
@@ -583,16 +590,17 @@ def get_gene_synonyms_from_file(file_path, entity_ids):
 
 def append_synonyms(ner_results, dict_paths):
     # Valid entity groups to consider for synonym addition
-    valid_entity_groups = ['disease', 'gene', 'drug', 'species', 'cell line', 'cell type']
+    valid_entity_groups = ['disease', 'gene', 'drug', 'cell type', 'diagnostic procedure', 'therapeutic procedure', 'laboratory procedure']
     
     # Entity group to dictionary file mapping
     dict_files = {
         'gene': dict_paths['gene'],
         'disease': dict_paths['disease'],
         'drug': dict_paths['drug'],  # Assuming 'drug' maps to 'ChemicalCompound'
-        'species': dict_paths['species'],
-        'cell_line': dict_paths['cell_line'],
-        'cell_type': dict_paths['cell_type']
+        'cell type': dict_paths['cell type'],
+        'diagnostic procedure': dict_paths['procedure'],
+        'therapeutic procedure': dict_paths['procedure'],
+        'laboratory procedure': dict_paths['procedure']
     }
     
     # Process each entity in the results
@@ -612,28 +620,7 @@ def append_synonyms(ner_results, dict_paths):
                 entity['synonyms'] = []
         else:
             entity['synonyms'] = []
-
-def process_bio_med_negation(text, entities):
-    # Initialize tokenizer and classification pipeline
-    device = "cuda:7"
-    model = "bvanaken/clinical-assertion-negation-bert"
-    tokenizer = AutoTokenizer.from_pretrained(model, model_max_length=512, truncation=True)
-    ner_pipeline = pipeline("text-classification", model=model, tokenizer=tokenizer, device=device)
-
-    # Run the classification pipeline on the sentence
-    classification = ner_pipeline(text)[0]
-    is_negated = classification['label'] == 'ABSENT'
-
-    # Process each entity to assert negation
-    for entity in entities:
-        entity_text = entity["text"]
-        if re.search(rf'\b{re.escape(entity_text)}\b', text):
-            entity["is_negated"] = "yes" if is_negated else "no"
-        else:
-            entity["is_negated"] = "not found"
-    
-    return entities
-
+            
 def resolve_overlaps(entities, priority_groups):
     df = pd.read_csv("../../data/regex_variants.tsv", sep="\t", header=None)
     variants_list = df[0].values.tolist()
@@ -662,7 +649,7 @@ def resolve_overlaps(entities, priority_groups):
         # If no overlap was found, simply add the current entity
         if not overlap:
             accepted_entities.append(current)
-
+            
     return accepted_entities
 
 
@@ -681,10 +668,10 @@ if __name__ == '__main__':
                            help='biomedical language model host', default='localhost')
     argparser.add_argument('--biomedner_port', type=int, 
                            help='biomedical language model port', default=18894)
-    argparser.add_argument('--maccrobat_host', 
-                           help='maccrobat host', default='localhost')
-    argparser.add_argument('--maccrobat_port', type=int,
-                            help='maccrobat port', default=18783)
+    argparser.add_argument('--gner_host', 
+                           help='gner host', default='localhost')
+    argparser.add_argument('--gner_port', type=int,
+                            help='gner port', default=18783)
     argparser.add_argument('--gene_norm_port', type=int,
                            help='Gene port', default=18888)
     argparser.add_argument('--disease_norm_port', type=int,
@@ -703,14 +690,14 @@ if __name__ == '__main__':
         biomedner_home=args.biomedner_home,
         biomedner_host=args.biomedner_host,
         biomedner_port=args.biomedner_port,
-        maccrobat_host=args.maccrobat_host,
-        maccrobat_port=args.maccrobat_port,
+        gner_host=args.gner_host,
+        gner_port=args.gner_port,
         time_format=args.time_format,
         use_neural_normalizer=args.use_neural_normalizer,
         no_cuda=args.no_cuda,
     )
 
-    texts = ["KRAS mutation is found in cancer", "Patients with COVID-19 have a high fever", "The drug is effective in treating diabetes"] 
+    texts = ['Patients must be previously untreated (with cytoreductive agents) for their CLL.', 'The patient must have an absolute lymphocytosis in the blood of at least 5,000 lymphocytes/greek small letter mu l, or bone marrow lymphocytosis greater than or equal to 30% of all nucleated cells. These lymphocytes must have an appropriate immunophenotype for CLL including expression of CD5 and CD20.', 'Karnofsky performance status equal to or greater than 60% (see Appendix B).', 'Eligible patients should have a reasonable life-expectancy greater than four weeks.', 'Age greater-than or equal to  18 years and less-than or equal to  75 years.', 'Total bilirubin less-than or equal to  2.0 mg per deciliter. Total creatinine less-than or equal to  2.0 mg/ dl.', 'Platelet count greater-than or equal to  50,000/ ul.', 'Signed informed consent, which indicates the investigational nature of this, is required.', 'No patient may be entered onto the study without consultation with the principal investigator.', 'Patients with significant autoimmune hemolytic anemia or autoimmune thrombocytopenia shall not be eligible for treatment on this protocol as there is some evidence that fludarabine can worsen these conditions.', 'Patients with active infections requiring systemic antibiotics.', 'Prior cytotoxic treatment of their CLL.', 'Pregnant or lactating women. Women and men of childbearing age should use effective contraception.', 'Patients with a serious cardiac condition.', 'Concomitant chemotherapy or radiotherapy while on protocol.', 'Concomitant prednisone therapy will not be permitted as the combination of fludarabine and prednisone is known to increase the risk of opportunistic infections. Patients may receive intravenous immunoglobulin (IVIG) and other supportive care measures as clinically appropriate while on protocol.']
     results = biomedner.annotate_texts_in_parallel(texts, max_workers=10)
     for result in results:
         print(result)
