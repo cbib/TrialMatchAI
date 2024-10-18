@@ -1,5 +1,5 @@
 import pickle
-from typing import List, Dict, Tuple
+from typing import List, Dict
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -7,10 +7,8 @@ logger = logging.getLogger(__name__)
 
 class TrialRankingProcessor:
     def __init__(self, inclusion_pickle: str, exclusion_pickle: str):
-        self.inclusion_pickle = inclusion_pickle
-        self.exclusion_pickle = exclusion_pickle
-        self.inclusion_documents = self.load_documents(self.inclusion_pickle)
-        self.exclusion_documents = self.load_documents(self.exclusion_pickle)
+        self.inclusion_documents = self.load_documents(inclusion_pickle)
+        self.exclusion_documents = self.load_documents(exclusion_pickle)
 
     def load_documents(self, pickle_file: str) -> List[Dict]:
         with open(pickle_file, 'rb') as f:
@@ -18,77 +16,91 @@ class TrialRankingProcessor:
         logger.info("Loaded %d documents from %s", len(documents), pickle_file)
         return documents
 
-    def split_trials(self) -> Tuple[Dict[str, List[Dict]], Dict[str, Tuple[List[Dict], List[Dict]]], List[str]]:
-        inclusion_trials = {}
-        exclusion_trials = {}
+    def process(self) -> List[Dict]:
+        trials = {}
 
+        # Define weights and parameters
+        w_inclusion = 1.0
+        w_exclusion = 0.5
+        amplification_factor = 1.5
+        conflict_factor = 0.5
+        inclusion_threshold = 0.5
+        exclusion_threshold = -0.5
+
+        # Process inclusion documents
         for doc in self.inclusion_documents:
             nct_id = doc.metadata['_source']['nct_id']
-            if nct_id not in inclusion_trials:
-                inclusion_trials[nct_id] = []
-            inclusion_trials[nct_id].append(doc)
+            llm_score = doc.metadata['llm_rerank_score']
+            confidence = doc.metadata.get('confidence', 1.0)  # Default confidence is 1.0
 
+            weighted_score = llm_score * confidence * w_inclusion
+
+            if nct_id not in trials:
+                trials[nct_id] = {'inclusion_scores': [], 'exclusion_scores': []}
+            trials[nct_id]['inclusion_scores'].append(weighted_score)
+
+        # Process exclusion documents
         for doc in self.exclusion_documents:
             nct_id = doc.metadata['_source']['nct_id']
-            if nct_id not in exclusion_trials:
-                exclusion_trials[nct_id] = []
-            exclusion_trials[nct_id].append(doc)
+            llm_score = doc.metadata['llm_rerank_score']
+            confidence = doc.metadata.get('confidence', 1.0)  # Default confidence is 1.0
 
-        both_criteria = {nct_id for nct_id in inclusion_trials if nct_id in exclusion_trials}
-        only_inclusion = {nct_id for nct_id in inclusion_trials if nct_id not in exclusion_trials}
-        only_exclusion = {nct_id for nct_id in exclusion_trials if nct_id not in inclusion_trials}
+            # Adjust exclusion score
+            if llm_score < 0:
+                # Negative score indicates contradiction with exclusion criteria (good)
+                adjusted_score = abs(llm_score) * confidence * amplification_factor * w_exclusion
+            else:
+                # Positive score indicates match with exclusion criteria (bad)
+                adjusted_score = -llm_score * confidence * w_exclusion
 
-        return (
-            {nct_id: inclusion_trials[nct_id] for nct_id in only_inclusion},
-            {nct_id: (inclusion_trials[nct_id], exclusion_trials[nct_id]) for nct_id in both_criteria},
-            list(only_exclusion)
-        )
+            if nct_id not in trials:
+                trials[nct_id] = {'inclusion_scores': [], 'exclusion_scores': []}
+            trials[nct_id]['exclusion_scores'].append(adjusted_score)
 
-    def normalize_scores(self, documents: List[Dict]) -> List[Dict]:
-        scores = [doc.metadata['rerank_score'] for doc in documents]
-        min_score, max_score = min(scores), max(scores)
-        logger.info("Normalizing scores with min: %f, max: %f", min_score, max_score)
+        # Separate trials into two groups
+        trials_without_exclusion = []
+        trials_with_exclusion = []
 
-        for doc in documents:
-            doc.metadata['normalized_score'] = (doc.metadata['rerank_score'] - min_score) / (max_score - min_score + 1e-9)  # Avoid division by zero
-        return documents
+        for nct_id, scores in trials.items():
+            inclusion_score = sum(scores['inclusion_scores'])
+            exclusion_score = sum(scores['exclusion_scores'])
+            inclusion_count = len(scores['inclusion_scores'])
+            exclusion_count = len(scores['exclusion_scores'])
 
-    def rank_trials(self, trials: Dict[str, List[Dict]], score_key: str = 'normalized_score') -> List[Tuple[str, float, int]]:
-        ranked_trials = []
-        for nct_id, docs in trials.items():
-            weighted_score = sum(doc.metadata[score_key] for doc in docs)
-            criteria_count = len(docs)
-            ranked_trials.append((nct_id, weighted_score, criteria_count))
-        ranked_trials.sort(key=lambda x: x[1], reverse=True)
+            # Apply conflict penalty
+            conflict_penalty = conflict_factor * min(inclusion_score, abs(exclusion_score))
+            total_score = inclusion_score + exclusion_score - conflict_penalty
+
+            # Apply thresholds
+            if inclusion_score < inclusion_threshold or exclusion_score < exclusion_threshold:
+                continue  # Skip this trial
+
+            trial_data = {
+                'nct_id': nct_id,
+                'total_score': total_score,
+                'inclusion_score': inclusion_score,
+                'exclusion_score': exclusion_score,
+                'conflict_penalty': conflict_penalty,
+                'inclusion_count': inclusion_count,
+                'exclusion_count': exclusion_count
+            }
+
+            if exclusion_count == 0:
+                # Trials with no exclusion criteria matches
+                trials_without_exclusion.append(trial_data)
+            else:
+                # Trials with one or more exclusion criteria matches
+                trials_with_exclusion.append(trial_data)
+
+        # Rank trials within each group based on total_score
+        trials_without_exclusion.sort(key=lambda x: x['total_score'], reverse=True)
+        trials_with_exclusion.sort(key=lambda x: x['total_score'], reverse=True)
+
+        # Combine the two groups, ensuring trials without exclusion matches are ranked first
+        ranked_trials = trials_without_exclusion + trials_with_exclusion
+
+        logger.info("Final ranked trials: %d", len(ranked_trials))
         return ranked_trials
-
-    def rank_mixed_trials(self, trials: Dict[str, Tuple[List[Dict], List[Dict]]], score_key: str = 'normalized_score') -> List[Tuple[str, float, int, int]]:
-        ranked_trials = []
-        for nct_id, (inclusion_docs, exclusion_docs) in trials.items():
-            inclusion_score = sum(doc.metadata[score_key] for doc in inclusion_docs)
-            exclusion_score = sum(doc.metadata[score_key] for doc in exclusion_docs)
-            normalized_score = inclusion_score / (exclusion_score + 1e-9)  # Avoid division by zero
-            ranked_trials.append((nct_id, normalized_score, len(inclusion_docs), len(exclusion_docs)))
-        ranked_trials.sort(key=lambda x: x[1], reverse=True)
-        return ranked_trials
-
-    def process(self) -> List[Dict]:
-        inclusion_trials, mixed_trials, _ = self.split_trials()
-
-        # Normalize the scores
-        self.inclusion_documents = self.normalize_scores(self.inclusion_documents)
-        self.exclusion_documents = self.normalize_scores(self.exclusion_documents)
-
-        ranked_inclusion_only = self.rank_trials(inclusion_trials)
-        ranked_mixed = self.rank_mixed_trials(mixed_trials)
-
-        # Merge the lists with inclusion-only trials first, followed by mixed trials
-        final_ranked_trials = [{'nct_id': nct_id, 'score': score, 'inclusion_count': inc_count, 'exclusion_count': 0} for nct_id, score, inc_count in ranked_inclusion_only] + \
-                              [{'nct_id': nct_id, 'score': score, 'inclusion_count': inc_count, 'exclusion_count': exc_count} for nct_id, score, inc_count, exc_count in ranked_mixed]
-
-        logger.info("Final ranked trials: %d", len(final_ranked_trials))
-        return final_ranked_trials
-
 
 if __name__ == "__main__":
     inclusion_pickle_path = 'inclusion.pkl'

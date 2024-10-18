@@ -19,20 +19,43 @@ def parse_xml(xml_file):
     data['completion_date'] = root.findtext('completion_date')
     data['phase'] = root.findtext('phase')
     data['study_type'] = root.findtext('study_type')
-    data['condition'] = root.findtext('condition')
-    data['intervention'] = { 'intervention_type': root.findtext('intervention/intervention_type'), 'intervention_name': root.findtext('intervention/intervention_name') }
+
+    # Handle multiple conditions
+    data['condition'] = [cond.text for cond in root.findall('condition')]
+
+    # Handle multiple interventions
+    data['intervention'] = []
+    for intervention in root.findall('intervention'):
+        data['intervention'].append({
+            'intervention_type': intervention.findtext('intervention_type'),
+            'intervention_name': intervention.findtext('intervention_name')
+        })
+
     data['gender'] = root.findtext('eligibility/gender')
     data['minimum_age'] = root.findtext('eligibility/minimum_age')
     data['maximum_age'] = root.findtext('eligibility/maximum_age')
-    city = root.findtext('location/facility/address/city')
-    state = root.findtext('location/facility/address/state')
-    country = root.findtext('location/facility/address/country')
 
-    data['location'] = {
-        'location_name': root.findtext('location/facility/name'),
-        'location_address': ', '.join(filter(None, [city, state, country]))
-    }
-    data['reference'] = [{'citation': ref.findtext('citation'), 'PMID': ref.findtext('PMID')} for ref in root.findall('reference')]
+    # Handle multiple locations
+    data['location'] = []
+    for location in root.findall('location'):
+        city = location.findtext('facility/address/city')
+        state = location.findtext('facility/address/state')
+        country = location.findtext('facility/address/country')
+        location_name = location.findtext('facility/name')
+        location_address = ', '.join(filter(None, [city, state, country]))
+        data['location'].append({
+            'location_name': location_name,
+            'location_address': location_address
+        })
+
+    # Handle multiple references
+    data['reference'] = []
+    for ref in root.findall('reference'):
+        data['reference'].append({
+            'citation': ref.findtext('citation'),
+            'PMID': ref.findtext('PMID')
+        })
+
     return data
 
 def convert_to_json(data):

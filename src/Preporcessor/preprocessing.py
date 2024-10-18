@@ -62,6 +62,6 @@ if __name__ == "__main__":
             file_name, file_extension = os.path.splitext(file)
             file_names.append(file_name)
     nct_ids = file_names
-    n_jobs = 50
+    n_jobs = 100
     preprocessor = Preprocessor(nct_ids, n_jobs)
     preprocessor.preprocess_clinical_trials_text()

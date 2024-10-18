@@ -1,0 +1,111 @@
+{
+  "mappings": {
+    "properties": {
+      "brief_summary": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "brief_title": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "completion_date": {
+        "type": "date",
+        "format": "yyyy-MM-dd"
+      },
+      "condition": {
+        "type": "keyword"
+      },
+      "condition_vector": {
+        "type": "dense_vector",
+        "dims": 1024,
+        "index": true,
+        "similarity": "cosine"
+      },
+      "detailed_description": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "gender": {
+        "type": "keyword"
+      },
+      "intervention": {
+        "properties": {
+          "intervention_name": {
+            "type": "text"
+          },
+          "intervention_type": {
+            "type": "keyword"
+          }
+        }
+      },
+      "location": {
+        "properties": {
+          "location_address": {
+            "type": "text"
+          },
+          "location_name": {
+            "type": "text"
+          }
+        }
+      },
+      "maximum_age": {
+        "type": "keyword"
+      },
+      "minimum_age": {
+        "type": "keyword"
+      },
+      "nct_id": {
+        "type": "keyword"
+      },
+      "official_title": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "overall_status": {
+        "type": "keyword"
+      },
+      "phase": {
+        "type": "keyword"
+      },
+      "reference": {
+        "type": "nested",
+        "properties": {
+          "PMID": {
+            "type": "keyword"
+          },
+          "citation": {
+            "type": "text"
+          }
+        }
+      },
+      "start_date": {
+        "type": "date",
+        "format": "yyyy-MM-dd"
+      },
+      "study_type": {
+        "type": "keyword"
+      }
+    }
+  }
+}

@@ -4,33 +4,22 @@ import json
 import unicodedata
 import re
 import warnings
+import string
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
+import tempfile
 from biomedner_engine import BioMedNER
 import gc
-import warnings
-import string
 
 warnings.filterwarnings("ignore", message="The sentencepiece tokenizer that you are converting to a fast tokenizer uses the byte fallback option which is not implemented in the fast tokenizers.")
-warnings.filterwarnings("ignore", message="`resume_download` is deprecated and will be removed in version 1.0.0.")
+warnings.filterwarnings("ignore", message="resume_download is deprecated and will be removed in version 1.0.0.")
 warnings.filterwarnings("ignore", message="TypedStorage is deprecated. It will be removed in the future and UntypedStorage will be the only storage class.")
 
 # Filepaths
-INPUT_FILEPATH = '../../data/preprocessed_data'
-OUTPUT_FILEPATH_CT = '../../data/parsed_trials/'
+BASE_INPUT_FILEPATH = os.path.join(os.path.dirname(__file__), '../../data/preprocessed_data')
+BASE_OUTPUT_FILEPATH_CT = os.path.join(os.path.dirname(__file__), '../../data/parsed_trials/')
+BASE_TMP_SUPERDIR = os.path.join(os.path.dirname(__file__), 'tmp')
 
-biomedner = BioMedNER(
-    max_word_len=50,
-    seed=2019,
-    gene_norm_port=18888,
-    disease_norm_port=18892,
-    biomedner_home=".",
-    biomedner_host="localhost",
-    biomedner_port=18894,
-    gner_host="localhost",
-    gner_port=18783,
-    time_format='[%d/%b/%Y %H:%M:%S.%f]',
-    use_neural_normalizer=True,
-    no_cuda=False,
-)
 def replace_unicode_symbols(text):
     def unicode_to_readable(match):
         char = match.group(0)
@@ -43,12 +32,10 @@ def replace_unicode_symbols(text):
     return re.sub(r'[\u0080-\uFFFF]', unicode_to_readable, text)
 
 def count_sentence_ending_fullstops(text):
-    # Regular expression to match sentence-ending full stops
     sentence_endings = re.compile(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!) ')
     return len(sentence_endings.findall(text))
 
 def split_text_into_sentences(text):
-    # Regular expression to split text on sentence-ending punctuation
     sentence_endings = re.compile(r'(?<=[.!?]) +')
     sentences = sentence_endings.split(text)
     return sentences
@@ -74,39 +61,42 @@ def process_dataframe(df, text_column):
     return new_df
 
 class EntityRecognizer:
-    def __init__(self, id_list, data_source="clinical trials"):
+    def __init__(self, id_list, biomedner_params, data_source="clinical trials"):
         self.id_list = id_list
+        self.biomedner_params = biomedner_params
         self.data_source = data_source
 
     def data_loader(self, id_list):
         for idx in id_list:
             if self.data_source == "clinical trials":
-                file_path = os.path.join(INPUT_FILEPATH, "clinical_trials", f"{idx}_preprocessed.csv")
+                file_path = os.path.join(BASE_INPUT_FILEPATH, "clinical_trials", f"{idx}_preprocessed.csv")
                 if os.path.exists(file_path):
                     df = pd.read_csv(file_path)
-                    yield df
+                    yield idx, df
             elif self.data_source == "patient":
-                file_path = os.path.join(INPUT_FILEPATH, "patient", f"{idx}_preprocessed.csv")
+                file_path = os.path.join(BASE_INPUT_FILEPATH, "patient", f"{idx}_preprocessed.csv")
                 if os.path.exists(file_path):
                     df = pd.read_csv(file_path)
-                    yield df
+                    yield idx, df
             else:
                 warnings.warn("Unexpected data source encountered. Please choose between 'clinical trials' or 'patient'", UserWarning)
 
     def clean_entity(self, entity):
-        # Remove unnecessary white space and punctuation
-        entity = entity.strip()  # Remove leading/trailing white space
-        entity = re.sub(r'\s+', ' ', entity)  # Replace multiple spaces with a single space
-        entity = entity.translate(str.maketrans('', '', string.punctuation))  # Remove punctuation
-        entity = re.sub(r'[\(\)\[\]\{\}]', '', entity)  # Remove brackets
+        entity = entity.strip()
+        entity = re.sub(r'\s+', ' ', entity)
+        entity = entity.translate(str.maketrans('', '', string.punctuation))
+        entity = re.sub(r'[\(\)\[\]\{\}]', '', entity)
         return entity
 
-    def recognize_entities(self, df):
-        print(f"Now Processing {df['id'].iloc[0]}")
+    def recognize_entities(self, idx, df, biomedner):
+        if df.empty:
+            print(f"Dataframe {idx} is empty. Skipping.")
+            return None
+
+        print(f"Now Processing {idx}")
         df = df.dropna()
-        df = df.rename(columns={"Unnamed: 0": "index"})
-        df = df.loc[df['index'] != 0]
         df = process_dataframe(df, "sentence")
+        print(f"Processed dataframe for {idx}: {df.shape[0]} sentences")
         criteria_list = []
         trans_table = str.maketrans(
             {
@@ -116,11 +106,16 @@ class EntityRecognizer:
         df["sentence"] = df["sentence"].apply(lambda x: x.translate(trans_table))
         df["sentence"] = df["sentence"].apply(replace_unicode_symbols)
 
-        # Convert sentences to a list
         sentences = df["sentence"].tolist()
+        if not sentences:
+            print(f"No sentences to process for {idx}. Skipping.")
+            return None
 
-        # Annotate sentences in parallel
-        annotated_sentences = biomedner.annotate_texts_in_parallel(sentences, max_workers=5)
+        print(f"Annotating {len(sentences)} sentences for {idx}")
+        annotated_sentences = biomedner.annotate_texts_in_parallel(sentences, max_workers=15)
+        if not annotated_sentences:
+            print(f"No annotated sentences returned for {idx}. Skipping.")
+            return None
 
         df["entities"] = [entities for entities in annotated_sentences]
         
@@ -134,37 +129,91 @@ class EntityRecognizer:
                     for key in ["start", "end", "score"]:
                         e.pop(key, None)
             criteria_list.append({"criterion": sentence, "entities": entities, "type": row["criteria"]})
-        trial_json = {"nct_id": df["id"].iloc[0], "criteria": criteria_list}
+        trial_json = {"nct_id": idx, "criteria": criteria_list}
         del df
-        gc.collect()
         return trial_json
 
     def save_json_output(self, dict, output_filepath):
         with open(output_filepath, 'w') as f:
             json.dump(dict, f, indent=4)
 
-    def __call__(self):
-        for df in self.data_loader(self.id_list):
-            output_filepath = OUTPUT_FILEPATH_CT + df["id"].iloc[0] + ".json"
-            if os.path.exists(output_filepath):
-                print(f"File {df['id'].iloc[0]} already exists. Skipping...")
-                continue
+    def process_single_file(self, idx, df, biomedner_params):
+        # Check if the output file already exists
+        output_filepath = os.path.join(BASE_OUTPUT_FILEPATH_CT, f"{idx}.json")
+        if os.path.exists(output_filepath):
+            print(f"File {idx} already exists. Skipping...")
+            return
+
+        # Create the temporary super-directory if it doesn't exist
+        os.makedirs(BASE_TMP_SUPERDIR, exist_ok=True)
+
+        with tempfile.TemporaryDirectory(dir=BASE_TMP_SUPERDIR) as temp_dir:
+            biomedner_home = temp_dir  # Set the biomedner_home to the temporary directory
+
+            print(f"Processing {idx} with temporary directory {biomedner_home}")
+            biomedner = BioMedNER(**biomedner_params, biomedner_home=biomedner_home)  # Initialize with the temporary biomedner_home
+            
+            result_json = self.recognize_entities(idx, df, biomedner)
+            if result_json:
+                self.save_json_output(result_json, output_filepath)
+                print(f"Saved {output_filepath}")
             else:
-                result_json = self.recognize_entities(df)
-                if self.data_source == "clinical trials":
-                    self.save_json_output(result_json, output_filepath)
-            del df
+                print(f"No valid results for {idx}. Skipping.")
+                
+            del biomedner
             gc.collect()
 
+    def __call__(self):
+        # Filter out already processed files
+        unprocessed_ids = []
+        skipped_files = []
+        for idx in self.id_list:
+            output_filepath = os.path.join(BASE_OUTPUT_FILEPATH_CT, f"{idx}.json")
+            if os.path.exists(output_filepath):
+                skipped_files.append(idx)
+            else:
+                unprocessed_ids.append(idx)
+        
+        # Print skipped files
+        print(f"Skipped files: {skipped_files}")
+
+        with ProcessPoolExecutor(max_workers=2, mp_context=multiprocessing.get_context('spawn')) as executor:
+            futures = [
+                executor.submit(self.process_single_file, idx, df, self.biomedner_params)
+                for idx, df in self.data_loader(unprocessed_ids)
+            ]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as exc:
+                    print(f'Generated an exception: {exc}')
+
 if __name__ == "__main__":
+    multiprocessing.set_start_method('spawn')
+
     # Load the list of NCT IDs
-    folder_path = '/home/mabdallah/TrialMatchAI/data/trials_xmls' 
+    folder_path = '../../data/trials_xmls' 
     file_names = []
-    # List all files in the folder
     for file in os.listdir(folder_path):
         if os.path.isfile(os.path.join(folder_path, file)):
             file_name, file_extension = os.path.splitext(file)
             file_names.append(file_name)
     nct_ids = file_names
-    reco = EntityRecognizer(id_list=nct_ids, data_source="clinical trials")
-    entities = reco()
+
+    # Define BioMedNER parameters
+    biomedner_params = {
+        'max_word_len': 50,
+        'seed': 2019,
+        'gene_norm_port': 18888,
+        'disease_norm_port': 18892,
+        'biomedner_host': "localhost",
+        'biomedner_port': 18894,
+        'gner_host': "localhost",
+        'gner_port': 18783,
+        'time_format': '[%d/%b/%Y %H:%M:%S.%f]',
+        'use_neural_normalizer': True,
+        'no_cuda': False,
+    }
+
+    reco = EntityRecognizer(id_list=nct_ids, biomedner_params=biomedner_params, data_source="clinical trials")
+    reco()

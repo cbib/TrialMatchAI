@@ -4,7 +4,7 @@ import time
 import socket
 import threading
 import spacy
-
+from concurrent.futures import ThreadPoolExecutor
 from normalizers.neural_normalizer import NeuralNormalizer
 from normalizers.normalizer_all import CellTypeNormalizer, ProcedureNormalizer, ChemicalNormalizer, SpeciesNormalizer, CellLineNormalizer
 
@@ -12,10 +12,7 @@ time_format = '[%d/%b/%Y %H:%M:%S.%f]'
 
 class Normalizer:
     def __init__(self, use_neural_normalizer, gene_port=18888, disease_port=18892, no_cuda=False, nlp=None):
-        # Load SpaCy model once
         self.nlp = nlp
-
-        # Normalizer paths
         self.BASE_DIR = 'resources/normalization/'
         self.NORM_INPUT_DIR = {
             'disease': os.path.join(self.BASE_DIR, 'inputs/disease'),
@@ -35,9 +32,6 @@ class Normalizer:
             'procedure': os.path.join(self.BASE_DIR, 'dictionary/dict_Procedures.txt')  
         }
 
-        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Loading dictionaries...')
-
-        # checkpoint on huggingface hub
         self.NEURAL_NORM_MODEL_PATH = {
             'disease': 'dmis-lab/biosyn-sapbert-bc5cdr-disease',
             'drug': 'dmis-lab/biosyn-sapbert-bc5cdr-chemical',
@@ -51,59 +45,48 @@ class Normalizer:
 
         self.NORM_MODEL_VERSION = 'dmis ne norm v.20220226'
         self.HOST = '127.0.0.1'
-
-        # normalizer port
         self.GENE_PORT = gene_port
         self.DISEASE_PORT = disease_port
-
         self.NO_ENTITY_ID = 'CUI-less'
+        self.use_neural_normalizer = use_neural_normalizer
 
-        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Initializing chemical normalizer...')
-        self.chemical_normalizer = ChemicalNormalizer(self.NORM_DICT_PATH['drug'], self.nlp)
-        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Chemical normalizer initialized.')
+        self.chemical_normalizer = None
+        self.species_normalizer = None
+        self.cellline_normalizer = None
+        self.celltype_normalizer = None
+        self.procedure_normalizer = None
 
-        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Initializing species normalizer...')
-        self.species_normalizer = SpeciesNormalizer(self.NORM_DICT_PATH['species'])
-        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Species normalizer initialized.')
-
-        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Initializing cell line normalizer...')
-        self.cellline_normalizer = CellLineNormalizer(self.NORM_DICT_PATH['cell line'])
-        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Cell line normalizer initialized.')
-
-        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Initializing cell type normalizer...')
-        self.celltype_normalizer = CellTypeNormalizer(self.NORM_DICT_PATH['cell type'], self.nlp)
-        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Cell type normalizer initialized.')
-
-        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Initializing procedure normalizer...')
-        self.procedure_normalizer = ProcedureNormalizer(self.NORM_DICT_PATH['procedure'], self.nlp)
-        print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Procedure normalizer initialized.')
-        
-        # neural normalizer
         self.neural_disease_normalizer = None
         self.neural_chemical_normalizer = None
         self.neural_gene_normalizer = None
-        self.use_neural_normalizer = use_neural_normalizer
+
+        # Load normalizers concurrently
+        with ThreadPoolExecutor() as executor:
+            future_dict = {
+                'chemical': executor.submit(ChemicalNormalizer, self.NORM_DICT_PATH['drug'], self.nlp),
+                'species': executor.submit(SpeciesNormalizer, self.NORM_DICT_PATH['species']),
+                'cellline': executor.submit(CellLineNormalizer, self.NORM_DICT_PATH['cell line']),
+                'celltype': executor.submit(CellTypeNormalizer, self.NORM_DICT_PATH['cell type'], self.nlp),
+                'procedure': executor.submit(ProcedureNormalizer, self.NORM_DICT_PATH['procedure'], self.nlp),
+            }
+
+            self.chemical_normalizer = future_dict['chemical'].result()
+            self.species_normalizer = future_dict['species'].result()
+            self.cellline_normalizer = future_dict['cellline'].result()
+            self.celltype_normalizer = future_dict['celltype'].result()
+            self.procedure_normalizer = future_dict['procedure'].result()
 
         if self.use_neural_normalizer:
-            print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Initializing neural normalizers...')
-            self.neural_disease_normalizer = NeuralNormalizer(
-                model_name_or_path=self.NEURAL_NORM_MODEL_PATH['disease'],
-                cache_path=self.NEURAL_NORM_CACHE_PATH['disease'],
-                no_cuda=no_cuda,
-            )
-            self.neural_chemical_normalizer = NeuralNormalizer(
-                model_name_or_path=self.NEURAL_NORM_MODEL_PATH['drug'],
-                cache_path=self.NEURAL_NORM_CACHE_PATH['drug'],
-                no_cuda=no_cuda,
-            )
-            self.neural_gene_normalizer = NeuralNormalizer(
-                model_name_or_path=self.NEURAL_NORM_MODEL_PATH['gene'],
-                cache_path=self.NEURAL_NORM_CACHE_PATH['gene'],
-                no_cuda=no_cuda,
-            )
-            print(datetime.now().strftime('[%d/%b/%Y %H:%M:%S.%f]'), 'Neural normalizers initialized.')
+            with ThreadPoolExecutor() as executor:
+                future_dict = {
+                    'neural_disease': executor.submit(NeuralNormalizer, model_name_or_path=self.NEURAL_NORM_MODEL_PATH['disease'], cache_path=self.NEURAL_NORM_CACHE_PATH['disease'], no_cuda=no_cuda),
+                    'neural_chemical': executor.submit(NeuralNormalizer, model_name_or_path=self.NEURAL_NORM_MODEL_PATH['drug'], cache_path=self.NEURAL_NORM_CACHE_PATH['drug'], no_cuda=no_cuda),
+                    'neural_gene': executor.submit(NeuralNormalizer, model_name_or_path=self.NEURAL_NORM_MODEL_PATH['gene'], cache_path=self.NEURAL_NORM_CACHE_PATH['gene'], no_cuda=no_cuda),
+                }
+                self.neural_disease_normalizer = future_dict['neural_disease'].result()
+                self.neural_chemical_normalizer = future_dict['neural_chemical'].result()
+                self.neural_gene_normalizer = future_dict['neural_gene'].result()
 
-            
     def normalize(self, base_name, doc_dict_list):
         start_time = time.time()
 
@@ -113,70 +96,42 @@ class Normalizer:
         abs_cnt = 0
 
         for item in doc_dict_list:
-            # Get json values
             content = item['abstract']
-            # pmid = item['pmid']
             entities = item['entities']
 
             abs_cnt += 1
 
-            # Iterate entities per abstract
             for ent_type, locs in entities.items():
                 ent_cnt += len(locs)
                 for loc in locs:
-
                     loc['end'] += 1
-
-                    if ent_type == 'mutation':
-                        name = content[loc['start']:loc['end']]
-                        # if ';' in name:
-                        #     name = name.split(';')[0]
-                    else:
-                        name = content[loc['start']:loc['end']]
-
+                    name = content[loc['start']:loc['end']]
                     if ent_type in names:
                         names[ent_type].append([name, len(saved_items)])
                     else:
                         names[ent_type] = [[name, len(saved_items)]]
 
-            # Work as pointer
             item['norm_model'] = self.NORM_MODEL_VERSION
             saved_items.append(item)
 
-        # For each entity,
-        # 1. Write as input files to normalizers
-        # 2. Run normalizers
-        # 3. Read output files of normalizers
-        # 4. Remove files
-        # 5. Return oids
-
-        # Threading
         results = list()
-        threads = list()
-        for ent_type in names.keys():
-            t = threading.Thread(target=self.run_normalizers_wrap,
-                                 args=(ent_type, base_name, names, saved_items, results))
-            t.daemon = True
-            t.start()
-            threads.append(t)
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for ent_type in names.keys():
+                futures.append(executor.submit(self.run_normalizers_wrap, ent_type, base_name, names, saved_items, results))
+            for future in futures:
+                future.result()
 
-        # block until all tasks are done
-        for t in threads:
-            t.join()
-        # Save oids
         for ent_type, type_oids in results:
             oid_cnt = 0
             for saved_item in saved_items:
                 for loc in saved_item['entities'][ent_type]:
-
-                    # Put oid
                     loc['id'] = type_oids[oid_cnt]
                     loc['is_neural_normalized'] = False
                     oid_cnt += 1
 
         return saved_items
 
-    # normalize using neural model
     def neural_normalize(self, ent_type, tagged_docs):
         abstract = tagged_docs[0]['abstract']
         entities = tagged_docs[0]['entities'][ent_type]
@@ -189,19 +144,13 @@ class Normalizer:
         
         if len(cuiless_entity_names) == 0:
             return tagged_docs
-        # print(f"# cui-less in {ent_type}={len(cuiless_entity_names)}")
+
         if ent_type == 'disease':
-            norm_entities = self.neural_disease_normalizer.normalize(
-                names=cuiless_entity_names, 
-            )
+            norm_entities = self.neural_disease_normalizer.normalize(names=cuiless_entity_names)
         elif ent_type == 'drug':
-            norm_entities = self.neural_chemical_normalizer.normalize(
-                names=cuiless_entity_names, 
-            )
+            norm_entities = self.neural_chemical_normalizer.normalize(names=cuiless_entity_names)
         elif ent_type == 'gene':
-            norm_entities = self.neural_gene_normalizer.normalize(
-                names=cuiless_entity_names, 
-            )
+            norm_entities = self.neural_gene_normalizer.normalize(names=cuiless_entity_names)
         
         cuiless_entity2norm_entities = {c:n for c, n in zip(cuiless_entity_names,norm_entities)}
         for entity, entity_name in zip(entities, entity_names):
@@ -215,8 +164,7 @@ class Normalizer:
         return tagged_docs
 
     def run_normalizers_wrap(self, ent_type, base_name, names, saved_items, results):
-        results.append((ent_type,
-                        self.run_normalizer(ent_type, base_name, names, saved_items)))
+        results.append((ent_type, self.run_normalizer(ent_type, base_name, names, saved_items)))
 
     def run_normalizer(self, ent_type, base_name, names, saved_items):
         start_time = time.time()
@@ -228,23 +176,15 @@ class Normalizer:
         input_filename = base_thread_name + '.concept'
         output_filename = base_thread_name + '.oid'
 
-        # print(f'ent_type = {ent_type}')
-
-        # call sieve normalizer
         if ent_type == 'disease':
-            # 1. Write as input files to normalizers
-            norm_inp_path = os.path.join(self.NORM_INPUT_DIR[ent_type],
-                                         input_filename)
-            norm_abs_path = os.path.join(self.NORM_INPUT_DIR[ent_type],
-                                         base_thread_name + '.txt')
+            norm_inp_path = os.path.join(self.NORM_INPUT_DIR[ent_type], input_filename)
+            norm_abs_path = os.path.join(self.NORM_INPUT_DIR[ent_type], base_thread_name + '.txt')
             with open(norm_inp_path, 'w') as norm_inp_f:
                 for name, _ in name_ptr:
                     norm_inp_f.write(name + '\n')
-            # created for disease normalizer
             with open(norm_abs_path, 'w') as _:
                 pass
 
-            # 2. Run normalizers
             s = socket.socket()
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             try:
@@ -252,40 +192,29 @@ class Normalizer:
                 s.send('{}'.format(base_thread_name).encode('utf-8'))
                 s.recv(bufsize)
             except ConnectionRefusedError as cre:
-                # print('Check Sieve jar', cre)
                 os.remove(norm_inp_path)
                 os.remove(norm_abs_path)
                 s.close()
                 return oids
             s.close()
 
-            # 3. Read output files of normalizers
-            norm_out_path = os.path.join(self.NORM_OUTPUT_DIR[ent_type],
-                                         output_filename)
+            norm_out_path = os.path.join(self.NORM_OUTPUT_DIR[ent_type], output_filename)
             if os.path.exists(norm_out_path):
                 with open(norm_out_path, 'r') as norm_out_f:
                     for line in norm_out_f:
                         oid = line[:-1]
-                        if oid != self.NO_ENTITY_ID: 
-                            oids.append(oid)
-                        else:
-                            oids.append(self.NO_ENTITY_ID)
+                        oids.append(oid if oid != self.NO_ENTITY_ID else self.NO_ENTITY_ID)
                 os.remove(norm_out_path)
             else:
-                # print('Not found!!!', norm_out_path)
-
-                # Sad error handling
                 for _ in range(len(name_ptr)):
                     oids.append(self.NO_ENTITY_ID)
 
         elif ent_type == 'drug':
             names = [ptr[0] for ptr in name_ptr]
             preds = self.chemical_normalizer.normalize(names)
-            for pred in preds:
-                oids.append(pred)            
+            oids.extend(preds)
 
         elif ent_type == 'mutation':
-            # pass because tmVar does mutation normalization
             pass
 
         elif ent_type == 'species':
@@ -294,8 +223,6 @@ class Normalizer:
             for pred in preds:
                 if pred != self.NO_ENTITY_ID:
                     pred = int(pred) // 100
-                    # https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=10095
-                    # "... please use NCBI:txid10095 ..."
                     oids.append('NCBI:txid{}'.format(pred))
                 else:
                     oids.append(self.NO_ENTITY_ID)
@@ -303,140 +230,73 @@ class Normalizer:
         elif ent_type == 'cell line':
             names = [ptr[0] for ptr in name_ptr]
             preds = self.cellline_normalizer.normalize(names)
-            for pred in preds:
-                if pred != self.NO_ENTITY_ID:
-                    oids.append(pred)
-                else:
-                    oids.append(self.NO_ENTITY_ID)
+            oids.extend(preds)
 
         elif ent_type == 'cell type':
             names = [ptr[0] for ptr in name_ptr]
             preds = self.celltype_normalizer.normalize(names)
-            for pred in preds:
-                if pred != self.NO_ENTITY_ID:
-                    oids.append(pred)
-                else:
-                    oids.append(self.NO_ENTITY_ID)
+            oids.extend(preds)
 
-        # call GNormPlus
         elif ent_type == 'gene':
-            # create socket
-            # s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s = socket.socket()
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             try:
                 s.connect((self.HOST, self.GENE_PORT))
             except ConnectionRefusedError as cre:
-                # print('Check GNormPlus jar', cre)
                 s.close()
                 return oids
 
-            # 1. Write as input files to normalizers
-            norm_inp_path = os.path.join(self.NORM_INPUT_DIR[ent_type],
-                                         input_filename)
-            norm_abs_path = os.path.join(self.NORM_INPUT_DIR[ent_type],
-                                         base_thread_name + '.txt')
+            norm_inp_path = os.path.join(self.NORM_INPUT_DIR[ent_type], input_filename)
+            norm_abs_path = os.path.join(self.NORM_INPUT_DIR[ent_type], base_thread_name + '.txt')
 
             space_type = ' ' + ent_type
-            with open(norm_inp_path, 'w') as norm_inp_f:
-                with open(norm_abs_path, 'w') as norm_abs_f:
-                    for saved_item in saved_items:
-                        entities = saved_item['entities'][ent_type]
-                        if len(entities) == 0:
-                            continue
+            with open(norm_inp_path, 'w') as norm_inp_f, open(norm_abs_path, 'w') as norm_abs_f:
+                for saved_item in saved_items:
+                    entities = saved_item['entities'][ent_type]
+                    if len(entities) == 0:
+                        continue
 
-                        abstract_title = saved_item['abstract']
+                    abstract_title = saved_item['abstract']
+                    ent_names = [abstract_title[loc['start']:loc['end']] for loc in entities]
 
-                        ent_names = list()
-                        for loc in entities:
-                            e_name = abstract_title[loc['start']:loc['end']]
-                            if len(e_name) > len(space_type) \
-                                    and space_type \
-                                    in e_name.lower()[-len(space_type):]:
-                                # print('Replace', e_name,
-                                #       'w/', e_name[:-len(space_type)])
-                                e_name = e_name[:-len(space_type)]
+                    norm_abs_f.write(saved_item['pmid'] + '||' + abstract_title + '\n')
+                    norm_inp_f.write('||'.join(ent_names) + '\n')
 
-                            ent_names.append(e_name)
-                        norm_abs_f.write(saved_item['pmid'] + '||' +
-                                         abstract_title + '\n')
-                        norm_inp_f.write('||'.join(ent_names) + '\n')
+            gene_input_dir = os.path.abspath(self.NORM_INPUT_DIR[ent_type])
+            gene_output_dir = os.path.abspath(self.NORM_OUTPUT_DIR[ent_type])
+            setup_dir = self.NORM_DICT_PATH[ent_type]
 
-            # 2. Run normalizers
-            gene_input_dir = os.path.abspath(
-                os.path.join(self.NORM_INPUT_DIR[ent_type]))
-            gene_output_dir = os.path.abspath(
-                os.path.join(self.NORM_OUTPUT_DIR[ent_type]))
-            setup_dir = self.NORM_DICT_PATH[ent_type] # setup.txt
-
-            # start jar
-            jar_args = '\t'.join(
-                [gene_input_dir, gene_output_dir, setup_dir, '9606',  # human
-                 base_thread_name]) + '\n'
+            jar_args = '\t'.join([gene_input_dir, gene_output_dir, setup_dir, '9606', base_thread_name]) + '\n'
             s.send(jar_args.encode('utf-8'))
-            # input_stream = struct.pack('>H', len(jar_args)) + jar_args.encode('utf-8')
-            # s.send(input_stream)
             s.recv(bufsize)
             s.close()
 
-            # 3. Read output files of normalizers
             norm_out_path = os.path.join(gene_output_dir, output_filename)
             if os.path.exists(norm_out_path):
-                with open(norm_out_path, 'r') as norm_out_f, \
-                        open(norm_inp_path, 'r') as norm_in_f:
+                with open(norm_out_path, 'r') as norm_out_f, open(norm_inp_path, 'r') as norm_in_f:
                     for line, input_l in zip(norm_out_f, norm_in_f):
-                        gene_ids, gene_mentions = line[:-1].split('||'), \
-                                                  input_l[:-1].split('||')
-                        for gene_id, gene_mention in zip(gene_ids,
-                                                         gene_mentions):
-                            eid = None
-                            if gene_id.lower() == 'cui-less':
-                                eid = self.NO_ENTITY_ID
-                            else:
-                                bar_idx = gene_id.find('-')
-                                if bar_idx > -1:
-                                    gene_id = gene_id[:bar_idx]
-                                eid = gene_id
-                                eid = "EntrezGene:" + eid
-                            
+                        gene_ids, gene_mentions = line[:-1].split('||'), input_l[:-1].split('||')
+                        for gene_id, gene_mention in zip(gene_ids, gene_mentions):
+                            eid = "EntrezGene:" + gene_id if gene_id.lower() != 'cui-less' else self.NO_ENTITY_ID
                             oids.append(eid)
 
-                # 5. Remove output files
                 os.remove(norm_out_path)
             else:
-                # print('Not found!!!', norm_out_path)
-
-                # Sad error handling
                 for _ in range(len(name_ptr)):
                     oids.append(self.NO_ENTITY_ID)
 
-            # 4. Remove input files
             os.remove(norm_inp_path)
             os.remove(norm_abs_path)
         
-        elif ent_type == 'diagnostic procedure' or ent_type == 'therapeutic procedure' or ent_type == 'laboratory procedure':
+        elif ent_type in ['diagnostic procedure', 'therapeutic procedure', 'laboratory procedure']:
             names = [ptr[0] for ptr in name_ptr]
             preds = self.procedure_normalizer.normalize(names)
-            for pred in preds:
-                oids.append(pred)
+            oids.extend(preds)
 
         else:
-            # print(f"WARN! {ent_type} is not supported yet")
             names = [ptr[0] for ptr in name_ptr]
-            for name in names:
-                oids.append(self.NO_ENTITY_ID)
+            oids.extend([self.NO_ENTITY_ID] * len(names))
 
-        # 5. Return oids
-        assert len(oids) == len(name_ptr), '{} vs {} in {}'.format(
-            len(oids), len(name_ptr), ent_type)
-
-        # double checking
-        if 0 == len(oids):
-            return oids
-
-        cui_less_count = 0
-        for oid in oids:
-            if self.NO_ENTITY_ID == oid:
-                cui_less_count += 1
+        assert len(oids) == len(name_ptr), '{} vs {} in {}'.format(len(oids), len(name_ptr), ent_type)
 
         return oids

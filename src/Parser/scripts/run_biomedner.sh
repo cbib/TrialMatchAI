@@ -12,12 +12,10 @@ fi
 # run neural NER
 nohup python biomedner_server.py \
     --model_name_or_path models/biomedner_multi \
-    --biomedner_home . \
     --biomedner_port 18894 >> logs/nohup_multi_ner.out 2>&1 &
 
 nohup python gner_server.py \
-    --model_name_or_path urchade/gliner_large-v2.1 \
-    --gner_home .\
+    --model_name_or_path gliner-community/gliner_medium-v2.5 \
     --gner_port 18783 >> logs/nohup_gner.out 2>&1 &
 
 

@@ -24,3 +24,7 @@ src/Parser/input/*
 src/Parser/output/*
 **/__pycache__/
 **/.ipynb_checkpoints/
+src/Parser/tmp/
+src/Matcher/finetuned_gemma
+src/Matcher/gemma_finetuned_2
+src/Matcher/finetuned_reranker

@@ -376,6 +376,8 @@ def pubtator2dict_list(pubtator_file_path):
             doc_line_num += 1
     return dict_list
 
+
+
 def preprocess(text):
     text = text.replace('\r ', ' ')
 

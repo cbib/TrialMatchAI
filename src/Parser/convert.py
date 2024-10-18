@@ -153,7 +153,7 @@ def pubtator2pubannotation(pubtator):
 
             doc_dict = {
                 'text': title + ' ' + abstract_text,
-                'project': 'BERN',
+                'project': 'biomedner',
                 'sourcedb': 'PubMed',
                 'sourceid': title_pmid,
                 'annotations': copy.deepcopy(entities),
@@ -260,18 +260,18 @@ def get_bestplus_spans(mutations, title_space_abstract):
 # Ref.
 # http://pubannotation.org/docs/sourcedb/PubMed/sourceid/10022882/spans/606-710/annotations.json
 # http://www.pubannotation.org/docs/annotation-format/
-def get_pub_annotation(bern_dict):
-    sourceid = bern_dict['pmid']
+def get_pub_annotation(biomedner_dict):
+    sourceid = biomedner_dict['pmid']
 
     sourcedb = ''
-    text = bern_dict['abstract']
+    text = biomedner_dict['abstract']
 
     pa_dict = {
-        'project': 'BERN',
+        'project': 'TrialMatchAI',
         'sourcedb': sourcedb,
         'sourceid': sourceid,
         'text': text,
-        'annotations': bern2pub_annotation(bern_dict['entities'], bern_dict, text),
+        'annotations': biomedner2pub_annotation(biomedner_dict['entities'], biomedner_dict, text),
         'timestamp': datetime.now(tz=timezone.utc).strftime(
             '%a %b %d %H:%M:%S %z %Y')
     }
@@ -279,7 +279,7 @@ def get_pub_annotation(bern_dict):
     return pa_dict
 
 
-def bern2pub_annotation(entity_dict, bern_dict, text):
+def biomedner2pub_annotation(entity_dict, biomedner_dict, text):
     entity_list = list()
     for etype in entity_dict:
         for entity_idx, entity in enumerate(entity_dict[etype]):
@@ -301,15 +301,15 @@ def bern2pub_annotation(entity_dict, bern_dict, text):
                 eid = [entity['id']]
             
             entity_pa_dict = {}
-            if 'mutation' == etype:
-                assert 'mutationType' in entity \
-                       and 'normalizedName' in entity, \
-                    '{}, entity={}, entity_dict={}'.format(
-                        etype, entity, entity_dict)
+            # if 'mutation' == etype:
+            #     assert 'mutationType' in entity \
+            #            and 'normalizedName' in entity, \
+            #         '{}, entity={}, entity_dict={}'.format(
+            #             etype, entity, entity_dict)
 
-                entity_pa_dict['mutationType'] = entity['mutationType']
-                entity_pa_dict['normalizedName'] = entity['normalizedName']
-                entity['end'] += 1 # tmvar2 end span makes one character shift in mention
+            #     entity_pa_dict['mutationType'] = entity['mutationType']
+            #     entity_pa_dict['normalizedName'] = entity['normalizedName']
+            #     entity['end'] += 1 # tmvar2 end span makes one character shift in mention
 
             entity_pa_dict.update({
                 'id': eid,
@@ -319,7 +319,7 @@ def bern2pub_annotation(entity_dict, bern_dict, text):
                 },
                 'obj': etype,
                 'mention': text[entity['start']:entity['end']],
-                'prob':bern_dict['prob'][etype][entity_idx][1] if etype in bern_dict['prob'] and bern_dict['prob'][etype][entity_idx][1] else None,
+                'prob':biomedner_dict['prob'][etype][entity_idx][1] if etype in biomedner_dict['prob'] and biomedner_dict['prob'][etype][entity_idx][1] else None,
                 'is_neural_normalized': entity['is_neural_normalized'] if 'is_neural_normalized' in entity else False
             })
 
@@ -335,9 +335,9 @@ def bern2pub_annotation(entity_dict, bern_dict, text):
     return sorted(sorted(entity_list, key=get_item_key2), key=get_item_key1)
 
 
-def get_pubtator(bern_dict_list):
+def get_pubtator(biomedner_dict_list):
     result = ''
-    for bd in bern_dict_list:
+    for bd in biomedner_dict_list:
         text = bd['title'] + ' ' + bd['abstract']
 
         main = bd['pmid'] + '|t|' + bd['title'] + '\n' + \
@@ -365,10 +365,10 @@ def get_pubtator(bern_dict_list):
     return result
 
 
-def tmtooljson2bern(tmtool_res):
+def tmtooljson2biomedner(tmtool_res):
     tmtool_dicts = json.loads(tmtool_res)
 
-    bern_dicts = list()
+    biomedner_dicts = list()
 
     for td in tmtool_dicts:
         mutations = list()
@@ -388,6 +388,6 @@ def tmtooljson2bern(tmtool_res):
             'entities': {'mutation': mutations}
         }
 
-        bern_dicts.append(doc_dict)
+        biomedner_dicts.append(doc_dict)
 
-    return bern_dicts
+    return biomedner_dicts
