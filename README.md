@@ -2,7 +2,7 @@
 
 <img src="img/logo.webp" alt="Logo" align="right" width="200" height="200"> 
 
-An AI-driven tool designed to match cancer patients with the most relevant clinical trials. Leveraging state-of-the-art Large Language Models (LLMs), Natural Language Processing (NLP), and Explainable AI (XAI), TrialMatchAI structures trial documentation and patient data to provide transparent, personalized recommendations.
+An AI-driven tool designed to match patients with the most relevant clinical trials. Leveraging state-of-the-art Large Language Models (LLMs), Natural Language Processing (NLP), and Explainable AI (XAI), TrialMatchAI structures trial documentation and patient data to provide transparent, personalized recommendations.
 
 ---
 
@@ -88,7 +88,7 @@ Run the matcher on a sample input directory:
 python -m src.Matcher.main 
 ```
 
-Results are saved under `results/`, with detailed explanations for each recommended trial.
+Results are saved under `results/`, with detailed criterion-level explanations for each recommended trial.
 
 ---
 
