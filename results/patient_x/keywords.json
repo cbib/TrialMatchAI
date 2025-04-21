@@ -1,0 +1,53 @@
+{
+  "main_conditions": [
+    "Myocardial infarction",
+    "Heart attack",
+    "Cardiac infarction",
+    "Type 2 diabetes mellitus",
+    "Diabetes mellitus type 2",
+    "Elevated hepatic transaminase level",
+    "Liver enzyme elevation",
+    "Hypercholesterolemia",
+    "High cholesterol",
+    "Coronary artery disease"
+  ],
+  "other_conditions": [
+    "Recurrent myocardial infarction",
+    "Emergency stenting",
+    "Bypass surgery",
+    "HbA1c levels between 6.5% and 7.2%",
+    "Mild elevation of liver enzymes",
+    "Statin therapy",
+    "Non-alcoholic fatty liver disease",
+    "LDL levels >190 mg/dL",
+    "Lifestyle interventions",
+    "Former smoker",
+    "20 pack-years",
+    "Quit smoking at age 45",
+    "Advanced coronary artery disease",
+    "Multivessel involvement",
+    "Impaired left ventricular function",
+    "Ischemic cardiomyopathy",
+    "Pathological analysis of ischemic damage",
+    "Genetic testing",
+    "Heterozygous LDLR mutation",
+    "Familial hypercholesterolemia",
+    "Atorvastatin treatment",
+    "Metformin treatment",
+    "Coronary Artery Bypass Grafting",
+    "Sudden cardiac death in father",
+    "Father deceased at age 62"
+  ],
+  "expanded_sentences": [
+    "The patient is a 58-year-old male with a complex cardiac history, including multiple myocardial infarctions that required emergency stenting and later bypass surgery.",
+    "He has been managing Type 2 diabetes mellitus with metformin, maintaining his HbA1c levels between 6.5% and 7.2%.",
+    "There is a mild elevation in hepatic transaminase levels, suspected to be secondary to statin therapy or non-alcoholic fatty liver disease.",
+    "Despite lifestyle interventions, his LDL cholesterol levels remain elevated at over 190 mg/dL.",
+    "He has a history of smoking, having smoked 20 pack-years, but quit at age 45.",
+    "The patient has advanced coronary artery disease with multivessel involvement and impaired left ventricular function.",
+    "A tissue biopsy taken during bypass surgery revealed ischemic cardiomyopathy.",
+    "Genetic testing confirmed a heterozygous LDLR mutation consistent with familial hypercholesterolemia.",
+    "He is currently being treated with atorvastatin and metformin.",
+    "His father, who was also male, died suddenly at age 62 from cardiac issues."
+  ]
+}

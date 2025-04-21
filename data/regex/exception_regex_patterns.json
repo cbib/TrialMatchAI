@@ -1,0 +1,105 @@
+{
+    "patterns": {
+        "pattern1": {
+            "regex": "^\\d+\\s$",
+            "comment": "Matches digits followed by a space."
+        },
+        "pattern2": {
+            "regex": "^\\d+(\\.|\\-)\\d+$",
+            "comment": "Matches digits separated by a dot (.) or hyphen (-)."
+        },      
+        "pattern3": {
+            "regex": "^\\d+(\\.\\d+)?\\s?[×x]\\s?\\d+(\\.\\d+)?/?[A-Za-z/]+?$",
+            "comment": "Matches expressions like '3x 2.5mm' or '5.75x2.5mm/s'."
+        },
+        "pattern4": {
+            "regex": "^\\d+/[A-Za-z]$",
+            "comment": "Matches fraction expressions like '2/A' or '5/m'."
+        },
+        "pattern5": {
+            "regex": "^\\d+(\\.\\d+)?%$",
+            "comment": "Matches percentage values like '25%', '3.5%', etc."
+        },
+        "pattern6": {
+            "regex": "^\\d+(\\.\\d+)?\\s*[°°°CFC]$",
+            "comment": "Matches temperature values like '25°C', '3.5°F', etc."
+        },
+        "pattern7": {
+            "regex": "^\\d+[\\/\\^]\\d+[\\/\\^]\\w$",
+            "comment": "Matches expressions like '2/3/m' or '5^2/n'."
+        },
+        "pattern8": {
+            "regex": "\\b\\d+\\b(?![.\\-+*/\\\\()\\[\\]{}])",
+            "comment": "Matches standalone whole numbers that are not part of larger expressions."
+        },
+        "pattern9": {
+            "regex": "\\b\\d+-\\w+\\b",
+            "comment": "Matches expressions like '12-abc' or '5-xyz'."
+        },
+        "pattern10": {
+            "regex": "\\b\\d+\\/\\d+\\b",
+            "comment": "Matches fraction expressions like '2/3' or '5/8'."
+        },
+        "pattern11": {
+            "regex": "\\b\\d+[A-Za-z]+\\b",
+            "comment": "Matches expressions like '25kg' or '10m'."
+        },
+        "pattern12": {
+            "regex": "e.g.",
+            "comment": "Matches 'e.g.' (for example)."
+        },
+        "pattern13": {
+            "regex": "i.e.",
+            "comment": "Matches 'i.e.' (that is)."
+        },
+        "pattern14": {
+            "regex": "\\b\\d+\\.\\d+[A-Za-z]\\b",
+            "comment": "Matches expressions like '3.14pi' or '2.75x'."
+        },
+        "pattern15": {
+            "regex": "\\b\\d+\\/\\w+\\b",
+            "comment": "Matches patterns like '≥ 10/μL', '< 9/cl', '+ 12/hgmm', etc."
+        },
+        "pattern16": {
+            "regex": "\\b\\d+\\.\\d+[)]?",
+            "comment": "Matches patterns like '2.0)', '3.0)', '15.0)', '16.1-', '2.1)', '9.6/'."
+        },
+
+        "pattern17": {
+            "regex": "(?<!\\w)-(?:\\d+|[A-Za-z]+)[A-Za-z0-9,]*(?!\\w)",
+            "comment": "Matches patterns like '-5, -', '-11q23' and so on, allowing optional letters after the hyphen"
+        },        
+
+        "pattern18": {
+            "regex": "(?<=\\{)[^\\}]*\\b\\d+\\.\\d+[)\\]]\\b",
+            "comment": "Matches patterns like '5}', '3.0}', '15}', '16.1}', '2}', '9.6}' within a larger bracketed statement that starts with '{'"
+        },
+
+        "pattern19": {
+            "regex": "\\b\\d+(\\.\\d+)?[),}]",
+            "comment": "Matches patterns like '13],', '1.0},', '5},' and similar patterns"
+        },
+        
+        "pattern20": {
+            "regex": "\\b[a-zA-Z]\\.[a-zA-Z]\\.",
+            "comment": "Matches patterns like 's.c.', 'ab.', 'g.r', '1.a.' etc..."
+        },
+        "pattern21": {
+            "regex": "\\b\\s*\\{[A-Za-z]+\\}\\s*\\b",
+            "comment": "Matches patterns enclosed in braces with spaces allowed around them, ensuring they are recognized as standalone entries within a text."
+        },
+        "pattern22": {
+            "regex": "\\b\\d+[A-Za-z]\\d+[A-Za-z]\\b",
+            "comment": "Matches words with a format of numbers followed by a letter, more numbers, and another letter, like '21L858R', ensuring it is recognized as a standalone word within a text."
+        },
+        "pattern23": {
+            "regex": "\\b\\d+[A-Z]\\d+\\b",
+            "comment": "Matches patterns with a format of numbers followed by an uppercase letter and ending with more numbers, such as '3A4', '2B5', '15C3'."
+        },
+        
+        "pattern24": {
+        "regex": "\\b[A-Z]\\d{2,}\\D+",
+        "comment": "Matches patterns starting with an uppercase letter followed by two or more digits and ensures continuation with non-digit characters, capturing sequences embedded in larger strings like 'E255K' or 'Q520V'."
+        }
+    }
+}

@@ -1,0 +1,343 @@
+{
+  "id": "patient67890",
+  "subject": {
+    "id": "patient67890",
+    "dateOfBirth": "1965-03-22",
+    "sex": "MALE",
+    "karyotypicSex": "XY",
+    "taxonomy": {
+      "id": "NCBITaxon:9606",
+      "label": "Homo sapiens"
+    },
+    "description": "58-year-old male with a complex cardiac history and multiple comorbidities.",
+    "timeAtLastEncounter": {
+      "age": {
+        "iso8601duration": "P58Y1M10D"
+      }
+    }
+  },
+  "phenotypicFeatures": [
+    {
+      "type": {
+        "id": "HP:0001627",
+        "label": "Myocardial infarction"
+      },
+      "onset": {
+        "age": {
+          "iso8601duration": "P55Y"
+        }
+      },
+      "severity": {
+        "id": "HP:0012828",
+        "label": "Severe"
+      },
+      "modifiers": [
+        {
+          "id": "HP:0031796",
+          "label": "Recurrent"
+        }
+      ],
+      "description": "Patient experienced multiple infarctions, requiring emergency stenting and later bypass surgery."
+    },
+    {
+      "type": {
+        "id": "HP:0004322",
+        "label": "Type 2 diabetes mellitus"
+      },
+      "onset": {
+        "age": {
+          "iso8601duration": "P48Y"
+        }
+      },
+      "description": "Diabetes managed with metformin, HbA1c maintained between 6.5% and 7.2%."
+    },
+    {
+      "type": {
+        "id": "HP:0001945",
+        "label": "Elevated hepatic transaminase level"
+      },
+      "onset": {
+        "age": {
+          "iso8601duration": "P50Y"
+        }
+      },
+      "description": "Mild elevation suspected secondary to statin therapy or non-alcoholic fatty liver disease."
+    },
+    {
+      "type": {
+        "id": "HP:0001953",
+        "label": "Hypercholesterolemia"
+      },
+      "onset": {
+        "age": {
+          "iso8601duration": "P45Y"
+        }
+      },
+      "description": "LDL levels >190 mg/dL despite lifestyle interventions."
+    },
+    {
+      "type": {
+        "id": "HP:0030654",
+        "label": "History of smoking"
+      },
+      "onset": {
+        "age": {
+          "iso8601duration": "P20Y"
+        }
+      },
+      "resolution": {
+        "age": {
+          "iso8601duration": "P45Y"
+        }
+      },
+      "description": "Former smoker (20 pack-years), quit at age 45."
+    }
+  ],
+  "diseases": [
+    {
+      "term": {
+        "id": "MONDO:0005066",
+        "label": "Coronary artery disease"
+      },
+      "onset": {
+        "age": {
+          "iso8601duration": "P55Y"
+        }
+      },
+      "diseaseStage": [
+        {
+          "id": "NCIT:C27970",
+          "label": "Stage III"
+        }
+      ],
+      "description": "Advanced CAD with multivessel involvement and impaired left ventricular function."
+    }
+  ],
+  "biosamples": [
+    {
+      "id": "biosample-heart",
+      "individualId": "patient67890",
+      "sampledTissue": {
+        "id": "UBERON:0000948",
+        "label": "heart"
+      },
+      "sampleType": {
+        "id": "NCIT:C13302",
+        "label": "Biopsy specimen"
+      },
+      "timeOfCollection": {
+        "age": {
+          "iso8601duration": "P55Y6M"
+        }
+      },
+      "histologicalDiagnosis": {
+        "id": "NCIT:C7278",
+        "label": "Ischemic cardiomyopathy"
+      },
+      "procedure": {
+        "code": {
+          "id": "NCIT:C51886",
+          "label": "Cardiac Biopsy"
+        }
+      },
+      "description": "Tissue biopsy taken during bypass surgery for pathological analysis of ischemic damage."
+    },
+    {
+      "id": "biosample-blood",
+      "individualId": "patient67890",
+      "sampledTissue": {
+        "id": "UBERON:0000178",
+        "label": "blood"
+      },
+      "sampleType": {
+        "id": "NCIT:C12439",
+        "label": "Normal specimen"
+      },
+      "timeOfCollection": {
+        "age": {
+          "iso8601duration": "P58Y"
+        }
+      },
+      "description": "Peripheral blood collected for genetic analysis and lipid profile."
+    }
+  ],
+  "interpretations": [
+    {
+      "id": "interpretation-1",
+      "description": "Genetic testing confirmed heterozygous LDLR mutation consistent with familial hypercholesterolemia.",
+      "diagnosis": {
+        "disease": {
+          "id": "MONDO:0019391",
+          "label": "Familial hypercholesterolemia"
+        },
+        "genomicInterpretations": [
+          {
+            "variantInterpretation": {
+              "variationDescriptor": {
+                "id": "HGVS:NC_000019.10:g.11200068G>A",
+                "label": "LDLR c.1444G>A",
+                "geneContext": {
+                  "valueId": "HGNC:6547",
+                  "symbol": "LDLR"
+                },
+                "molecularAttributes": {
+                  "aminoAcidChange": {
+                    "value": "p.Asp482Asn"
+                  }
+                }
+              },
+              "therapeuticActionability": {
+                "id": "NCIT:C80153",
+                "label": "Statin sensitivity"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "medicalActions": [
+    {
+      "treatment": {
+        "agent": {
+          "id": "CHEBI:9150",
+          "label": "Atorvastatin"
+        },
+        "routeOfAdministration": {
+          "id": "NCIT:C38288",
+          "label": "Oral"
+        },
+        "doseIntervals": [
+          {
+            "quantity": {
+              "unit": {
+                "id": "UCUM:mg",
+                "label": "milligram"
+              },
+              "value": 40
+            },
+            "scheduleFrequency": {
+              "id": "NCIT:C64575",
+              "label": "Daily"
+            }
+          }
+        ]
+      },
+      "description": "Statin therapy initiated due to elevated LDL and LDLR mutation; continued post-CABG."
+    },
+    {
+      "treatment": {
+        "agent": {
+          "id": "CHEBI:63638",
+          "label": "Metformin"
+        },
+        "doseIntervals": [
+          {
+            "quantity": {
+              "unit": {
+                "id": "UCUM:mg",
+                "label": "milligram"
+              },
+              "value": 500
+            },
+            "scheduleFrequency": {
+              "id": "NCIT:C64575",
+              "label": "Twice Daily"
+            }
+          }
+        ]
+      },
+      "description": "First-line therapy for type 2 diabetes; well-tolerated with good glycemic control."
+    },
+    {
+      "procedure": {
+        "code": {
+          "id": "NCIT:C17107",
+          "label": "Coronary Artery Bypass Grafting"
+        },
+        "performed": "2022-11-15"
+      },
+      "description": "CABG performed after recurrent MI and critical stenosis in three coronary arteries."
+    }
+  ],
+  "family": {
+    "id": "family-001",
+    "proband": {
+      "id": "patient67890"
+    },
+    "relatives": [
+      {
+        "id": "father",
+        "sex": "MALE",
+        "phenotypicFeatures": [
+          {
+            "type": {
+              "id": "HP:0001677",
+              "label": "Sudden cardiac death"
+            },
+            "onset": {
+              "age": {
+                "iso8601duration": "P62Y"
+              }
+            }
+          }
+        ],
+        "vitalStatus": {
+          "status": "DECEASED",
+          "ageAtDeath": {
+            "iso8601duration": "P62Y"
+          }
+        }
+      }
+    ]
+  },
+  "files": [
+    {
+      "uri": "https://example.org/reports/genomics67890.pdf",
+      "fileAttribute": {
+        "attributeType": {
+          "id": "NCIT:C16444",
+          "label": "Genomics Report"
+        }
+      }
+    },
+    {
+      "uri": "https://example.org/reports/cardiac_biopsy.pdf",
+      "fileAttribute": {
+        "attributeType": {
+          "id": "NCIT:C47885",
+          "label": "Pathology Report"
+        }
+      }
+    }
+  ],
+  "metaData": {
+    "created": "2024-12-15T10:45:00Z",
+    "createdBy": "Dr. Patel",
+    "submittedBy": "Cardiology Dept, Metro Medical Center",
+    "resources": [
+      {
+        "id": "hp",
+        "name": "Human Phenotype Ontology",
+        "namespacePrefix": "HP",
+        "url": "http://purl.obolibrary.org/obo/hp.owl",
+        "version": "2023-04-08"
+      },
+      {
+        "id": "mondo",
+        "name": "MONDO Disease Ontology",
+        "namespacePrefix": "MONDO",
+        "url": "http://purl.obolibrary.org/obo/mondo.owl",
+        "version": "2023-03-01"
+      },
+      {
+        "id": "ncit",
+        "name": "NCI Thesaurus",
+        "namespacePrefix": "NCIT",
+        "url": "http://purl.obolibrary.org/obo/ncit.owl",
+        "version": "23.03d"
+      }
+    ],
+    "phenopacketSchemaVersion": "2.0"
+  }
+}

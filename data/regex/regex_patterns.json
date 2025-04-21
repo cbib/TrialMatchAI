@@ -1,0 +1,193 @@
+{
+    "patterns": {
+      "resssh": {
+        "regex": "^\\d{1,2}\\.\\d{1,2}\\.\\d{1,2}\\.\\d{1,2}",
+        "comment": "Numeric Sub-sub-sub-heading. N.n.n.n"
+      },
+      "ressh": {
+        "regex": "^\\d{1,2}\\.\\d{1,2}\\.\\d{1,2}",
+        "comment": "Numeric Sub-sub-heading. N.n.n"
+      },
+      "resh": {
+        "regex": "^\\d{1,2}\\.\\d{1,2}\\.",
+        "comment": "Numeric Sub-heading. N.n."
+      },
+      "resh1": {
+        "regex": "^\\d{1,2}\\.\\d{1,2}\\s",
+        "comment": "Numeric Sub-heading space (without the final period) N.n"
+      },
+      "recrit": {
+        "regex": "^\\d{1,2}\\.\\s",
+        "comment": "Number period and space 1. , 2."
+      },
+      "retab5": {
+        "regex": "^[a-z]\\.\t",
+        "comment": "Alpha-period followed by tab a.\\t, b.\\t"
+      },
+      "reha": {
+        "regex": "^[a-z]{1}\\.(?!\\n)",
+        "comment": "Alpha period. a., b."
+      },
+      "rehacap": {
+        "regex": "^[A-Z]{1}\\.(?!\\n)",
+        "comment": "Alpha caps period. A., B."
+      },
+      "rehadb": {
+        "regex": "^\\([a-z]{1}\\)",
+        "comment": "Alpha in brackets. (a), (b)"
+      },
+      "rehab": {
+        "regex": "^[a-z]{1}\\)",
+        "comment": "Alpha with a right bracket. a), b)"
+      },
+      "renha": {
+        "regex": "^\\d{1,2}[a-z]{1}\\s",
+        "comment": "Number plus letter Na, Nb"
+      },
+      "retab1": {
+        "regex": "^-\\t",
+        "comment": "Hyphen followed by tab, -\\t, -\\t"
+      },
+      "retab2": {
+        "regex": "^\\d{1,2}\\t",
+        "comment": "Number followed by tab, 1\\t, 2\\t"
+      },
+      "retab3": {
+        "regex": "^\\uF0A7\\t",
+        "comment": "Unknown character followed by tab"
+      },
+      "retab4": {
+        "regex": "^\\*\\t",
+        "comment": "Asterisk followed by tab, *\\t, *\\t"
+      },
+      "rebrnum": {
+        "regex": "^\\(\\d{1,2}\\)",
+        "comment": "Bracketed numbers (1), (2)"
+      },
+      "rebrnumdot": {
+        "regex": "^\\d{1,2}\\)\\.",
+        "comment": "Number followed by a right bracket and dot 1)., 2)."
+      },
+      "resbrnum": {
+        "regex": "^\\d{1,2}\\)",
+        "comment": "Number followed by a right bracket 1), 2)"
+      },
+      "rebrnumcol": {
+        "regex": "^\\d{1,2}:",
+        "comment": "Number followed by a colon 1:, 2:"
+      },
+      "renumdotbr": {
+        "regex": "^\\d{1,2}\\.\\)",
+        "comment": "Number followed by a dot and right bracket 1.), 2.)"
+      },
+      "resqbrnum": {
+        "regex": "^\\[\\d{1,2}\\]",
+        "comment": "Numbers in square brackets [1], [2]"
+      },
+      "resqrtnum": {
+        "regex": "^\\d{1,2}\\]",
+        "comment": "Numbers with a right square bracket 1], 2]"
+      },
+      "resnumdashb": {
+        "regex": "^\\d{1,2}-\\)",
+        "comment": "Numbers and following dash, right bracket 1-), 2-)"
+      },
+      "resnumdash": {
+        "regex": "^\\d{1,2}-\\s",
+        "comment": "Numbers and following dash 1-, 2-"
+      },
+      "resnumslash": {
+        "regex": "^\\d{1,2}\\/",
+        "comment": "Numbers followed by a slash 1/, 2/"
+      },
+      "rebull": {
+        "regex": "^[\\u2022,\\u2023,\\u25E6,\\u2043,\\u2219]",
+        "comment": "Various bullets 1"
+      },
+      "rebull1": {
+        "regex": "^[\\u2212,\\u2666,\\u00B7,\\uF0B7]",
+        "comment": "Various bullets 2"
+      },
+      "reso": {
+        "regex": "^o ",
+        "comment": "Open 'o' bullet followed by space, o , o"
+      },
+      "resotab": {
+        "regex": "^o\\t",
+        "comment": "Open 'o' bullet followed by tab, o\\t, o\\t"
+      },
+      "reslatbr": {
+        "regex": "^\\(x{0,3}(|ix|iv|v?i{0,3})\\)",
+        "comment": "Roman numerals double bracket (i), (ii)"
+      },
+      "reslat": {
+        "regex": "^x{0,3}(|ix|iv|v?i{0,3})\\)",
+        "comment": "Roman numerals right brackets i), ii)"
+      },
+      "reslatdot": {
+        "regex": "^x{0,3}(|ix|iv|v?i{0,3})\\.",
+        "comment": "Roman numerals dots i., ii."
+      },
+      "recrit1": {
+        "regex": "^\\d{1,2}\\.(?!\\n)",
+        "comment": "Number period only - can give false positives"
+      },
+      "recrit2": {
+        "regex": "^\\d{1,2}\\s(?!\\n)",
+        "comment": "Number space only - can give false positives"
+      },
+      "recrit3": {
+        "regex": "^\\d{1,2}[A-Z](?!\\n)",
+        "comment": "Number-cap letter - might give false positives"
+      },
+      "recrit4": {
+        "regex": "^\\d{1,2}\\.\\d{1,2}[A-Z]",
+        "comment": "Number-dot-number cap letter - might give false positives"
+      },
+      "recrit5": {
+        "regex": "^\\d{1,2}-",
+        "comment": "Number dash only - can give false positives"
+      },
+      "redash": {
+        "regex": "^-",
+        "comment": "Dash only -, -"
+      },
+      "redoubstar": {
+        "regex": "^\\*\\*",
+        "comment": "Two asterisks **"
+      },
+      "restar": {
+        "regex": "^\\*",
+        "comment": "Asterisk only *, *"
+      },
+      "resemi": {
+        "regex": "^;",
+        "comment": "Semi-colon only ;, ;"
+      },
+      "request": {
+        "regex": "^\\?",
+        "comment": "Question mark only ?, ?"
+      },
+      "reinvquest": {
+        "regex": "^¿",
+        "comment": "Inverted question mark only ¿, ¿"
+      },
+      "reespacenum": {
+        "regex": "^(E|e)\\s?\\d{1,2}",
+        "comment": "Exclusion as E or e numbers, optional space E 01, E 02"
+      },
+      "reispacenum": {
+        "regex": "^(I|i)\\s?\\d{1,2}",
+        "comment": "Inclusion as I or i numbers, optional space i1, i2"
+      },
+      "rethreeenum": {
+        "regex": "^(1|2)\\d{1,2}\\.?\\s?",
+        "comment": "1 or 2 followed by 2 numbers, optional dot or space"
+      },
+      "curledbracketnum": {
+        "regex": "^\\{\\d+\\}",
+        "comment": "Matches numbers inside curly brackets, e.g., {2}, {15}, etc."
+      }
+    }
+  }
+  

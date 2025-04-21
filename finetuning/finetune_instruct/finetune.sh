@@ -1,0 +1,25 @@
+nohup torchrun --nproc_per_node 1 ./run.py \
+  --output_dir ./finetuned_phi_reasoning \
+  --model_name_or_path microsoft/phi-4 \
+  --train_data ./finetuning_data/medical_o1_reasoning_train.jsonl\
+  --learning_rate 5e-5 \
+  --num_train_epochs 2 \
+  --per_device_train_batch_size 3 \
+  --gradient_accumulation_steps 16 \
+  --dataloader_drop_last True \
+  --query_max_len 1024 \
+  --passage_max_len 1024 \
+  --logging_steps 10 \
+  --save_steps 1000 \
+  --save_total_limit 5 \
+  --ddp_find_unused_parameters False \
+  --warmup_ratio 0.1 \
+  --use_lora True \
+  --lora_rank 32 \
+  --lora_alpha 64 \
+  --lora_dropout 0.1 \
+  --use_flash_attn True \
+  --max_example_num_per_dataset 26000 \
+  --cache_dir scratch/huggingface_cache/hub \
+  --target_modules q_proj k_proj v_proj o_proj gate_proj up_proj down_proj \
+  --bf16 > ./finetune_log.log 2>&1 & disown

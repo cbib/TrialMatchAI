@@ -1,0 +1,63 @@
+{
+  "bio_med_ner": {
+    "biomedner_port": 18894,
+    "gner_port": 18783,
+    "gene_norm_port": 18888,
+    "disease_norm_port": 18892,
+    "run_script": "biomedner_services/run_biomedner.sh",
+    "stop_script": "biomedner_services/stop_biomedner.sh",
+    "biomedner_home": ".",
+    "use_neural_normalizer": true,
+    "no_cuda": false
+  },
+  "paths": {
+    "patients_dir": "example",
+    "output_dir": "results",
+    "trials_json_folder": "data/trials_jsons",
+    "docker_certs": "docker/certs/ca.crt"
+  },
+  "model": {
+    "base_model": "microsoft/phi-4",
+    "quantization": {
+      "load_in_4bit": true,
+      "bnb_4bit_use_double_quant": true,
+      "bnb_4bit_quant_type": "nf4",
+      "bnb_4bit_compute_dtype": "float16"
+    },
+    "fine_tuned_adapter_phi": "models/finetuned_phi_reasoning",
+    "reranker_model_path": "google/gemma-2-2b-it",
+    "reranker_adapter_path": "models/finetuned_gemma2"
+  },
+  "tokenizer": {
+    "use_fast": true,
+    "padding_side": "left"
+  },
+  "global": {
+    "device": 0
+  },
+  "elasticsearch": {
+    "host": "https://localhost:9200",
+    "username": "elastic",
+    "password": "QQ7wWoB_WnKe*L*X9tAW",
+    "request_timeout": 300,
+    "retry_on_timeout": true,
+    "index_trials_v1": "clinical_trials",
+    "index_trials_eligibility": "eligibility_criteria"
+  },
+  "first_level_embedder": {
+    "model_name": "BAAI/bge-m3",
+    "max_length": 10
+  },
+  "retrieval_embedder": {
+    "model_name": "BAAI/bge-m3"
+  },
+  "rag": {
+    "batch_size": 10
+  },
+  "LLM_reranker": {
+    "batch_size": 20
+  },
+  "search": {
+    "vector_score_threshold": 0.5
+  }
+}
