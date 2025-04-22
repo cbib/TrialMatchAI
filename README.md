@@ -123,4 +123,3 @@ For questions, issues, or feature requests, open an issue on GitHub or reach out
 ## ⚠️ Disclaimer
 
 At this stage, TrialMatchAI is still under active development and largely a **prototype** provided for research and informational purposes only. It is **NOT** medical advice and should not replace consultation with qualified healthcare professionals.
->>>>>>> 255700d (modified README)
