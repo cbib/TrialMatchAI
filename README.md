@@ -1,4 +1,4 @@
-**TrialMatchAI**
+### **TrialMatchAI**
 
 <img src="img/logo.webp" alt="Logo" align="right" width="200" height="200"> 
 
