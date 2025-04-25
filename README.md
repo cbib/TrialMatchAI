@@ -5,6 +5,9 @@
 An AI-driven tool designed to match patients with the most relevant clinical trials. Leveraging state-of-the-art Large Language Models (LLMs), Natural Language Processing (NLP), and Explainable AI (XAI), TrialMatchAI structures trial documentation and patient data to provide transparent, personalized recommendations.
 
 ---
+## ⚠️ Disclaimer
+At this stage, TrialMatchAI is still under active development and largely a **prototype** provided for research and informational purposes only. It is **NOT** medical advice and should not replace consultation with qualified healthcare professionals.
+---
 
 ## 🔍 Key Features
 
@@ -110,10 +113,4 @@ Please follow our code style and include tests where applicable.
 For questions, issues, or feature requests, open an issue on GitHub or reach out to:
 
 - **Email**: [abdallahmajd7@gmail.com](mailto:abdallahmajd7@gmail.com)
-
----
-
-## ⚠️ Disclaimer
-
-At this stage, TrialMatchAI is still under active development and largely a **prototype** provided for research and informational purposes only. It is **NOT** medical advice and should not replace consultation with qualified healthcare professionals.
 
