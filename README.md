@@ -1,6 +1,6 @@
 ### **TrialMatchAI**
 
-<img src="img/logo.webp" alt="Logo" align="right" width="200" height="200"> 
+<img src="img/logo.png" alt="Logo" align="right" width="200" height="200"> 
 
 An AI-driven tool designed to match patients with the most relevant clinical trials. Leveraging state-of-the-art Large Language Models (LLMs), Natural Language Processing (NLP), and Explainable AI (XAI), TrialMatchAI structures trial documentation and patient data to provide transparent, personalized recommendations.
 
