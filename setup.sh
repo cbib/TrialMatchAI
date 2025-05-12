@@ -3,13 +3,11 @@ set -euo pipefail
 IFS=$'\n\t'
 
 #=== CONFIGURATION ===#
-# Zenodo links (replace with your actual Zenodo file URLs)
 DATA_URL_1="https://zenodo.org/records/15254844/files/processed_trials.tar.gz?download=1"
 DATA_URL_2="https://zenodo.org/records/15254844/files/processed_criteria.tar.gz?download=1"
 RESOURCES_URL="https://zenodo.org/records/15254844/files/resources.tar.gz?download=1"
 MODELS_URL="https://zenodo.org/records/15254844/files/models.tar.gz?download=1"
 
-# Names to save the downloaded archives as
 ARCHIVE_1="processed_trials.tar.gz"
 ARCHIVE_2="processed_criteria.tar.gz"
 RESOURCES_ARCHIVE="resources.tar.gz"
@@ -35,8 +33,6 @@ else
   info "No NVIDIA GPUs detected."
 fi
 
-# Note: Repository should already be cloned and current directory is its root
-
 # 1) Install Python dependencies
 if ! command -v pip &> /dev/null; then
   error "pip not found. Please install Python and pip first."
@@ -45,50 +41,78 @@ info "Installing Python requirements..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 2) Download and unpack data archives
+# 2) Prepare data directory
 info "Preparing data directory..."
+mkdir -p data
 cd data
 
-# Download dataset parts
-info "Downloading ${ARCHIVE_1}..."
-wget --quiet "$DATA_URL_1" -O "$ARCHIVE_1"
-info "Downloading ${ARCHIVE_2}..."
-wget --quiet "$DATA_URL_2" -O "$ARCHIVE_2"
+# Download archives if not already downloaded
+if [ ! -f "$ARCHIVE_1" ]; then
+  info "Downloading ${ARCHIVE_1}..."
+  wget --quiet "$DATA_URL_1" -O "$ARCHIVE_1"
+else
+  info "${ARCHIVE_1} already exists. Skipping download."
+fi
 
-# Download resources
-info "Downloading resources archive..."
-wget --quiet "$RESOURCES_URL" -O "$RESOURCES_ARCHIVE"
+if [ ! -f "$ARCHIVE_2" ]; then
+  info "Downloading ${ARCHIVE_2}..."
+  wget --quiet "$DATA_URL_2" -O "$ARCHIVE_2"
+else
+  info "${ARCHIVE_2} already exists. Skipping download."
+fi
 
-# Download models
-info "Downloading models archive..."
-wget --quiet "$MODELS_URL" -O "$MODELS_ARCHIVE"
+if [ ! -f "$RESOURCES_ARCHIVE" ]; then
+  info "Downloading ${RESOURCES_ARCHIVE}..."
+  wget --quiet "$RESOURCES_URL" -O "$RESOURCES_ARCHIVE"
+else
+  info "${RESOURCES_ARCHIVE} already exists. Skipping download."
+fi
 
-# Unpack datasets
-info "Unpacking datasets..."
-tar -xzvf "$ARCHIVE_1"
-tar -xzvf "$ARCHIVE_2"
+if [ ! -f "$MODELS_ARCHIVE" ]; then
+  info "Downloading ${MODELS_ARCHIVE}..."
+  wget --quiet "$MODELS_URL" -O "$MODELS_ARCHIVE"
+else
+  info "${MODELS_ARCHIVE} already exists. Skipping download."
+fi
 
-# Move resources into Parser
-info "Moving resources to src/Parser..."
-mkdir -p ../src/Parser
-tar -xzvf "$RESOURCES_ARCHIVE" -C ../src/Parser
+# 3) Extract files using Docker if extraction folders don't exist
+extract_with_docker() {
+  local archive_name="$1"
+  local expected_dir="$2"
+
+  if [ ! -d "$expected_dir" ]; then
+    info "Extracting $archive_name into $expected_dir using Docker..."
+    docker run --rm -v "$PWD:/data" ubuntu bash -c \
+      "apt update && apt install -y tar > /dev/null && cd /data && tar -xzvf $archive_name"
+  else
+    info "$expected_dir already exists. Skipping extraction of $archive_name."
+  fi
+}
+
+extract_with_docker "$ARCHIVE_1" "processed_trials"
+extract_with_docker "$ARCHIVE_2" "processed_criteria"
+
+# Move resources into src/Parser
+cd ..
+info "Extracting resources into src/Parser..."
+mkdir -p src/Parser
+tar -xzvf data/"$RESOURCES_ARCHIVE" -C src/Parser
 
 # Extract models into models/
 info "Extracting models into models/..."
-mkdir -p ../models
-tar -xzvf "$MODELS_ARCHIVE" -C ../models
+mkdir -p models
+tar -xzvf data/"$MODELS_ARCHIVE" -C models
 
-# Clean up archives
+# Optional cleanup
 info "Cleaning up archives..."
-rm -f "$ARCHIVE_1" "$ARCHIVE_2" "$RESOURCES_ARCHIVE" "$MODELS_ARCHIVE"
+rm -f data/"$ARCHIVE_1" data/"$ARCHIVE_2" data/"$RESOURCES_ARCHIVE" data/"$MODELS_ARCHIVE"
 
-# 3) Build Elasticsearch mirror with Docker Compose
-cd ..
-info "Building Elasticsearch mirror via Docker Compose..."
+# 4) Build Elasticsearch mirror with Docker Compose
 cd docker
+info "Building Elasticsearch mirror via Docker Compose..."
 docker-compose up -d --build
 
-# 4) Launch indexers in background and wait
+# 5) Launch indexers in background
 cd ../src/Indexer
 info "Starting index_criteria.py (trials_eligibility) ..."
 nohup python index_criteria.py \
@@ -107,14 +131,11 @@ nohup python index_trials.py \
   --batch-size       100 \
   > trials.log 2>&1 &
 
-# Wait for both background jobs to finish
 info "Waiting for indexing jobs to complete..."
 wait
 
-# 5) Start the existing Elasticsearch container
-info "Starting Elasticsearch container (no rebuild)..."
+# 6) Start existing Elasticsearch container
 cd ../../docker
-# Get the container ID for the elasticsearch service
 container_id=$(docker-compose ps -q elasticsearch)
 if [ -n "$container_id" ]; then
   info "Found existing container: $container_id. Starting..."
