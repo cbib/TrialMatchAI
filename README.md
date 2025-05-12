@@ -115,11 +115,3 @@ Please follow our code style and include tests where applicable.
 For questions, issues, or feature requests, open an issue on GitHub or reach out to:
 
 - **Email**: [abdallahmajd7@gmail.com](mailto:abdallahmajd7@gmail.com)
-
-<<<<<<< HEAD
-=======
----
-
-## ⚠️ Disclaimer
-
-At this stage, TrialMatchAI is still under active development and largely a **prototype** provided for research and informational purposes only. It is **NOT** medical advice and should not replace consultation with qualified healthcare professionals.
