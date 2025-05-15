@@ -9,7 +9,7 @@ RESOURCES_URL="https://zenodo.org/records/15424310/files/resources.tar.gz?downlo
 MODELS_URL="https://zenodo.org/records/15424310/files/models.tar.gz?download=1"
 
 ARCHIVE_1="processed_trials.tar.gz"
-ARCHIVE_2="processed_criteria.tar.gz"
+ARCHIVE_2="processed_criteria_flattened.tar.gz"
 RESOURCES_ARCHIVE="resources.tar.gz"
 MODELS_ARCHIVE="models.tar.gz"
 
