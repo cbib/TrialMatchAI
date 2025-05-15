@@ -43,15 +43,11 @@ class CriteriaIndexer:
             return False
 
     def _detect_dim(self, processed_folder: Path) -> int:
-        # find first JSON under any trial subfolder
-        for trial_dir in processed_folder.iterdir():
-            if not trial_dir.is_dir():
-                continue
-            for f in trial_dir.glob("*.json"):
-                doc = json.loads(f.read_text())
-                vec = doc.get("criterion_vector", [])
-                if isinstance(vec, list):
-                    return len(vec)
+        for file in processed_folder.glob("*.json"):
+            doc = json.loads(file.read_text())
+            vec = doc.get("criterion_vector", [])
+            if isinstance(vec, list):
+                return len(vec)
         raise RuntimeError("No criterion_vector found in any processed JSON.")
 
     def create_index(self, dims: int):
@@ -76,9 +72,7 @@ class CriteriaIndexer:
                         "dims": dims,
                         "index": True,
                         "similarity": "cosine",
-                        "index_options": {
-                            "type": "hnsw", "m": 16, "ef_construction": 100
-                        }
+                        "index_options": {"type": "hnsw", "m": 16, "ef_construction": 100}
                     },
                     "entities": {
                         "type": "nested",
@@ -102,17 +96,13 @@ class CriteriaIndexer:
         )
         logger.info(f"Created index `{self.index_name}` with dims={dims}")
 
-    def _index_trial(self, trial_dir: Path, batch_size: int) -> tuple[str,int]:
-        nct_id = trial_dir.name
-
-        # skip if already done or in ES
+    def _index_trial(self, nct_id: str, json_files: list[Path], batch_size: int) -> tuple[str, int]:
         if nct_id in self.processed_ids or self._trial_indexed(nct_id):
             logger.info(f"Skipping {nct_id}: already indexed")
             return nct_id, 0
 
-        # load docs
         docs = []
-        for f in trial_dir.glob("*.json"):
+        for f in json_files:
             try:
                 docs.append(json.loads(f.read_text()))
             except Exception as e:
@@ -122,15 +112,11 @@ class CriteriaIndexer:
             logger.info(f"No JSONs for {nct_id}; marking done")
             return nct_id, 0
 
-        # bulk‐index in sub‐batches
         total = 0
         for i in range(0, len(docs), batch_size):
             batch = docs[i : i + batch_size]
             actions = [
-                {"_op_type": "index",
-                 "_index": self.index_name,
-                 "_id": doc["criteria_id"],
-                 "_source": doc}
+                {"_op_type": "index", "_index": self.index_name, "_id": doc["criteria_id"], "_source": doc}
                 for doc in batch
             ]
             succ, fails = bulk(
@@ -145,25 +131,31 @@ class CriteriaIndexer:
         return nct_id, total
 
     def index_all(self, processed_folder: Path, batch_size: int = 100, max_workers: int = 4, refresh: bool = True):
-        trials = [d for d in processed_folder.iterdir() if d.is_dir()]
-        if not trials:
-            logger.info("No trial subfolders found.")
+        file_groups = {}
+        for file in processed_folder.glob("*.json"):
+            parts = file.name.split("_", 1)
+            if len(parts) != 2:
+                logger.warning(f"Skipping unrecognized filename format: {file.name}")
+                continue
+            nct_id = parts[0]
+            file_groups.setdefault(nct_id, []).append(file)
+
+        if not file_groups:
+            logger.info("No valid JSON files found in flat structure.")
             return
 
-        # 1) determine vector dims & create index if missing
         if not self.es.indices.exists(index=self.index_name):
             dims = self._detect_dim(processed_folder)
             self.create_index(dims)
         else:
             logger.info(f"Index `{self.index_name}` exists; skipping creation")
 
-        # 2) parallel indexing across trials
         total_indexed = 0
         newly_done = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_nct = {
-                executor.submit(self._index_trial, td, batch_size): td.name
-                for td in trials
+                executor.submit(self._index_trial, nct_id, files, batch_size): nct_id
+                for nct_id, files in file_groups.items()
             }
             for future in as_completed(future_to_nct):
                 nct = future_to_nct[future]
@@ -175,7 +167,6 @@ class CriteriaIndexer:
                     logger.error(f"{nct}: unexpected error: {e}")
                     newly_done.append(nct)
 
-        # 3) optionally refresh & persist processed IDs
         if refresh:
             self.es.indices.refresh(index=self.index_name)
 
@@ -202,8 +193,8 @@ def make_es_client(cfg: dict) -> Elasticsearch:
 def main():
     parser = argparse.ArgumentParser(description="Bulk‑index prepared eligibility criteria in parallel")
     parser.add_argument("--config",           required=True, help="Path to config.json")
-    parser.add_argument("--processed-folder", required=True, help="Root folder of trial subfolders")
-    parser.add_argument("--index-name",       default="trec_trials_eligibility_v3", help="ES index name")
+    parser.add_argument("--processed-folder", required=True, help="Folder containing JSON files")
+    parser.add_argument("--index-name",       default="trials_eligibility", help="ES index name")
     parser.add_argument("--batch-size",       type=int, default=100, help="Docs per bulk request")
     parser.add_argument("--max-workers",      type=int, default=4,   help="Parallel trial threads")
     args = parser.parse_args()
