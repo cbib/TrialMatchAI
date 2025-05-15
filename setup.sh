@@ -3,10 +3,10 @@ set -euo pipefail
 IFS=$'\n\t'
 
 #=== CONFIGURATION ===#
-DATA_URL_1="https://zenodo.org/records/15254844/files/processed_trials.tar.gz?download=1"
-DATA_URL_2="https://zenodo.org/records/15254844/files/processed_criteria.tar.gz?download=1"
-RESOURCES_URL="https://zenodo.org/records/15254844/files/resources.tar.gz?download=1"
-MODELS_URL="https://zenodo.org/records/15254844/files/models.tar.gz?download=1"
+DATA_URL_1="https://zenodo.org/records/15424310/files/processed_trials.tar.gz?download=1"
+DATA_URL_2="https://zenodo.org/records/15424310/files/processed_criteria_flattened.tar.gz?download=1"
+RESOURCES_URL="https://zenodo.org/records/15424310/files/resources.tar.gz?download=1"
+MODELS_URL="https://zenodo.org/records/15424310/files/models.tar.gz?download=1"
 
 ARCHIVE_1="processed_trials.tar.gz"
 ARCHIVE_2="processed_criteria.tar.gz"
