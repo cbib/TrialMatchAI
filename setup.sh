@@ -4,12 +4,12 @@ IFS=$'\n\t'
 
 #=== CONFIGURATION ===#
 DATA_URL_1="https://zenodo.org/records/15424310/files/processed_trials.tar.gz?download=1"
-DATA_URL_2="https://zenodo.org/records/15424310/files/processed_criteria_flattened.tar.gz?download=1"
+DATA_URL_2="https://zenodo.org/records/15440795/files/processed_criteria_flattened.zip?download=1"
 RESOURCES_URL="https://zenodo.org/records/15424310/files/resources.tar.gz?download=1"
 MODELS_URL="https://zenodo.org/records/15424310/files/models.tar.gz?download=1"
 
 ARCHIVE_1="processed_trials.tar.gz"
-ARCHIVE_2="processed_criteria_flattened.tar.gz"
+ARCHIVE_2="processed_criteria_flattened.zip"
 RESOURCES_ARCHIVE="resources.tar.gz"
 MODELS_ARCHIVE="models.tar.gz"
 
@@ -75,7 +75,7 @@ else
   info "${MODELS_ARCHIVE} already exists. Skipping download."
 fi
 
-# 3) Extract files using Docker if extraction folders don't exist
+# 3) Extract files (tar or unzip)
 extract_with_docker() {
   local archive_name="$1"
   local expected_dir="$2"
@@ -89,8 +89,17 @@ extract_with_docker() {
   fi
 }
 
+# Extract tar-based archive
 extract_with_docker "$ARCHIVE_1" "processed_trials"
-extract_with_docker "$ARCHIVE_2" "processed_criteria"
+
+# Extract ZIP archive without hitting open file limits
+if [ ! -d "processed_criteria" ]; then
+  info "Extracting $ARCHIVE_2 into processed_criteria..."
+  mkdir -p processed_criteria
+  unzip -q "$ARCHIVE_2" -d processed_criteria
+else
+  info "processed_criteria already exists. Skipping extraction of $ARCHIVE_2."
+fi
 
 # Move resources into src/Parser
 cd ..
