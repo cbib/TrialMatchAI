@@ -26,9 +26,14 @@ info "Starting TrialMatchAI setup..."
 
 # 0) Check for available GPUs
 info "Checking for available GPUs..."
+
 if command -v nvidia-smi &> /dev/null; then
-  info "NVIDIA GPUs detected:"
-  nvidia-smi --query-gpu=index,name,memory.total --format=csv
+  if nvidia-smi &> /dev/null; then
+    info "NVIDIA GPUs detected:"
+    nvidia-smi --query-gpu=index,name,memory.total --format=csv
+  else
+    info "nvidia-smi found, but no NVIDIA GPU detected or driver not loaded."
+  fi
 else
   info "No NVIDIA GPUs detected."
 fi
