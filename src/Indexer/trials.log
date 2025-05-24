@@ -1,0 +1,3 @@
+nohup: ignoring input
+/nfs/scratch/mabdallah/TrialMatchAI/src/Indexer/index_trials.py:15: DeprecationWarning: The 'http_auth' parameter is deprecated. Use 'basic_auth' or 'bearer_auth' parameters instead
+  return Elasticsearch(

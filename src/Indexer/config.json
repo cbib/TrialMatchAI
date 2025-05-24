@@ -1,6 +1,7 @@
 {
     "elasticsearch": {
-      "hosts": ["https://localhost:9200"],
+      "hosts": ["https://localhost:9200", "https://localhost:9201", 
+                "https://localhost:9202"],
       "ca_certs": "../../docker/certs/ca.crt",
       "username": "elastic",
       "password": "QQ7wWoB_WnKe*L*X9tAW",

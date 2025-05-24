@@ -14,7 +14,7 @@ def make_es_client(cfg: dict) -> Elasticsearch:
     es_conf = cfg["elasticsearch"]
     return Elasticsearch(
         hosts=es_conf["hosts"],
-        http_auth=(es_conf["username"], es_conf["password"]),
+        basic_auth=(es_conf["username"], es_conf["password"]),
         ca_certs=es_conf["ca_certs"],
         verify_certs=True
     )
