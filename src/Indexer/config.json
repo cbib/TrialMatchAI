@@ -1,8 +1,7 @@
 {
     "elasticsearch": {
-      "hosts": ["https://localhost:9200", "https://localhost:9201", 
-                "https://localhost:9202"],
-      "ca_certs": "../../docker/certs/ca.crt",
+      "hosts": ["https://localhost:9200"],
+      "ca_certs": "../../elasticsearch/certs/ca.crt",
       "username": "elastic",
       "password": "QQ7wWoB_WnKe*L*X9tAW",
       "request_timeout": 300,
