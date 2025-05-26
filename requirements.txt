@@ -2,7 +2,7 @@ bert_score==0.3.13
 bioregistry==0.11.35
 colorcet==3.1.0
 datasets==2.19.0
-elasticsearch==9.0.0
+elasticsearch==8.17.1
 faiss_cpu==1.9.0.post1
 falcon==4.0.2
 filelock==3.18.0
