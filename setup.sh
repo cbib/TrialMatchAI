@@ -124,20 +124,21 @@ for i in $(seq 0 $((CHUNK_COUNT - 1))); do
 done
 
 # 3) Launch Elasticsearch: Try Docker first, then Apptainer fallback
+cd elasticsearch
 if command -v docker &> /dev/null && docker info &> /dev/null; then
   info "Docker is available. Setting up Elasticsearch with Docker Compose..."
-  cd docker
-  docker-compose up -d --build
+    docker-compose up -d --build
   cd ..
 elif command -v apptainer &> /dev/null; then
   info "Docker not found or not running. Falling back to Apptainer..."
-  if [ ! -f "./docker/apptainer-run-es.sh" ]; then
-    error "Apptainer script not found at ./docker/apptainer-run-es.sh"
+  if [ ! -f "./apptainer-run-es.sh" ]; then
+    error "Apptainer script not found at ./elasticsearch/apptainer-run-es.sh"
   fi
-  bash ./docker/apptainer-run-es.sh
+  bash ./apptainer-run-es.sh
 else
   error "Neither Docker nor Apptainer is available. Cannot continue."
 fi
+cd ..
 
 # 4) Launch indexers in background
 cd src/Indexer
