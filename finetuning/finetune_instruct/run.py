@@ -2,12 +2,20 @@ import logging
 import os
 from pathlib import Path
 
+from transformers import HfArgumentParser
+from arguments import ModelArguments
+
+# Check if we need to import Unsloth first
+early_parser = HfArgumentParser(ModelArguments)
+model_args, _ = early_parser.parse_known_args()
+
+if model_args.use_unsloth is True:
+    import unsloth
+
 import torch
 import torch.distributed as dist
-
-from transformers import AutoConfig, AutoTokenizer, HfArgumentParser, set_seed
-
-from arguments import ModelArguments, DataArguments, SFTTrainingArguments as TrainingArguments
+from transformers import AutoConfig, AutoTokenizer, set_seed
+from arguments import DataArguments, SFTTrainingArguments as TrainingArguments
 from data import TrainDataset, DataCollatorForFinetuning
 from modeling import LanguageModelFinetuner
 from trainer import SFTTrainer
@@ -16,8 +24,10 @@ from load_model import get_model
 
 logger = logging.getLogger(__name__)
 
+local_rank = int(os.environ.get("LOCAL_RANK", 0))
 # Initialize the distributed environment if needed
-dist.init_process_group(backend='nccl')
+dist.init_process_group(backend=os.environ.get("TORCH_DISTRIBUTED_BACKEND", "nccl"))
+torch.cuda.set_device(local_rank)
 
 # Get the rank of the current process
 rank = dist.get_rank()
@@ -70,32 +80,62 @@ def main():
 
     base_model = get_model(model_args, training_args)
 
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir,
-        use_fast=not model_args.use_slow_tokenizer,
-        trust_remote_code=True,
-        token=model_args.token
-    )
+    if model_args.use_unsloth is True:
+        logger.info('Using Unsloth for finetuning...')
+        from unsloth import FastLanguageModel
+        from peft import LoraConfig
 
-    # Ensure pad_token_id is defined
-    if tokenizer.pad_token_id is None:
-        if tokenizer.unk_token_id is not None:
-            tokenizer.pad_token_id = tokenizer.unk_token_id
-        else:
-            # As a fallback if the tokenizer doesn't have unk_token_id, set pad_token_id to a known token
-            # If using a special tokenizer, make sure to adapt accordingly.
-            tokenizer.pad_token_id = tokenizer.eos_token_id
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=model_args.model_name_or_path,
+            max_seq_length=model_args.model_query_max_len + model_args.model_passage_max_len,
+            dtype=torch.bfloat16 if training_args.bf16 is True else torch.float16,
+            load_in_4bit=True,
+        )
 
-    config = AutoConfig.from_pretrained(
-        model_args.config_name if model_args.config_name else model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir,
-        trust_remote_code=True,
-    )
-    logger.info('Config: %s', config)
+        lora_config = LoraConfig(
+            r=int(model_args.lora_rank),
+            lora_alpha=model_args.lora_alpha,
+            lora_dropout=model_args.lora_dropout,
+            bias="none",
+            task_type="CAUSAL_LM",
+            target_modules=model_args.target_modules,
+        )
+        lora_config_dict = {k: v for k, v in vars(lora_config).items() if not k.startswith('_')}
+        logger.info(lora_config_dict)
+        if "task_type" in lora_config_dict:
+            lora_config_dict.pop("task_type")
 
-    model = LanguageModelFinetuner(model=base_model, tokenizer=tokenizer, train_batch_size=training_args.per_device_train_batch_size)
+
+        model = FastLanguageModel.get_peft_model(model, **lora_config_dict)
+
+        
+    else:
+        # Load tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+            cache_dir=model_args.cache_dir,
+            use_fast=not model_args.use_slow_tokenizer,
+            trust_remote_code=True,
+            token=model_args.token
+        )
+
+        # Ensure pad_token_id is defined
+        if tokenizer.pad_token_id is None:
+            if tokenizer.unk_token_id is not None:
+                tokenizer.pad_token_id = tokenizer.unk_token_id
+            else:
+                # As a fallback if the tokenizer doesn't have unk_token_id, set pad_token_id to a known token
+                # If using a special tokenizer, make sure to adapt accordingly.
+                tokenizer.pad_token_id = tokenizer.eos_token_id
+
+        config = AutoConfig.from_pretrained(
+            model_args.config_name if model_args.config_name else model_args.model_name_or_path,
+            cache_dir=model_args.cache_dir,
+            trust_remote_code=True,
+        )
+        logger.info('Config: %s', config)
+
+        model = LanguageModelFinetuner(model=base_model, tokenizer=tokenizer, train_batch_size=training_args.per_device_train_batch_size)
 
     if training_args.gradient_checkpointing:
         model.enable_input_require_grads()
@@ -106,8 +146,8 @@ def main():
     # Setup data collator
     data_collator = DataCollatorForFinetuning(
         tokenizer=tokenizer,
-        query_max_len=data_args.query_max_len,
-        passage_max_len=data_args.passage_max_len,
+        query_max_len=data_args.data_query_max_len,
+        passage_max_len=data_args.data_passage_max_len,
         pad_to_multiple_of=8,
         return_tensors="pt",
         padding=True

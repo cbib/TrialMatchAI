@@ -81,6 +81,22 @@ class ModelArguments:
         default=None,
         metadata={"help": "Additional modules to save when using LoRA."}
     )
+    use_unsloth: bool = field(
+        default=False,
+        metadata={"help": "If true, uses Unsloth library to optimize finetuning instead of the regular method."}
+    )
+    use_4bit: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Use 4-bit quantization"}
+    )
+    model_query_max_len: int = field(
+        default=1024,
+        metadata={"help": "Maximum query length"}
+    )
+    model_passage_max_len: int = field(
+        default=1024,
+        metadata={"help": "maximum number of tokens allowed for the passage (e.g., document chunk, response, or context)"}
+    )
 
 
 @dataclass
@@ -90,13 +106,13 @@ class DataArguments:
         metadata={"help": "Path to the training data file (in JSONL format)."}
     )
 
-    query_max_len: int = field(
+    data_query_max_len: int = field(
         default=32,
         metadata={
             "help": "Max length of the input sequence for the instruction/input portion."
         },
     )
-    passage_max_len: int = field(
+    data_passage_max_len: int = field(
         default=128,
         metadata={
             "help": "Max length of the entire sequence (instruction + input + output)."
@@ -159,4 +175,22 @@ class SFTTrainingArguments(TrainingArguments):
     Training arguments specifically for supervised fine-tuning a causal language model.
     """
     # Additional arguments can be added if needed.
-    pass
+    num_warmup: int = field(
+        default=1,
+        metadata={"help": "Number of warmup generations to measure cold/warm starts"}
+    )
+
+    num_runs: int = field(
+        default=1,
+        metadata={"help": "Number of runs for benchmarking"}
+    )
+
+    num_max_new_tokens: int = field(
+        default=1,
+        metadata={"help": "Max number of generated tokens when measuring time per token"}
+    )
+
+    bf16: bool = field(
+        default=False,
+        metadata={"help": "Use bfloat16 precision training."}
+    )

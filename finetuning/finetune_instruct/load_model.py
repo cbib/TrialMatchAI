@@ -26,7 +26,7 @@ def get_model(model_args, training_args):
         cache_dir=model_args.cache_dir,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         trust_remote_code=True,
-        attn_implementation="flash_attention_2",
+        attn_implementation="sdpa",  #"flash_attention_2",
         quantization_config=quantization_config,
     )
     

@@ -121,7 +121,7 @@ class TrainDataset(Dataset):
         print("Prompt format:", self.prompt_format)
 
         # Set max_length for prompt+output
-        self.max_length = self.args.query_max_len + self.args.passage_max_len
+        self.max_length = self.args.data_query_max_len + self.args.data_passage_max_len
 
     def __len__(self):
         return self.total_len
