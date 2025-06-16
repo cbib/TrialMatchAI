@@ -1,4 +1,3 @@
-import os
 import torch
 import torch.nn.functional as F
 import unicodedata
@@ -6,8 +5,9 @@ import re
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
-from peft import PeftModel
+from peft.peft_model import PeftModel
 import threading
+
 
 # Configure torch settings for optimal performance.
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -15,13 +15,21 @@ torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True
 
+
 class LLMReranker:
     """
     Classifies patient–trial-criterion pairs with answers: 'Yes' and 'No'
     using a single preloaded model shared across threads.
     """
 
-    def __init__(self, model_path, adapter_path=None, device=0, torch_dtype=torch.float16, batch_size=8):
+    def __init__(
+        self,
+        model_path,
+        adapter_path=None,
+        device=0,
+        torch_dtype=torch.float16,
+        batch_size=8,
+    ):
         """
         Initializes the LLMReranker class.
 
@@ -39,7 +47,9 @@ class LLMReranker:
         self.device = device
 
         # Initialize the tokenizer.
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_path, trust_remote_code=True
+        )
         self._initialize_token_ids()
 
         # Load the model ONCE and store it.
@@ -56,7 +66,9 @@ class LLMReranker:
             for response in responses
         ]
         # Assume each response is encoded as a single token.
-        self.applicable_token_id, self.not_applicable_token_id = [ids[0] for ids in token_ids]
+        self.applicable_token_id, self.not_applicable_token_id = [
+            ids[0] for ids in token_ids
+        ]
 
     def load_model(self, device):
         """
@@ -67,16 +79,20 @@ class LLMReranker:
             load_in_4bit=True,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16
+            bnb_4bit_compute_dtype=torch.float16,
         )
         model = AutoModelForCausalLM.from_pretrained(
             self.model_path,
             torch_dtype=self.torch_dtype,
+            quantization_config=quant_config,
             device_map=f"cuda:{device}",
             attn_implementation="flash_attention_2",
-            trust_remote_code=True
+            trust_remote_code=True,
         )
-        model = PeftModel.from_pretrained(model, self.adapter_path)
+
+        if self.adapter_path:
+            model = PeftModel.from_pretrained(model, self.adapter_path)
+
         model.eval()
         return model
 
@@ -113,12 +129,12 @@ class LLMReranker:
         )
         input_example = {
             "role": "user",
-            "content": f"Statement A: {patient_text}\nStatement B: {trial_text}\n\n"
+            "content": f"Statement A: {patient_text}\nStatement B: {trial_text}\n\n",
         }
         messages = [
             {"role": "user", "content": system_prompt},
             {"role": "assistant", "content": " "},
-            input_example
+            input_example,
         ]
         return messages
 
@@ -130,9 +146,7 @@ class LLMReranker:
         for patient_text, trial_text in batch:
             messages = self.create_messages(patient_text, trial_text)
             prompt = self.tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
+                messages, tokenize=False, add_generation_prompt=True
             )
             batch_prompts.append(prompt)
 
@@ -174,6 +188,8 @@ class LLMReranker:
         # Use ThreadPoolExecutor to process batches concurrently.
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = [executor.submit(self.process_batch, batch) for batch in batches]
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing batches"):
+            for future in tqdm(
+                as_completed(futures), total=len(futures), desc="Processing batches"
+            ):
                 results.extend(future.result())
         return results
