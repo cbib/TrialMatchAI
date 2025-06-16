@@ -300,8 +300,6 @@ class PhenopacketProcessor:
         family = self.phenopacket.get("family")
         if not family:
             return
-
-        proband_id = family.get("proband", {}).get("id", "Unknown")
         relatives = family.get("relatives", [])
 
         for relative in relatives:
