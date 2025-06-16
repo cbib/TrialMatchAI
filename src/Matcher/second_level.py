@@ -1,5 +1,5 @@
 import logging
-from typing import *
+from typing import List, Dict, Any, cast, Optional
 from elasticsearch import Elasticsearch
 import torch
 import torch.nn.functional as F
@@ -11,11 +11,12 @@ from transformers import (
     BatchEncoding,
     DataCollatorWithPadding,
 )
+from torch.utils.data import Dataset as TorchDataset
+from torch.amp.autocast_mode import autocast
 from functools import partial
 from datasets import Dataset
 import numpy as np
 from collections import defaultdict
-from typing import List, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import math
 from tqdm import tqdm
@@ -36,6 +37,17 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True  # Enable benchmark mode for faster performance
+
+
+class HuggingFaceDatasetWrapper(TorchDataset):
+    def __init__(self, dataset):
+        self.dataset = dataset
+
+    def __getitem__(self, idx):
+        return self.dataset[idx]
+
+    def __len__(self):
+        return len(self.dataset)
 
 
 class SecondLevelSentenceEmbedder:
@@ -131,29 +143,6 @@ def transform_func(
     )
 
 
-def move_to_cuda(sample):
-    if len(sample) == 0:
-        return {}
-
-    def _move_to_cuda(maybe_tensor):
-        if torch.is_tensor(maybe_tensor):
-            return maybe_tensor.cuda(non_blocking=True)
-        elif isinstance(maybe_tensor, dict):
-            return {key: _move_to_cuda(value) for key, value in maybe_tensor.items()}
-        elif isinstance(maybe_tensor, list):
-            return [_move_to_cuda(x) for x in maybe_tensor]
-        elif isinstance(maybe_tensor, tuple):
-            return tuple([_move_to_cuda(x) for x in maybe_tensor])
-        elif isinstance(maybe_tensor, Mapping):
-            return type(maybe_tensor)(
-                {k: _move_to_cuda(v) for k, v in maybe_tensor.items()}
-            )
-        else:
-            return maybe_tensor
-
-    return _move_to_cuda(sample)
-
-
 class RetrievalModel:
     def __init__(self, pretrained_model_name: str, **kwargs):
         self.pretrained_model_name = pretrained_model_name
@@ -183,9 +172,11 @@ class RetrievalModel:
         dataset: Dataset = Dataset.from_dict({"contents": input_texts})
         dataset.set_transform(partial(transform_func, self.tokenizer, self.max_length))
 
+        wrapped_dataset = HuggingFaceDatasetWrapper(dataset)
+
         data_collator = DataCollatorWithPadding(self.tokenizer, pad_to_multiple_of=8)
         data_loader = DataLoader(
-            dataset,
+            wrapped_dataset,  # ✅ Now PyTorch-compatible
             batch_size=self.batch_size * self.gpu_count,
             shuffle=False,
             drop_last=False,
@@ -196,8 +187,7 @@ class RetrievalModel:
 
         encoded_embeds = []
         for batch_dict in tqdm(data_loader, desc="encoding", mininterval=10):
-            batch_dict = move_to_cuda(batch_dict)
-            with torch.amp.autocast("cuda"):
+            with autocast("cuda"):
                 outputs = self.encoder(**batch_dict)
                 if isinstance(
                     outputs, torch.Tensor
@@ -220,7 +210,7 @@ class SecondStageRetriever:
         size: int = 250,
         inclusion_weight: float = 1.0,
         exclusion_weight: float = 0.25,
-        bio_med_ner: BioMedNER = None,
+        bio_med_ner: Optional[BioMedNER] = None,
     ):
         self.es_client = es_client
         self.llm_reranker = llm_reranker_model
@@ -235,20 +225,28 @@ class SecondStageRetriever:
         """
         Use BioMedNER to find synonyms for a given condition.
         """
-        ner_results = self.bio_med_ner.annotate_texts_in_parallel(
+        if self.bio_med_ner is None:
+            logger.warning("BioMedNER not initialized; cannot extract synonyms.")
+            return []
+
+        raw_result = self.bio_med_ner.annotate_texts_in_parallel(
             [condition], max_workers=1
         )
-        if isinstance(ner_results, list):
+
+        # Cast to expected type to silence Pyright
+        ner_results = cast(List[List[Dict[str, Any]]], raw_result)
+
+        if ner_results and ner_results[0]:
             synonyms = set()
             for entity in ner_results[0]:
-                if (
-                    entity["entity_group"].lower() == "disease"
-                ):  # Filter for disease entities
+                if entity.get("entity_group", "").lower() == "disease":
                     synonyms.update(entity.get("synonyms", []))
             return list(synonyms)
-        else:
-            logger.warning(f"No annotations found for condition: {condition}")
-            return []
+
+        logger.warning(
+            f"No annotations found or invalid format for condition: {condition}"
+        )
+        return []
 
     def retrieve_criteria(
         self, nct_ids: List[str], queries: List[str]
@@ -260,7 +258,7 @@ class SecondStageRetriever:
 
         def execute_query(query):
             # Embed the query
-            query_vector = self.embedder.encode_sentences([query])[0]
+            query_vector = self.embedder.get_embeddings(query)[0]
 
             # Build the query for Elasticsearch
             es_query = {
@@ -514,7 +512,7 @@ if __name__ == "__main__":
         batch_size=20,
     )
 
-    embedder = RetrievalModel("BAAI/bge-m3")
+    embedder = SecondLevelSentenceEmbedder("BAAI/bge-m3")
     index_name = "trec_trials_eligibility"
     retriever = SecondStageRetriever(
         es_client, llm_reranker_model, embedder, index_name, bio_med_ner=bio_med_ner
