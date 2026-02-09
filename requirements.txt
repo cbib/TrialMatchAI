@@ -1,10 +1,12 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+
 # Core ML / NLP
-torch==2.9.0.dev20250803+cu128
-torchvision==0.24.0.dev20250803+cu128
-torchaudio==2.8.0.dev20250803+cu128
-transformers==4.54.1
+torch==2.7.1
+torchvision==0.22.1
+torchaudio==2.7.1
+transformers==4.55.0
 accelerate==1.8.1
-tokenizers==0.21.0
+tokenizers==0.21.1
 safetensors==0.5.3
 sentence-transformers==2.7.0
 sentencepiece==0.2.0
@@ -15,6 +17,13 @@ einops==0.8.0
 tiktoken==0.8.0
 bitsandbytes==0.46.1
 vllm==0.10.1.1
+
+# vllm dependencies (pin to avoid backtracking)
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+dnspython>=2.6.0
+email-validator>=2.0.0
+
 # Classical stack & utilities
 numpy==1.26.4
 scipy==1.15.1
@@ -39,11 +48,11 @@ gliner==0.2.16
 
 # App / infra
 SQLAlchemy==2.0.37
-pydantic==2.10.6
+pydantic==2.11.7
 pydantic-settings==2.7.1
 
-# Optional APIs (keep only if used)
-openai==1.62.0
+# Optional APIs
+openai==1.99.1
 httpx==0.28.1
 langchain==0.3.18
 langchain-core==0.3.35
