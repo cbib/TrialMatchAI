@@ -1,3 +1,7 @@
+# ------------------------------ mac setup stuff ----------------------------- #
+uv.lock
+
+
 # ============================
 # General dataset / output dirs
 # ============================
@@ -46,10 +50,12 @@ source/Parser/output/
 Parser/logs/
 
 # ============================
-# Python cache
+# Python cache / build artifacts
 # ============================
 __pycache__/
 *.py[cod]
+*.egg-info/
+.venv/
 
 # ============================
 # Temporary / cache files
