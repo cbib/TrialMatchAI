@@ -26,22 +26,22 @@ mkdir -p "$DATA_DIR"
 cd "$DATA_DIR"
 
 if [ ! -f "$ARCHIVE_1" ]; then
-  info "Downloading ${ARCHIVE_1}..."
-  wget --quiet "$DATA_URL_1" -O "$ARCHIVE_1"
+  info "Downloading ARCHIVE_1: ${ARCHIVE_1}..."
+  wget -O "$ARCHIVE_1" "$DATA_URL_1"
 else
   info "${ARCHIVE_1} already exists. Skipping download."
 fi
 
 if [ ! -f "$RESOURCES_ARCHIVE" ]; then
-  info "Downloading ${RESOURCES_ARCHIVE}..."
-  wget --quiet "$RESOURCES_URL" -O "$RESOURCES_ARCHIVE"
+  info "Downloading RESOURCES_ARCHIVE: ${RESOURCES_ARCHIVE}..."
+  wget -O "$RESOURCES_ARCHIVE" "$RESOURCES_URL"
 else
   info "${RESOURCES_ARCHIVE} already exists. Skipping download."
 fi
 
 if [ ! -f "$MODELS_ARCHIVE" ]; then
-  info "Downloading ${MODELS_ARCHIVE}..."
-  wget --quiet "$MODELS_URL" -O "$MODELS_ARCHIVE"
+  info "Downloading MODELS_ARCHIVE: ${MODELS_ARCHIVE}..."
+  wget -O "$MODELS_ARCHIVE" "$MODELS_URL"
 else
   info "${MODELS_ARCHIVE} already exists. Skipping download."
 fi
@@ -56,7 +56,7 @@ if [ ! -d "processed_criteria" ]; then
 
     if [ ! -f "$chunk_zip" ]; then
       info "Downloading $chunk_zip..."
-      wget --quiet "$chunk_url" -O "$chunk_zip"
+      wget -O "$chunk_zip" "$chunk_url"
     else
       info "$chunk_zip already exists. Skipping download."
     fi
