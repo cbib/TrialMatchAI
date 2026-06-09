@@ -24,7 +24,7 @@ from Parser.normalizer import Normalizer
 print(os.getcwd())
 
 # Paths
-DICT_PATH = Path("Parser/resources/normalization/dictionary")
+DICT_PATH = Path("source/Parser/resources/normalization/dictionary")
 dict_paths = {
     "gene": DICT_PATH / "dict_Gene.txt",
     "disease": DICT_PATH / "dict_Disease.txt",

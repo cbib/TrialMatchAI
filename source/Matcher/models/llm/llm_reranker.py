@@ -37,13 +37,15 @@ class LLMReranker:
                 )
                 idx = 0
             self.device_str = f"cuda:{idx}"
-            # Ensure Accelerate/HF loaders use the selected GPU when device_map='auto'
             try:
                 torch.cuda.set_device(idx)
             except Exception as e:
                 logger.warning(f"Could not set CUDA device to {idx}: {e}")
+        elif torch.backends.mps.is_available():
+            logger.info("LLMReranker: using MPS (Apple Silicon).")
+            self.device_str = "mps"
         else:
-            logger.warning("LLMReranker: CUDA not available; using CPU.")
+            logger.warning("LLMReranker: CUDA and MPS not available; using CPU.")
             self.device_str = "cpu"
 
         self.tokenizer = AutoTokenizer.from_pretrained(

@@ -13,6 +13,7 @@ ablation/
 logs/
 *.log
 models/*
+utils/Indexer/processed_ids.txt
 
 # ============================
 # Finetuning ignore rules

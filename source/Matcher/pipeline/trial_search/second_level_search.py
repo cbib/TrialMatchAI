@@ -48,6 +48,8 @@ class SecondStageRetriever:
         if ner_results and ner_results[0]:
             synonyms = set()
             for entity in ner_results[0]:
+                if not isinstance(entity, dict):
+                    continue
                 if entity.get("entity_group", "").lower() == "disease":
                     synonyms.update(entity.get("synonyms", []))
             return list(synonyms)

@@ -4,13 +4,13 @@
     "gner_port": 18783,
     "gene_norm_port": 18888,
     "disease_norm_port": 18892,
-    "biomedner_home": "Parser/",
-    "use_neural_normalizer": true,
+    "biomedner_home": "source/Parser/",
+    "use_neural_normalizer": false,
     "no_cuda": false
   },
   "services": {
-    "stop_script": "biomedner_services/run_biomedner.sh",
-    "run_script": "biomedner_services/run_biomedner.sh"
+    "stop_script": "source/biomedner_services/run_biomedner.sh",
+    "run_script": "source/biomedner_services/run_biomedner.sh"
   },
   "paths": {
     "patients_dir": "example/",
@@ -44,7 +44,7 @@
     "request_timeout": 600,
     "retry_on_timeout": true,
     "index_trials": "clinical_trials",
-    "index_trials_eligibility": "eligibility_criteria",
+    "index_trials_eligibility": "trials_eligibility",
     "auto_start": false,
     "start_script": "elasticsearch/apptainer-run-es.sh",
     "start_timeout": 600

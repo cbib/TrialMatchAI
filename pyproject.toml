@@ -46,7 +46,7 @@ dependencies = [
   "PyFastNER==1.0.10",
   "pysbd==0.3.4",
   "quicksectx==0.4.0",
-  "gliner==0.2.16",
+  "gliner>=0.2.17",
   # App / infra
   "elasticsearch==8.17.2",
   "SQLAlchemy==2.0.37",
@@ -63,6 +63,7 @@ dependencies = [
   "huggingface_hub==0.34.4",
   "bioregistry>=0.13.59",
   "rapidfuzz>=3.14.5",
+  "hf-transfer>=0.1.9",
 ]
 
 [project.scripts]
