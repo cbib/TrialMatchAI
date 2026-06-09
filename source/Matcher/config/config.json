@@ -13,10 +13,10 @@
     "run_script": "biomedner_services/run_biomedner.sh"
   },
   "paths": {
-    "patients_dir": "../example/",
-    "output_dir": "../results/",
-    "trials_json_folder": "../data/trials_jsons",
-    "docker_certs": "../elasticsearch/certs/ca.crt"
+    "patients_dir": "example/",
+    "output_dir": "results/",
+    "trials_json_folder": "data/trials_jsons",
+    "docker_certs": "elasticsearch/certs/ca.crt"
   },
   "model": {
     "base_model": "microsoft/phi-4",
@@ -45,7 +45,7 @@
     "retry_on_timeout": true,
     "index_trials": "clinical_trials",
     "index_trials_eligibility": "eligibility_criteria",
-    "auto_start": true,
+    "auto_start": false,
     "start_script": "elasticsearch/apptainer-run-es.sh",
     "start_timeout": 600
   },

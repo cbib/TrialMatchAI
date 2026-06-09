@@ -44,7 +44,6 @@ def setup_logging(name: Optional[str] = None) -> logging.Logger:
     level = os.getenv("TRIALMATCHAI_LOG_LEVEL", "INFO").upper()
     use_json = os.getenv("TRIALMATCHAI_LOG_JSON", "0") in {"1", "true", "TRUE"}
     handler = logging.StreamHandler(sys.stdout)
-    handler.addFilter(ContextFilter())
     if use_json:
         handler.setFormatter(JsonFormatter())
     else:
@@ -55,4 +54,8 @@ def setup_logging(name: Optional[str] = None) -> logging.Logger:
             )
         )
     logging.basicConfig(level=level, handlers=[handler])
-    return logging.getLogger(name if name else __name__)
+    logger = logging.getLogger(name if name else __name__)
+    logger.setLevel(level)
+    if not any(isinstance(f, ContextFilter) for f in logger.filters):
+        logger.addFilter(ContextFilter())
+    return logger
