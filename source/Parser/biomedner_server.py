@@ -65,23 +65,29 @@ def run_server(model, args):
         print(f"Server listening on {host}:{port}")
         while True:
             conn, addr = s.accept()
-            with conn:
-                print(f"Connected by {addr}")
-                message_length = struct.unpack(">H", conn.recv(2))[0]
-                message = conn.recv(message_length).decode("utf-8")
-                request = json.loads(message)
-                biomedner_home = request["biomedner_home"]
-                inputfile = request["inputfile"]
-                base_name = inputfile.split(".")[0]
-                base_name = base_name.replace("\x00A", "")
+            try:
+                with conn:
+                    print(f"Connected by {addr}")
+                    header = conn.recv(2)
+                    if len(header) < 2:
+                        continue  # health-check probe with no payload — ignore
+                    message_length = struct.unpack(">H", header)[0]
+                    message = conn.recv(message_length).decode("utf-8")
+                    request = json.loads(message)
+                    biomedner_home = request["biomedner_home"]
+                    inputfile = request["inputfile"]
+                    base_name = inputfile.split(".")[0]
+                    base_name = base_name.replace("\x00A", "")
 
-                biomedner_recognize(model, inputfile, base_name, biomedner_home, args)
+                    biomedner_recognize(model, inputfile, base_name, biomedner_home, args)
 
-                output_stream = struct.pack(">H", len(inputfile)) + inputfile.encode(
-                    "utf-8"
-                )
-                conn.send(output_stream)
-                print(f"Response sent for {inputfile}")
+                    output_stream = struct.pack(">H", len(inputfile)) + inputfile.encode(
+                        "utf-8"
+                    )
+                    conn.send(output_stream)
+                    print(f"Response sent for {inputfile}")
+            except (ConnectionResetError, BrokenPipeError):
+                continue  # client disconnected mid-request (e.g. port probe)
 
 
 if __name__ == "__main__":
