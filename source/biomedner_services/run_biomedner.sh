@@ -1,5 +1,10 @@
 #!/bin/bash
-cd Parser
+export PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH"
+# Find the repo root (two levels up from source/biomedner_services/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+export PATH="$REPO_ROOT/.venv/bin:$PATH"
+cd source/Parser
 
 if [ ! -d "logs" ]; then
   mkdir logs
@@ -9,7 +14,7 @@ fi
 ####################################
 # run NER
 nohup python biomedner_server.py \
-    --model_name_or_path models/finetuned_model_roberta \
+    --model_name_or_path ../../models/finetuned_model_roberta \
     --biomedner_port 18894 >> logs/nohup_multi_ner.out 2>&1 &
 
 nohup python gner_server.py \

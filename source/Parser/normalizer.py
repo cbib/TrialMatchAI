@@ -19,7 +19,7 @@ class Normalizer:
     def __init__(
         self, use_neural_normalizer, gene_port=18888, disease_port=18892, no_cuda=False
     ):
-        self.BASE_DIR = "Parser/resources/normalization/"
+        self.BASE_DIR = "source/Parser/resources/normalization/"
         self.NORM_INPUT_DIR = {
             "disease": os.path.join(self.BASE_DIR, "inputs/disease"),
             "gene": os.path.join(self.BASE_DIR, "inputs/gene"),

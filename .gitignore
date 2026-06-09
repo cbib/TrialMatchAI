@@ -14,6 +14,7 @@ logs/
 *.log
 models/*
 utils/Indexer/processed_ids.txt
+source/Parser/logs/*
 
 # ============================
 # Finetuning ignore rules

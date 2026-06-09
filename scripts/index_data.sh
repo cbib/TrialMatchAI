@@ -22,7 +22,7 @@ nohup python index_criteria.py \
 info "Starting index_trials.py (clinical_trials) ..."
 nohup python index_trials.py \
   --config           config.json \
-  --processed-folder ../../data/processed_trials \
+  --processed-folder ../../data/processed_docs \
   --index-name       clinical_trials \
   --batch-size       100 \
   > trials.log 2>&1 &

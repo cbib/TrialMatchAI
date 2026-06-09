@@ -17,7 +17,7 @@ BASE_OUTPUT_FILEPATH_CT = os.path.join(
     os.path.dirname(__file__), "../../data/parsed_trec"
 )
 BASE_TMP_SUPERDIR = os.path.join(os.path.dirname(__file__), "tmp")
-DICT_PATH = Path("Parser/resources/normalization/dictionary")
+DICT_PATH = Path("source/Parser/resources/normalization/dictionary")
 dict_paths = {
     "gene": DICT_PATH / "dict_Gene.txt",
     "disease": DICT_PATH / "dict_Disease_20210630.txt",
