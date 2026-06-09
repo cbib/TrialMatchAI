@@ -61,6 +61,8 @@ dependencies = [
   "langchain-openai==0.3.5",
   "langsmith==0.2.11",
   "huggingface_hub==0.34.4",
+  "bioregistry>=0.13.59",
+  "rapidfuzz>=3.14.5",
 ]
 
 [project.scripts]

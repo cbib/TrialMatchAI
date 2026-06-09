@@ -9,12 +9,12 @@ from Matcher.utils.file_utils import read_json_file, write_json_file, write_text
 from Matcher.utils.logging_config import setup_logging
 from tqdm import tqdm
 
-from vllm import LLM, SamplingParams
-
 try:
-    # Present in vLLM when LoRA is enabled
+    from vllm import LLM, SamplingParams  # type: ignore
     from vllm.lora.request import LoRARequest  # type: ignore
-except Exception:  # pragma: no cover
+except ImportError:  # vllm is Linux/CUDA only
+    LLM = None  # type: ignore
+    SamplingParams = None  # type: ignore
     LoRARequest = None  # type: ignore
 
 logger = setup_logging(__name__)
