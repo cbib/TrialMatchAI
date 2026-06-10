@@ -220,10 +220,18 @@ def run_rag_processing(
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
+        # Resolve device: use MPS string on Apple Silicon, int on CUDA, "cpu" otherwise
+        if torch.cuda.is_available():
+            cot_device = config["global"]["device"]
+        elif torch.backends.mps.is_available():
+            cot_device = "mps"
+        else:
+            cot_device = "cpu"
+
         rag_processor = BatchTrialProcessor(
             model,
             tokenizer,
-            device=config["global"]["device"],
+            device=cot_device,
             batch_size=batch_size,
         )
 
@@ -237,8 +245,17 @@ def run_rag_processing(
     logger.info("RAG-based trial matching complete.")
 
 
+def step(n: str, msg: str):
+    logger.info("── [Step %s] %s", n, msg)
+
+
 def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: bool = False):
-    logger.info("Starting TrialMatchAI pipeline%s...", " (retrieval-only, --skip-llm)" if skip_llm else "")
+    mode = "retrieval-only (--skip-llm)" if skip_llm else "full pipeline (CoT + reranker)"
+    logger.info("=" * 60)
+    logger.info("  TrialMatchAI  |  mode: %s", mode)
+    logger.info("=" * 60)
+
+    step("1.0", "Loading configuration")
     config = load_config(config_path)
     paths = config["paths"]
     create_directory(paths["output_dir"])
@@ -248,12 +265,14 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
         if hasattr(torch.backends.cuda, "enable_flash_sdp"):
             torch.backends.cuda.enable_flash_sdp(True)
 
+    step("1.1", "Starting BioMedNER services (NER + Java normalizers)")
     initialize_biomedner_services(config)
 
     import warnings
 
     model, tokenizer = None, None
     if not skip_llm:
+        step("1.2", f"Loading CoT model: {config['model']['base_model']}  (this takes ~2–3 min on MPS)")
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore", message=".*quantization_config.*", category=UserWarning
@@ -261,16 +280,18 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
             model, tokenizer = load_model_and_tokenizer(
                 config["model"], config["global"]["device"]
             )
+        logger.info("    ✓ CoT model loaded")
 
         if tokenizer.pad_token is None:  # type: ignore
             tokenizer.pad_token = tokenizer.eos_token  # type: ignore
             if hasattr(model.config, "pad_token_id") and model.config.pad_token_id is None:  # type: ignore
                 model.config.pad_token_id = tokenizer.pad_token_id  # type: ignore
 
-        if config["global"]["device"] != "cpu" and torch.cuda.is_available():
+        # half() is only needed on CUDA when the loader didn't already set fp16/bf16
+        if torch.cuda.is_available() and config["global"]["device"] != "cpu":
             model = model.half()  # type: ignore
 
-    # Initialize components
+    step("1.3", f"Loading embedder: {config.get('embedder', {}).get('model_name', 'BAAI/bge-m3')}")
     embedder_cfg = config.get("embedder", {})
     embedder = TextEmbedder(
         TextEmbedderConfig(
@@ -283,14 +304,19 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
             normalize=embedder_cfg.get("normalize", True),
         )
     )
+    logger.info("    ✓ Embedder ready")
+
+    step("1.4", "Initializing BioMedNER client")
     try:
         bio_med_ner = BioMedNER(**config["bio_med_ner"])
+        logger.info("    ✓ BioMedNER client ready")
     except Exception:
-        logger.warning("BioMedNER failed to initialize; synonym expansion will be disabled.", exc_info=True)
+        logger.warning("    ✗ BioMedNER failed to initialize; synonym expansion will be disabled.", exc_info=True)
         bio_med_ner = None
 
     llm_reranker = None
     if not skip_llm:
+        step("1.5", f"Loading LLM reranker: {config['model']['reranker_model_path']}")
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore", message=".*quantization_config.*", category=UserWarning
@@ -301,7 +327,9 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
                 device=config["global"]["device"],
                 batch_size=config["rag"]["batch_size"] * 2,
             )
+        logger.info("    ✓ LLM reranker ready")
 
+    step("1.6", "Connecting to Elasticsearch")
     es_client = Elasticsearch(
         hosts=[config["elasticsearch"]["host"]],
         ca_certs=paths["docker_certs"],
@@ -314,6 +342,7 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
     )
     if not ensure_elasticsearch(es_client, config):
         return
+    logger.info("    ✓ Elasticsearch connected")
 
     gemma_retriever = SecondStageRetriever(
         es_client=es_client,
@@ -335,27 +364,35 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
         logger.warning("No patient files found in %s", patient_folder)
         return
 
-    for phenopacket_path in phenopacket_files:
+    logger.info("─" * 60)
+    logger.info("  Found %d patient file(s) to process", len(phenopacket_files))
+
+    for i, phenopacket_path in enumerate(phenopacket_files, 1):
         patient_id = phenopacket_path.stem
         token = set_request_id(patient_id)
         output_folder = Path(paths["output_dir"]) / patient_id
         create_directory(str(output_folder))
 
+        logger.info("─" * 60)
+        logger.info("  Patient %d/%d: %s", i, len(phenopacket_files), patient_id)
+
         input_file = str(phenopacket_path)
         output_file = str(output_folder / "keywords.json")
 
         try:
+            step("2.1", "Extracting keywords from phenopacket")
             with log_timing(logger, "Phenopacket processing"):
                 if skip_llm:
                     keywords = extract_keywords_without_llm(input_file)
                     write_json_file(keywords, output_file)
-                    logger.info("Keywords extracted from phenopacket structure (no LLM)")
+                    logger.info("    ✓ Keywords extracted (structure-based, no LLM)")
                 else:
                     with torch.no_grad():
                         process_phenopacket(
                             input_file, output_file, model=model, tokenizer=tokenizer
                         )
                     keywords = Keywords.model_validate(read_json_file(output_file)).model_dump()
+                    logger.info("    ✓ Keywords extracted via phi-4 CoT")
 
             patient_info = Phenopacket.model_validate(
                 read_json_file(input_file)
@@ -363,8 +400,9 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
             patient_info["split_raw_description"] = keywords.get(
                 "expanded_sentences", []
             )
+            logger.info("    Queries to run: %d", len(keywords.get("expanded_sentences", [])))
 
-            # Run pipeline
+            step("2.2", "First-level search — BM25 + vector over clinical_trials index")
             with log_timing(logger, "First-level search"):
                 with torch.no_grad():
                     result = run_first_level_search(
@@ -377,7 +415,7 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
                         es_client,
                     )
             if not result:
-                logger.error("First-level search failed for %s", patient_id)
+                logger.error("    ✗ First-level search failed for %s", patient_id)
                 continue
 
             (
@@ -387,7 +425,9 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
                 expanded_sentences,
                 first_level_scores,
             ) = result
+            logger.info("    ✓ Retrieved %d candidate trials", len(nct_ids))
 
+            step("2.3", f"Second-level retrieval — hybrid search over trials_eligibility index ({len(nct_ids)} candidates)")
             with log_timing(logger, "Second-level search"):
                 with torch.no_grad():
                     semi_final_trials, top_trials_path = run_second_level_search(
@@ -400,6 +440,7 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
                         first_level_scores,
                         config,
                     )
+            logger.info("    ✓ Shortlisted %d trials for ranking", len(semi_final_trials))
 
             if skip_llm:
                 ranked_trials = [
@@ -409,12 +450,11 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
                 save_ranked_trials(
                     ranked_trials, str(output_folder / "ranked_trials.json")
                 )
-                logger.info(
-                    "Retrieval-only pipeline completed for %s (%d trials ranked by search score)",
-                    patient_id,
-                    len(ranked_trials),
-                )
+                logger.info("─" * 60)
+                logger.info("  ✓ Retrieval-only pipeline complete — %d trials ranked", len(ranked_trials))
+                logger.info("    Output: %s/ranked_trials.json", output_folder)
             else:
+                step("2.4", f"CoT reasoning — evaluating eligibility criteria for top trials (expect ~30–60s/trial on MPS)")
                 with log_timing(logger, "RAG processing"):
                     with torch.no_grad():
                         run_rag_processing(
@@ -425,7 +465,9 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
                             tokenizer,
                             config,
                         )
+                logger.info("    ✓ CoT evaluation complete")
 
+                step("2.5", "Final ranking — aggregating CoT scores")
                 with log_timing(logger, "Final ranking"):
                     trial_data = load_trial_data(str(output_folder))
                     ranked_trials = rank_trials(trial_data)
@@ -433,12 +475,17 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
                         ranked_trials, str(output_folder / "ranked_trials.json")
                     )
 
-                logger.info("Pipeline completed for patient %s", patient_id)
+                logger.info("─" * 60)
+                logger.info("  ✓ Pipeline complete for %s — %d trials ranked", patient_id, len(ranked_trials))
+                logger.info("    Output: %s/ranked_trials.json", output_folder)
         except Exception:
             logger.exception("Pipeline failed for patient %s", patient_id)
             continue
         finally:
             reset_request_id(token)
+
+    logger.info("=" * 60)
+    logger.info("  All patients processed.")
 
 
 if __name__ == "__main__":

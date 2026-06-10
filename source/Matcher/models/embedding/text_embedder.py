@@ -29,9 +29,12 @@ class TextEmbedderConfig:
 class TextEmbedder:
     def __init__(self, config: TextEmbedderConfig):
         self.config = config
-        self.device = torch.device(
-            "cuda" if config.use_gpu and torch.cuda.is_available() else "cpu"
-        )
+        if config.use_gpu and torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        elif config.use_gpu and torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+        else:
+            self.device = torch.device("cpu")
         logger.info(
             "Loading embedder model %s on device %s", config.model_name, self.device
         )

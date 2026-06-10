@@ -30,7 +30,11 @@ class BatchTrialProcessor:
         - telemetry for tokens/sec and stage timings
         """
         self.device = device
-        self.device_str = f"cuda:{device}"
+        # device may be an int (CUDA index), "mps", or "cpu"
+        if isinstance(device, int):
+            self.device_str = f"cuda:{device}"
+        else:
+            self.device_str = str(device)
         self.batch_size = batch_size
         self.model = model
         self.tokenizer = tokenizer
@@ -216,11 +220,12 @@ class BatchTrialProcessor:
             use_autocast = model_dtype in (torch.float16, torch.bfloat16)
 
             with torch.inference_mode():
-                ctx = (
-                    torch.autocast(device_type="cuda", dtype=model_dtype)
-                    if use_autocast
-                    else torch.cuda.amp.autocast(enabled=False)
-                )
+                if use_autocast:
+                    ac_device = "cuda" if self.device_str.startswith("cuda") else self.device_str
+                    ctx = torch.autocast(device_type=ac_device, dtype=model_dtype)
+                else:
+                    import contextlib
+                    ctx = contextlib.nullcontext()
                 with ctx:
                     outputs = self.model.generate(
                         **tokenized,

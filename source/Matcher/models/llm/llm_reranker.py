@@ -48,8 +48,11 @@ class LLMReranker:
             logger.warning("LLMReranker: CUDA and MPS not available; using CPU.")
             self.device_str = "cpu"
 
+        # Prefer local adapter directory for tokenizer (avoids gated-repo check)
+        import os
+        tokenizer_src = self.adapter_path if (self.adapter_path and os.path.isdir(self.adapter_path)) else self.model_path
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_path, trust_remote_code=True
+            tokenizer_src, trust_remote_code=True
         )
         self._initialize_token_ids()
         self.model = self.load_model()
@@ -67,26 +70,36 @@ class LLMReranker:
 
     def load_model(self):
         use_cuda = self.device_str.startswith("cuda")
-        quant_config = (
-            BitsAndBytesConfig(
+        use_mps = self.device_str == "mps"
+        if use_cuda:
+            quant_config = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_use_double_quant=True,
                 bnb_4bit_quant_type="nf4",
                 bnb_4bit_compute_dtype=self.torch_dtype,
             )
-            if use_cuda
-            else None
-        )
-        model = AutoModelForCausalLM.from_pretrained(
-            self.model_path,
-            torch_dtype=self.torch_dtype if use_cuda else torch.float32,
-            quantization_config=quant_config,
-            device_map="auto" if use_cuda else None,
-            attn_implementation="flash_attention_2" if use_cuda else None,
-            trust_remote_code=True,
-        )
-        if self.adapter_path:
-            model = PeftModel.from_pretrained(model, self.adapter_path)
+            model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                torch_dtype=self.torch_dtype,
+                quantization_config=quant_config,
+                device_map="auto",
+                attn_implementation="flash_attention_2",
+                trust_remote_code=True,
+            )
+            if self.adapter_path:
+                model = PeftModel.from_pretrained(model, self.adapter_path)
+        else:
+            dtype = torch.bfloat16 if use_mps else torch.float32
+            model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=True,
+                trust_remote_code=True,
+            )
+            model = model.to(self.device_str)
+            if self.adapter_path:
+                model = PeftModel.from_pretrained(model, self.adapter_path)
+                model = model.to(self.device_str)
         model.eval()
         return model
 
@@ -111,15 +124,23 @@ class LLMReranker:
             },
         ]
 
+    def _format_prompt(self, messages: List[Dict]) -> str:
+        try:
+            return self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        except (ValueError, AttributeError):
+            # Base model tokenizer has no chat template — flatten to plain text
+            parts = [m["content"] for m in messages if m.get("content", "").strip()]
+            return "\n\n".join(parts) + "\nAnswer:"
+
     def process_batch(self, batch: List[tuple]) -> List[Dict]:
         batch_prompts = []
         for patient_text, trial_text in batch:
             messages = self.create_messages(
                 self.preprocess_text(patient_text), self.preprocess_text(trial_text)
             )
-            prompt = self.tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
+            prompt = self._format_prompt(messages)
             batch_prompts.append(prompt)
         inputs = self.tokenizer(batch_prompts, return_tensors="pt", padding=True)
         inputs = {k: v.to(self.device_str) for k, v in inputs.items()}
