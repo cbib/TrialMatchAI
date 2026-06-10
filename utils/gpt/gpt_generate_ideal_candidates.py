@@ -5,14 +5,19 @@ import re
 import ast
 from typing import List, Dict, Tuple
 from dateutil.parser import parse
+from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage
 
-# Set your API key securely in production.
-os.environ["OPENAI_API_KEY"] = ""
+load_dotenv()
 
 # Initialize the LLM
-llm = ChatOpenAI(model="gpt-4o-mini", max_retries=3)
+llm = ChatOpenAI(
+    model=os.environ.get("UMGPT_MODEL", "gpt-4o-mini"),
+    max_retries=3,
+    openai_api_key=os.environ["UMGPT_API_KEY"],
+    base_url=os.environ["UMGPT_BASE_URL"],
+)
 
 # Minimum word count for eligibility criteria to be considered "rich"
 MIN_ELIGIBILITY_WORD_COUNT = 512

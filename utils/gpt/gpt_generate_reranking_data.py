@@ -3,11 +3,12 @@ import os
 import random
 from typing import Dict, List, Optional
 
+from dotenv import load_dotenv
 from langchain.schema import HumanMessage
 from langchain_community.chat_models import ChatOpenAI
 from pydantic import BaseModel
 
-os.environ["OPENAI_API_KEY"] = ""
+load_dotenv()
 
 INPUT_MEDNLI_FILE = "mednli_train.jsonl"
 OUTPUT_AUGMENTED_FILE = "mednli_yesno_aug.jsonl"
@@ -15,7 +16,7 @@ OUTPUT_AUGMENTED_FILE = "mednli_yesno_aug.jsonl"
 N_VARIANTS_PER_SEED = 3
 MAX_SEED_EXAMPLES = 500
 
-MODEL_NAME = "gpt-4o-mini"
+MODEL_NAME = os.environ.get("UMGPT_MODEL", "gpt-4o-mini")
 TEMPERATURE = 0.7
 
 INSTRUCTION_TEXT = (
@@ -44,6 +45,8 @@ llm = ChatOpenAI(
     model=MODEL_NAME,
     temperature=TEMPERATURE,
     top_p=0.9,
+    openai_api_key=os.environ["UMGPT_API_KEY"],
+    openai_api_base=os.environ["UMGPT_BASE_URL"],
 )
 
 

@@ -1,13 +1,13 @@
 import json
 import os
 from typing import List, Dict, Optional
+from dotenv import load_dotenv
 from langchain_community.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage
 from pydantic import BaseModel, Field
 import re
 
-# Set OpenAI API key
-os.environ["OPENAI_API_KEY"] = ""
+load_dotenv()
 
 
 # Define the schema for structured output
@@ -28,7 +28,13 @@ class PatientStory(BaseModel):
 
 
 # Initialize OpenAI LLM
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.5, top_p=0.9)
+llm = ChatOpenAI(
+    model=os.environ.get("UMGPT_MODEL", "gpt-4o-mini"),
+    temperature=0.5,
+    top_p=0.9,
+    openai_api_key=os.environ["UMGPT_API_KEY"],
+    openai_api_base=os.environ["UMGPT_BASE_URL"],
+)
 
 
 # Function to extract age and gender from the raw description
