@@ -185,7 +185,9 @@ class Normalizer:
             oid_cnt = 0
             for saved_item in saved_items:
                 for loc in saved_item["entities"][ent_type]:
-                    loc["id"] = type_oids[oid_cnt]
+                    if oid_cnt < len(type_oids):
+                        loc["id"] = type_oids[oid_cnt]
+                    # else: leave existing id (Java normalizer returned fewer OIDs than entities)
                     loc["is_neural_normalized"] = False
                     oid_cnt += 1
 
