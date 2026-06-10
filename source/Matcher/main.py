@@ -217,7 +217,11 @@ def run_rag_processing(
     else:
         logger.info("Using default (HuggingFace) backend for CoT reasoning")
 
-        batch_size = min(config["rag"]["batch_size"] * 2, 8)
+        # MPS can't run phi-4 in parallel batches without OOM; CUDA can
+        if torch.backends.mps.is_available():
+            batch_size = 1
+        else:
+            batch_size = min(config["rag"]["batch_size"] * 2, 8)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 

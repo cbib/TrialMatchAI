@@ -15,7 +15,7 @@
   "paths": {
     "patients_dir": "example/",
     "output_dir": "results/",
-    "trials_json_folder": "data/trials_jsons",
+    "trials_json_folder": "data/processed_docs",
     "docker_certs": "elasticsearch/certs/ca.crt"
   },
   "model": {
@@ -77,7 +77,7 @@
   },
   "vllm": {
     "batch_size": 100,
-    "max_new_tokens": 5000,
+    "max_new_tokens": 2048,
     "temperature": 0.0,
     "top_p": 1.0,
     "seed": 1234,

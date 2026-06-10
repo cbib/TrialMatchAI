@@ -19,7 +19,7 @@ class BatchTrialProcessor:
         device: int,
         batch_size: int = 4,
         use_cot: bool = True,
-        max_new_tokens: int = 5000,  # keep long answers
+        max_new_tokens: int = 2048,
     ):
         """
         Optimized for throughput while preserving long outputs.
@@ -217,19 +217,23 @@ class BatchTrialProcessor:
 
             # Autocast to model dtype if it's half/bfloat16 for extra speed
             model_dtype = next(self.model.parameters()).dtype
-            use_autocast = model_dtype in (torch.float16, torch.bfloat16)
+            # MPS doesn't support bfloat16 autocast; CUDA does float16/bfloat16
+            use_autocast = (
+                model_dtype in (torch.float16, torch.bfloat16)
+                and self.device_str.startswith("cuda")
+            )
 
             with torch.inference_mode():
-                if use_autocast:
-                    ac_device = "cuda" if self.device_str.startswith("cuda") else self.device_str
-                    ctx = torch.autocast(device_type=ac_device, dtype=model_dtype)
-                else:
-                    import contextlib
-                    ctx = contextlib.nullcontext()
+                import contextlib
+                ctx = (
+                    torch.autocast(device_type="cuda", dtype=model_dtype)
+                    if use_autocast
+                    else contextlib.nullcontext()
+                )
                 with ctx:
                     outputs = self.model.generate(
                         **tokenized,
-                        max_new_tokens=self.max_new_tokens,  # long answers kept
+                        max_new_tokens=self.max_new_tokens,
                         do_sample=False,
                         use_cache=True,
                         pad_token_id=self.tokenizer.pad_token_id
