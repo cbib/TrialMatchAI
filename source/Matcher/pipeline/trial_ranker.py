@@ -10,15 +10,18 @@ logger = setup_logging(__name__)
 def load_trial_data(json_folder: str) -> List[Dict]:
     trial_data = []
     for file_name in os.listdir(json_folder):
-        if file_name.endswith(".json"):
-            file_path = os.path.join(json_folder, file_name)
-            trial_id = os.path.splitext(file_name)[0]
-            try:
-                trial = read_json_file(file_path)
-                trial["TrialID"] = trial_id
-                trial_data.append(trial)
-            except Exception as e:
-                logger.error(f"Failed to load {file_name}: {e}")
+        if not file_name.endswith(".json"):
+            continue
+        trial_id = os.path.splitext(file_name)[0]
+        if not trial_id.startswith("NCT"):
+            continue  # skip keywords.json, first_level_scores.json, etc.
+        file_path = os.path.join(json_folder, file_name)
+        try:
+            trial = read_json_file(file_path)
+            trial["TrialID"] = trial_id
+            trial_data.append(trial)
+        except Exception as e:
+            logger.error(f"Failed to load {file_name}: {e}")
     return trial_data
 
 

@@ -302,10 +302,12 @@ class ClinicalSummarizer:
                 add_generation_prompt=True,
                 return_tensors="pt",
             ).to(self.model.device)
+            attention_mask = torch.ones_like(prompt)
 
             with torch.no_grad():
                 output_ids = self.model.generate(
                     prompt,
+                    attention_mask=attention_mask,
                     max_new_tokens=2048,
                     do_sample=False,
                     return_dict_in_generate=False,

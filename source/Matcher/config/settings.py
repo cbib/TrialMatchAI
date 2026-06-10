@@ -132,8 +132,8 @@ class TrialMatchSettings(BaseModel):
     @field_validator("cot_backend")
     @classmethod
     def validate_cot_backend(cls, value: str) -> str:
-        if value not in {"default", "vllm"}:
-            raise ValueError("cot_backend must be 'default' or 'vllm'")
+        if value not in {"default", "vllm", "transformers"}:
+            raise ValueError("cot_backend must be 'default', 'vllm', or 'transformers'")
         return value
 
     def to_dict(self) -> Dict[str, Any]:

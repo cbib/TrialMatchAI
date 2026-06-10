@@ -402,7 +402,7 @@ class SecondStageRetriever:
                 )
             ranked_criteria = self.score_criteria_without_llm(all_criteria)
 
-        sorted_trials = self.aggregate_to_trials(ranked_criteria)
+        sorted_trials = self.aggregate_to_trials(ranked_criteria, threshold=0.0)
         top_trials = sorted_trials[:top_n]
         logger.info(f"Top {top_n} trials retrieved: {top_trials}")
         if save_path:

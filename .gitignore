@@ -71,3 +71,8 @@ __pycache__/
 **/tmp/
 .DS_Store
 Thumbs.db
+utils/Indexer/processed_ids.txt
+source/Parser/logs/nohup_disease_normalize.out
+source/Parser/logs/nohup_gene_normalize.out
+source/Parser/logs/nohup_gner.out
+source/Parser/logs/nohup_multi_ner.out
