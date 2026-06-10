@@ -16,6 +16,7 @@ from Matcher.models.llm.vllm_loader import load_vllm_engine
 from Matcher.pipeline.cot_reasoning import BatchTrialProcessor
 from Matcher.pipeline.cot_reasoning_vllm import BatchTrialProcessorVLLM
 from Matcher.pipeline.phenopacket_processor import PhenopacketProcessor, process_phenopacket
+from Matcher.pipeline.genomic_filter import extract_genomic_terms
 from Matcher.pipeline.trial_ranker import (
     load_trial_data,
     rank_trials,
@@ -401,6 +402,13 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
                 "expanded_sentences", []
             )
             logger.info("    Queries to run: %d", len(keywords.get("expanded_sentences", [])))
+
+            genomic_terms = extract_genomic_terms(read_json_file(input_file))
+            if genomic_terms:
+                keywords["other_conditions"] = genomic_terms + keywords.get("other_conditions", [])
+                logger.info("    ✓ Injected %d genomic variant term(s): %s", len(genomic_terms), genomic_terms)
+            else:
+                logger.info("    (no genomicInterpretations found in phenopacket)")
 
             step("2.2", "First-level search — BM25 + vector over clinical_trials index")
             with log_timing(logger, "First-level search"):
