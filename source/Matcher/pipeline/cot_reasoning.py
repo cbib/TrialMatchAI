@@ -203,6 +203,8 @@ class BatchTrialProcessor:
         Expects a list of dicts with keys: nct_id, prompt
         """
         try:
+            ids = [item["nct_id"] for item in batch]
+            logger.info("  → generating: %s", ", ".join(ids))
             t0 = time.time()
             # Tokenize once; pad to the longest in this batch only
             tokenized = self.tokenizer(
@@ -212,6 +214,8 @@ class BatchTrialProcessor:
                 return_tensors="pt",
             )
             input_len = tokenized["input_ids"].shape[1]
+            logger.info("    input_len=%d tokens — starting generate (max_new=%d) ...",
+                        input_len, self.max_new_tokens)
             tokenized = tokenized.to(self.device_str)
             t1 = time.time()
 
@@ -263,10 +267,8 @@ class BatchTrialProcessor:
                 f"out_len≈{gen_len} | tokenize+H2D={t1 - t0:.2f}s | "
                 f"generate={gen_time:.2f}s | ~{(total_gen_tokens / gen_time) if gen_time > 0 else 0:.1f} tok/s"
             )
-        except Exception as e:
-            logger.error(f"Batch processing failed: {str(e)}")
-            for item in batch:
-                logger.error(f"Failed trial: {item['nct_id']}")
+        except Exception:
+            logger.exception("Batch processing failed for: %s", [item["nct_id"] for item in batch])
 
     # ---------------------- Persistence ----------------------
 
@@ -335,10 +337,11 @@ class BatchTrialProcessor:
         # Sort by length (ascending) => minimal padding inside batches
         items.sort(key=lambda x: x["tok_len"])
 
-        # Process in batches
-        for i in tqdm(
-            range(0, len(items), self.batch_size),
-            desc=f"GPU {self.device} Processing Trials",
-        ):
-            batch = items[i : i + self.batch_size]
+        total = len(items)
+        batches = [items[i : i + self.batch_size] for i in range(0, total, self.batch_size)]
+        logger.info("CoT: %d trial(s) to evaluate, batch_size=%d → %d batch(es)",
+                    total, self.batch_size, len(batches))
+        for batch_idx, batch in enumerate(batches, 1):
+            logger.info("  [%d/%d] %s", batch_idx, len(batches),
+                        ", ".join(item["nct_id"] for item in batch))
             self._process_batch(batch, output_folder)
