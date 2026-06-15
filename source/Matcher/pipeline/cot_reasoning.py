@@ -4,9 +4,19 @@ import time
 from typing import Dict, List
 
 import torch
+from transformers import StoppingCriteria, StoppingCriteriaList
 from Matcher.utils.file_utils import read_json_file, write_json_file, write_text_file
 from Matcher.utils.logging_config import setup_logging
 from tqdm import tqdm
+
+
+class _TimeoutCriteria(StoppingCriteria):
+    """Abort generation after max_seconds wall-clock time."""
+    def __init__(self, max_seconds: float):
+        self.deadline = time.time() + max_seconds
+
+    def __call__(self, input_ids, scores, **kwargs) -> bool:
+        return time.time() >= self.deadline
 
 logger = setup_logging(__name__)
 
@@ -19,7 +29,8 @@ class BatchTrialProcessor:
         device: int,
         batch_size: int = 4,
         use_cot: bool = True,
-        max_new_tokens: int = 2048,
+        max_new_tokens: int = 1024,
+        generation_timeout: int = 300,  # seconds; 0 = no timeout
     ):
         """
         Optimized for throughput while preserving long outputs.
@@ -40,6 +51,7 @@ class BatchTrialProcessor:
         self.tokenizer = tokenizer
         self.use_cot = use_cot
         self.max_new_tokens = max_new_tokens
+        self.generation_timeout = generation_timeout
 
         # ---- Inference-time performance knobs (safe if available) ----
         self.model.eval()
@@ -48,20 +60,6 @@ class BatchTrialProcessor:
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.set_float32_matmul_precision("high")
         except Exception:
-            pass
-
-        # Prefer fast attention kernels if supported by your install
-        try:
-            from transformers.utils.import_utils import is_flash_attn_2_available
-
-            if hasattr(self.model, "config"):
-                if is_flash_attn_2_available():
-                    self.model.config.attn_implementation = "flash_attention_2"
-                else:
-                    # SDPA is the PyTorch fused attention (fast on recent torch)
-                    self.model.config.attn_implementation = "sdpa"
-        except Exception:
-            # Fall back silently; HF will pick the best available
             pass
 
         # Ensure caching is on for generation
@@ -234,6 +232,12 @@ class BatchTrialProcessor:
                     if use_autocast
                     else contextlib.nullcontext()
                 )
+                stopping_criteria = None
+                if self.generation_timeout > 0:
+                    stopping_criteria = StoppingCriteriaList(
+                        [_TimeoutCriteria(self.generation_timeout)]
+                    )
+                    logger.info("    timeout: %ds", self.generation_timeout)
                 with ctx:
                     outputs = self.model.generate(
                         **tokenized,
@@ -246,6 +250,7 @@ class BatchTrialProcessor:
                         eos_token_id=self.tokenizer.eos_token_id,
                         num_return_sequences=1,
                         return_dict_in_generate=False,
+                        stopping_criteria=stopping_criteria,
                     )
             t2 = time.time()
 
