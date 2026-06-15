@@ -185,12 +185,19 @@ def run_rag_processing(
         logger.error("No patient profile available for RAG processing.")
         return
 
-    # Check if vLLM backend is configured
     cot_backend = config.get("cot_backend", "default")
-    use_vllm = cot_backend == "vllm"
 
-    if use_vllm:
-        logger.info("Using vLLM backend for CoT reasoning")
+    if cot_backend == "mlx":
+        logger.info("Using MLX backend for CoT reasoning (Apple Silicon)")
+        from Matcher.pipeline.cot_reasoning_mlx import BatchTrialProcessorMLX
+        rag_processor = BatchTrialProcessorMLX(
+            model,
+            tokenizer,
+            max_new_tokens=config["rag"].get("max_new_tokens", 1024),
+            use_cot=config.get("use_cot_reasoning", True),
+        )
+    elif cot_backend == "vllm":
+        logger.info("Using vLLM backend for CoT reasoning (Linux GPU)")
 
         # Load vLLM configuration
         vllm_cfg = config.get("vllm", {})
@@ -238,6 +245,8 @@ def run_rag_processing(
             tokenizer,
             device=cot_device,
             batch_size=batch_size,
+            max_new_tokens=config["rag"].get("max_new_tokens", 1024),
+            generation_timeout=config["rag"].get("generation_timeout", 300),
         )
 
     rag_processor.process_trials(
@@ -275,17 +284,24 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
 
     import warnings
 
+    cot_backend = config.get("cot_backend", "transformers")
     model, tokenizer = None, None
     if not skip_llm:
-        step("1.2", f"Loading CoT model: {config['model']['base_model']}  (this takes ~2–3 min on MPS)")
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore", message=".*quantization_config.*", category=UserWarning
-            )
-            model, tokenizer = load_model_and_tokenizer(
-                config["model"], config["global"]["device"]
-            )
-        logger.info("    ✓ CoT model loaded")
+        if cot_backend == "mlx":
+            step("1.2", f"Loading CoT model via MLX: {config['model']['base_model']}")
+            from Matcher.models.llm.mlx_loader import load_mlx_model
+            model, tokenizer = load_mlx_model(config["model"])
+            logger.info("    ✓ MLX model loaded")
+        else:
+            step("1.2", f"Loading CoT model: {config['model']['base_model']}  (this takes ~2–3 min on MPS)")
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore", message=".*quantization_config.*", category=UserWarning
+                )
+                model, tokenizer = load_model_and_tokenizer(
+                    config["model"], config["global"]["device"]
+                )
+            logger.info("    ✓ CoT model loaded")
 
         if tokenizer.pad_token is None:  # type: ignore
             tokenizer.pad_token = tokenizer.eos_token  # type: ignore
@@ -387,10 +403,10 @@ def main_pipeline(config_path: str = "Matcher/config/config.json", skip_llm: boo
         try:
             step("2.1", "Extracting keywords from phenopacket")
             with log_timing(logger, "Phenopacket processing"):
-                if skip_llm:
+                if skip_llm or cot_backend == "mlx":
                     keywords = extract_keywords_without_llm(input_file)
                     write_json_file(keywords, output_file)
-                    logger.info("    ✓ Keywords extracted (structure-based, no LLM)")
+                    logger.info("    ✓ Keywords extracted (structure-based)")
                 else:
                     with torch.no_grad():
                         process_phenopacket(

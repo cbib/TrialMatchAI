@@ -28,7 +28,8 @@
     },
     "cot_adapter_path": "models/finetuned_phi_reasoning",
     "reranker_model_path": "google/gemma-2-2b",
-    "reranker_adapter_path": "models/finetuned_gemma2"
+    "reranker_adapter_path": "models/finetuned_gemma2",
+    "mlx_merged_model_path": ""
   },
   "tokenizer": {
     "use_fast": true,
@@ -70,10 +71,12 @@
     "max_trials_second_level": 100
   },
   "use_cot_reasoning": true,
-  "cot_backend": "transformers",
+  "cot_backend": "mlx",
   "rag": {
     "batch_size": 4,
-    "max_trials_rag": 20
+    "max_trials_rag": 20,
+    "max_new_tokens": 1024,
+    "generation_timeout": 300
   },
   "vllm": {
     "batch_size": 100,

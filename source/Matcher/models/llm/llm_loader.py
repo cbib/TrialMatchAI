@@ -86,11 +86,13 @@ def load_model_and_tokenizer(
             low_cpu_mem_usage=True,
         )
     else:
-        # MPS and CPU: load without device_map (not well-supported), then move
+        # MPS and CPU: load without device_map (not well-supported), then move.
+        # Force eager attention — SDPA deadlocks on MPS with bfloat16.
         model = AutoModelForCausalLM.from_pretrained(
             model_config["base_model"],
             trust_remote_code=True,
             torch_dtype=compute_dtype,
+            attn_implementation="eager",
             low_cpu_mem_usage=True,
         )
         model = model.to(device_str)
@@ -106,6 +108,10 @@ def load_model_and_tokenizer(
         )
     else:
         model = PeftModel.from_pretrained(model, model_config["cot_adapter_path"])
+        # Merge LoRA weights into base model — eliminates the PEFT wrapper's
+        # per-layer ops that can deadlock on MPS Metal kernels
+        logger.info("Merging LoRA adapter into base weights for MPS/CPU inference.")
+        model = model.merge_and_unload()
         model = model.to(device_str)
 
     if bool(model_config.get("compile", False)):

@@ -40,6 +40,7 @@ class ModelSettings(BaseModel):
     cot_adapter_path: str
     reranker_model_path: str
     reranker_adapter_path: str
+    mlx_merged_model_path: str = ""
 
 
 class TokenizerSettings(BaseModel):
@@ -132,8 +133,8 @@ class TrialMatchSettings(BaseModel):
     @field_validator("cot_backend")
     @classmethod
     def validate_cot_backend(cls, value: str) -> str:
-        if value not in {"default", "vllm", "transformers"}:
-            raise ValueError("cot_backend must be 'default', 'vllm', or 'transformers'")
+        if value not in {"default", "vllm", "transformers", "mlx"}:
+            raise ValueError("cot_backend must be 'default', 'vllm', 'transformers', or 'mlx'")
         return value
 
     def to_dict(self) -> Dict[str, Any]:
