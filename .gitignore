@@ -38,7 +38,7 @@ elasticsearch/sif/*.sif
 # ============================
 # Parser artifacts
 # ============================
-source/models/
+models/
 source/Parser/resources/
 source/Parser/models/
 source/Parser/input/
