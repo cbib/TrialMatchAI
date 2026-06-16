@@ -6,6 +6,7 @@ results/
 src/
 ablation/
 logs/
+models/
 *.log
 
 # ============================
