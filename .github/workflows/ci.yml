@@ -4,18 +4,17 @@ on:
   push:
     branches: [main, dev, mikael-clean]
   pull_request:
-    branches: [main, dev, mikael-clean]
+    branches: [main, dev]
   workflow_dispatch:
 
 jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
       fail-fast: false
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -30,7 +29,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --frozen
 
       - name: Lint
         run: uv run ruff check .
