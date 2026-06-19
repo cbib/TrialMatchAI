@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, mikael-clean]
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, mikael-clean]
   workflow_dispatch:
 
 jobs:
