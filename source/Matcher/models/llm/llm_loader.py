@@ -73,11 +73,14 @@ def load_model_and_tokenizer(
         device_str = "cpu"
         quant_config = BitsAndBytesConfig(load_in_4bit=False)
 
+    trust_remote_code = bool(model_config.get("trust_remote_code", False))
+    revision = model_config.get("base_model_revision")
     tokenizer = AutoTokenizer.from_pretrained(
         model_config["base_model"],
+        revision=revision,
         use_fast=True,
         padding_side="left",
-        trust_remote_code=True,
+        trust_remote_code=trust_remote_code,
     )
     # Always left-pad decoder-only models; keep most recent tokens if truncation occurs.
     tokenizer.padding_side = "left"
@@ -90,7 +93,8 @@ def load_model_and_tokenizer(
 
     model = AutoModelForCausalLM.from_pretrained(
         model_config["base_model"],
-        trust_remote_code=True,
+        revision=revision,
+        trust_remote_code=trust_remote_code,
         torch_dtype=compute_dtype if use_cuda else torch.float32,
         device_map=device_str,
         attn_implementation=attn_impl,

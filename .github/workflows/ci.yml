@@ -2,18 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, dev, mikael-clean]
+    branches: [main, dev, deployment-readiness-audit]
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
 
 jobs:
-  test:
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
-      fail-fast: false
-
+  deployment-readiness:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,10 +21,29 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
 
       - name: Install dependencies
         run: uv sync --frozen
 
+      - name: Validate lockfile
+        run: uv lock --check
+
+      - name: Lint
+        run: uv run ruff check .
+
       - name: Run tests
         run: uv run pytest -v
+
+      - name: Secret scan
+        run: uv run python scripts/scan_secrets.py
+
+      - name: Dependency audit
+        # vLLM 0.23 pins torch 2.11.0; CVE-2025-3000 has no fixed version listed.
+        run: uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
+
+      - name: Validate Compose
+        run: docker compose config
+
+      - name: Build Docker image
+        run: docker build .

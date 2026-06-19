@@ -22,11 +22,15 @@ class LLMReranker:
         device: int = 0,
         torch_dtype=torch.float16,
         batch_size: int = 8,
+        revision: Optional[str] = None,
+        trust_remote_code: bool = False,
     ):
         self.model_path = model_path
         self.adapter_path = adapter_path
         self.torch_dtype = torch_dtype
         self.batch_size = batch_size
+        self.revision = revision
+        self.trust_remote_code = trust_remote_code
         # Resolve device string
         if torch.cuda.is_available():
             cuda_count = torch.cuda.device_count()
@@ -47,7 +51,9 @@ class LLMReranker:
             self.device_str = "cpu"
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_path, trust_remote_code=True
+            self.model_path,
+            revision=self.revision,
+            trust_remote_code=self.trust_remote_code,
         )
         self._initialize_token_ids()
         self.model = self.load_model()
@@ -77,11 +83,12 @@ class LLMReranker:
         )
         model = AutoModelForCausalLM.from_pretrained(
             self.model_path,
+            revision=self.revision,
             torch_dtype=self.torch_dtype if use_cuda else torch.float32,
             quantization_config=quant_config,
             device_map="auto" if use_cuda else None,
             attn_implementation="flash_attention_2" if use_cuda else None,
-            trust_remote_code=True,
+            trust_remote_code=self.trust_remote_code,
         )
         if self.adapter_path:
             model = PeftModel.from_pretrained(model, self.adapter_path)

@@ -8,6 +8,11 @@ from pathlib import Path
 from elasticsearch import Elasticsearch, NotFoundError
 from elasticsearch.helpers import bulk
 
+try:
+    from .es_config import load_config, make_es_client
+except ImportError:  # pragma: no cover - direct script execution
+    from es_config import load_config, make_es_client
+
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s - %(message)s",
     level=logging.INFO,
@@ -200,23 +205,6 @@ class CriteriaIndexer:
         )
 
 
-def load_config(path: str) -> dict:
-    return json.loads(Path(path).read_text())
-
-
-def make_es_client(cfg: dict) -> Elasticsearch:
-    es_conf = cfg["elasticsearch"]
-    return Elasticsearch(
-        hosts=es_conf["hosts"],
-        basic_auth=(es_conf["username"], es_conf["password"]),
-        ca_certs=es_conf["ca_certs"],
-        verify_certs=True,
-        request_timeout=es_conf.get("request_timeout", 60),
-        max_retries=es_conf.get("max_retries", 3),
-        retry_on_timeout=True,
-    )
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Bulk‑index prepared eligibility criteria in parallel"
@@ -226,7 +214,7 @@ def main():
         "--processed-folder", required=True, help="Root folder of trial subfolders"
     )
     parser.add_argument(
-        "--index-name", default="trec_trials_eligibility_v3", help="ES index name"
+        "--index-name", default="trials_eligibility", help="ES index name"
     )
     parser.add_argument(
         "--batch-size", type=int, default=100, help="Docs per bulk request"

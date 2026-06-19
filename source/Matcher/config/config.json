@@ -4,22 +4,25 @@
     "gner_port": 18783,
     "gene_norm_port": 18888,
     "disease_norm_port": 18892,
-    "biomedner_home": "Parser/",
+    "biomedner_home": "source/Parser/",
     "use_neural_normalizer": true,
     "no_cuda": false
   },
   "services": {
-    "stop_script": "biomedner_services/run_biomedner.sh",
-    "run_script": "biomedner_services/run_biomedner.sh"
+    "stop_script": "source/biomedner_services/stop_biomedner.sh",
+    "run_script": "source/biomedner_services/run_biomedner.sh",
+    "auto_start": false
   },
   "paths": {
-    "patients_dir": "../example/",
-    "output_dir": "../results/",
-    "trials_json_folder": "../data/trials_jsons",
-    "docker_certs": "../elasticsearch/certs/ca.crt"
+    "patients_dir": "example",
+    "output_dir": "results",
+    "trials_json_folder": "data/trials_jsons",
+    "docker_certs": "elasticsearch/certs/ca/ca.crt"
   },
   "model": {
     "base_model": "microsoft/phi-4",
+    "base_model_revision": null,
+    "trust_remote_code": false,
     "quantization": {
       "load_in_4bit": true,
       "bnb_4bit_use_double_quant": true,
@@ -28,6 +31,7 @@
     },
     "cot_adapter_path": "models/finetuned_phi_reasoning",
     "reranker_model_path": "google/gemma-2-2b-it",
+    "reranker_model_revision": null,
     "reranker_adapter_path": "models/finetuned_gemma2"
   },
   "tokenizer": {
@@ -44,13 +48,15 @@
     "request_timeout": 600,
     "retry_on_timeout": true,
     "index_trials": "clinical_trials",
-    "index_trials_eligibility": "eligibility_criteria",
-    "auto_start": true,
+    "index_trials_eligibility": "trials_eligibility",
+    "auto_start": false,
     "start_script": "elasticsearch/apptainer-run-es.sh",
     "start_timeout": 600
   },
   "embedder": {
     "model_name": "BAAI/bge-m3",
+    "revision": null,
+    "trust_remote_code": false,
     "pooling": "mean",
     "max_length": 512,
     "batch_size": 32,

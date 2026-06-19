@@ -1,10 +1,5 @@
 import logging
-import sys
 import unittest
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(ROOT / "source"))
 
 from Matcher.utils.logging_config import reset_request_id, set_request_id, setup_logging
 

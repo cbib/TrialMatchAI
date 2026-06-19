@@ -1,9 +1,4 @@
-import sys
 import unittest
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(ROOT / "source"))
 
 from Matcher.pipeline.trial_search.first_level_search import ClinicalTrialSearch
 

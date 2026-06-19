@@ -12,7 +12,13 @@ cd "$ROOT_DIR/elasticsearch"
 
 if command -v docker &> /dev/null && docker info &> /dev/null; then
   info "Docker is available. Starting Elasticsearch with Docker Compose..."
-  docker-compose up -d --build
+  if docker compose version &> /dev/null; then
+    docker compose up -d
+  elif command -v docker-compose &> /dev/null; then
+    docker-compose up -d
+  else
+    error "Docker is available, but Docker Compose is not installed."
+  fi
 elif command -v apptainer &> /dev/null; then
   info "Docker not found or not running. Falling back to Apptainer..."
   if [ ! -f "./apptainer-run-es.sh" ]; then

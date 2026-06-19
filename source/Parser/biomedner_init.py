@@ -100,7 +100,7 @@ class DataProcessor(object):
                 if len(words) >= 30:
                     while len(words) >= 30:
                         tmplabel = labels[:30]
-                        l = " ".join(
+                        label_text = " ".join(
                             [
                                 label
                                 for label in labels[: len(tmplabel)]
@@ -113,17 +113,17 @@ class DataProcessor(object):
                         e = " ".join(
                             [el for el in entity_labels[: len(tmplabel)] if len(el) > 0]
                         )
-                        lines.append([l, w, e])
+                        lines.append([label_text, w, e])
                         words = words[len(tmplabel) :]
                         labels = labels[len(tmplabel) :]
                         entity_labels = entity_labels[len(tmplabel) :]
                 if len(words) == 0:
                     continue
 
-                l = " ".join([label for label in labels if len(label) > 0])
+                label_text = " ".join([label for label in labels if len(label) > 0])
                 w = " ".join([word for word in words if len(word) > 0])
                 e = " ".join([el for el in entity_labels if len(entity_labels) > 0])
-                lines.append([l, w, e])
+                lines.append([label_text, w, e])
                 words = []
                 labels = []
                 entity_labels = []
@@ -654,7 +654,7 @@ class BioMedNER:
                     tmp_toks.append(tok)
 
         self.predict_dict, self.prob_dict = dict(), dict()
-        threads, self.out_tag_dict = list(), dict()
+        self.out_tag_dict = dict()
 
         all_type = self._predict(predict_example_list)
         # disease, drug, gene, spec, cell_line, dna, rna, cell_type
@@ -729,8 +729,8 @@ class BioMedNER:
             slen = len(tokens[pidx])
             for p in prediction["prediction"][:slen]:
                 predicts.append(self.id2label[p])
-            for l in prediction["log_probs"][:slen]:
-                logits.append(l)
+            for log_prob in prediction["log_probs"][:slen]:
+                logits.append(log_prob)
 
         de_toks, de_labels, de_logits = detokenize(tot_tokens, predicts, logits)
 
@@ -976,7 +976,7 @@ def main():
     )
     args = argparser.parse_args()
 
-    biomedner = BioMedNER(args)
+    BioMedNER(args)
 
 
 if __name__ == "__main__":

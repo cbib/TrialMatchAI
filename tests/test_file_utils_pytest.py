@@ -1,5 +1,3 @@
-import json
-
 from Matcher.utils.file_utils import read_json_file, read_text_file, write_json_file, write_text_file
 
 

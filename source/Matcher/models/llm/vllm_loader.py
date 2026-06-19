@@ -16,7 +16,7 @@ def _infer_max_ctx_len(model_path: str) -> Optional[int]:
     try:
         from transformers import AutoConfig  # type: ignore
 
-        cfg = AutoConfig.from_pretrained(str(model_path), trust_remote_code=True)
+        cfg = AutoConfig.from_pretrained(str(model_path), trust_remote_code=False)
         for k in (
             "max_position_embeddings",
             "max_sequence_length",
@@ -124,7 +124,11 @@ def load_vllm_engine(
         gpu_memory_utilization=gmu,
         enable_lora=True,  # allows dynamic LoRA loading
         max_lora_rank=max_lora_rank,
+        trust_remote_code=bool(model_config.get("trust_remote_code", False)),
     )
+    revision = vllm_cfg.get("revision") or model_config.get("base_model_revision")
+    if revision:
+        engine_kwargs["revision"] = _as_str(revision, "revision")
     if requested_len is not None:
         engine_kwargs["max_model_len"] = requested_len
 

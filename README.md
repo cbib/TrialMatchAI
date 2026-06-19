@@ -2,106 +2,151 @@
 
 <img src="img/logo.png" alt="Logo" align="right" width="200" height="200">
 
-TrialMatchAI is an AI-driven system for matching patients to relevant clinical trials. It combines retrieval (BM25/vector search), NLP, and LLM-based reasoning to produce transparent, ranked trial recommendations.
+TrialMatchAI is a batch-oriented clinical trial matching pipeline. It combines Elasticsearch retrieval, biomedical NLP, embeddings, LLM reranking, and eligibility reasoning to produce ranked trial recommendations with criterion-level explanations.
 
 ## Disclaimer
-This software is provided for research and informational purposes only. It is not medical advice and must not replace consultation with qualified healthcare professionals.
 
-## Key Features
-- AI-powered matching of patient profiles to clinical trial eligibility criteria.
-- Two-stage retrieval (BM25 + vector) with optional reranking.
-- Explainable recommendations and criterion-level insights.
-- Scalable Elasticsearch-backed indexing.
-- Modular pipelines for indexing, retrieval, and reasoning.
+This software is for research and informational use only. It is not medical advice, is not a medical device, and must not replace review by qualified healthcare professionals.
+
+## Deployment Target
+
+The supported v1 deployment path is a single Linux GPU server or VM with Docker Compose for Elasticsearch and a containerized TrialMatchAI worker. HPC/Apptainer support remains available through the scripts under `elasticsearch/`, but production runtime does not auto-start local services by default.
 
 ## Requirements
-- OS: Linux or macOS
-- Python: 3.8+
-- Java: required for NER/normalization components
-- Elasticsearch: Docker Compose or Apptainer
-- GPU: NVIDIA gpu with at least 40 GB of VRAM is recommended for large-scale processing
-- Disk space: 100 GB+ for datasets and indices
 
-## Quickstart (uv recommended)
-1) Install dependencies
+- Python 3.11
+- `uv` recommended, or `pip` with editable install
+- Docker Compose for the default Elasticsearch deployment
+- NVIDIA GPU with enough VRAM for the selected LLM backend
+- 100 GB+ disk space for datasets, models, indices, and results
+- Java for BioMedNER/normalization components when those services are enabled
+
+## Security First
+
+No real credentials, generated TLS keys, Elasticsearch keystores, Parser outputs, or local indexing state should be committed. Copy templates and rotate any previously exposed credentials before deployment:
+
+```bash
+cp .env.example .env
+cp elasticsearch/.env.example elasticsearch/.env
+```
+
+Set strong local values for `TRIALMATCHAI_ES_PASSWORD`, `ELASTIC_PASSWORD`, and `KIBANA_PASSWORD`.
+
+Dependency auditing currently ignores `CVE-2025-3000` because vLLM 0.23 pins Torch 2.11.0 and the advisory has no fixed Torch version listed. Revisit that exception whenever upgrading vLLM or Torch.
+
+## Quickstart
+
+Install deployment dependencies:
+
+```bash
+uv sync --extra gpu
+```
+
+For local development, tests, healthchecks, or `TRIALMATCHAI_COT_BACKEND=default`, the default dependency set is enough:
+
 ```bash
 uv sync
 ```
 
-2) Ensure Elasticsearch credentials are configured
-- If using Apptainer, set `ELASTIC_PASSWORD` in `elasticsearch/.env`.
-- For the runtime pipeline, set `TRIALMATCHAI_ES_PASSWORD` in your environment.
+Optional tooling is split out of the default runtime:
 
-3) Start Elasticsearch (auto-start supported)
 ```bash
-trialmatchai-healthcheck --config Matcher/config/config.json --start-es
+uv sync --extra llm       # OpenAI/LangChain data-generation utilities
+uv sync --extra training  # fine-tuning and evaluation utilities
 ```
 
-4) Run the pipeline
+Start Elasticsearch with the root Compose stack:
+
 ```bash
-python -m Matcher.main
+docker compose up -d elasticsearch
+```
+
+Run a healthcheck:
+
+```bash
+uv run trialmatchai-healthcheck
+```
+
+Provision data, models, and indices:
+
+```bash
+uv run trialmatchai-bootstrap-data
+uv run trialmatchai-index
+```
+
+Run the batch matcher:
+
+```bash
+uv run trialmatchai-run
 ```
 
 Results are written under `results/`.
 
-## One-time Provisioning (data + models + indexing)
-You can run the all-in-one bootstrap script:
+## Docker Worker
+
+Build and run the worker healthcheck through Compose:
+
 ```bash
-./setup.sh
+docker compose build trialmatchai-worker
+docker compose up trialmatchai-worker
 ```
 
-Or run steps individually:
+To run the full pipeline in the container after provisioning data/models/indices:
+
 ```bash
-bash scripts/bootstrap_data.sh
-bash scripts/start_es.sh
-bash scripts/index_data.sh
+docker compose run --rm trialmatchai-worker trialmatchai-run
 ```
 
-## Package Installation (pip fallback)
-```bash
-pip install -e .
-```
+## Configuration
 
-## Configuration Overrides
-Use environment variables or a `.env` file to override defaults:
+Configuration defaults live in `source/Matcher/config/config.json`. Runtime overrides use `.env` or environment variables:
+
 ```bash
-# Elasticsearch
 TRIALMATCHAI_ES_HOST=https://localhost:9200
 TRIALMATCHAI_ES_USERNAME=elastic
-TRIALMATCHAI_ES_PASSWORD=YourNewPassword
-TRIALMATCHAI_ES_AUTO_START=true
-TRIALMATCHAI_ES_START_SCRIPT=elasticsearch/apptainer-run-es.sh
-TRIALMATCHAI_ES_START_TIMEOUT=600
+TRIALMATCHAI_ES_PASSWORD=change-me
+TRIALMATCHAI_ES_CA_CERTS=elasticsearch/certs/ca/ca.crt
+TRIALMATCHAI_ES_AUTO_START=false
 
-# Embedder
-TRIALMATCHAI_EMBEDDER_MODEL_NAME=BAAI/bge-m3
+TRIALMATCHAI_PATIENTS_DIR=example
+TRIALMATCHAI_OUTPUT_DIR=results
+TRIALMATCHAI_TRIALS_JSON_FOLDER=data/trials_jsons
+TRIALMATCHAI_INDEX_TRIALS=clinical_trials
+TRIALMATCHAI_INDEX_TRIALS_ELIGIBILITY=trials_eligibility
 
-# Logging
-TRIALMATCHAI_LOG_LEVEL=INFO
-TRIALMATCHAI_LOG_JSON=0
+TRIALMATCHAI_MODEL_TRUST_REMOTE_CODE=false
+TRIALMATCHAI_BIOMEDNER_AUTO_START=false
+TRIALMATCHAI_LOG_JSON=1
 ```
 
-Note: `Matcher/config/config.json` ships with a placeholder password (`CHANGE_ME`). Use env vars for production.
+Use `TRIALMATCHAI_MODEL_TRUST_REMOTE_CODE=true` only when a selected model explicitly requires custom remote code.
 
-## Healthcheck
-```bash
-trialmatchai-healthcheck --config Matcher/config/config.json --start-es
-```
+## CLI Commands
 
-## Tests
+- `trialmatchai-healthcheck`: validate config, paths, Elasticsearch reachability, and optionally indices.
+- `trialmatchai-bootstrap-data`: download and extract external data/model artifacts.
+- `trialmatchai-index`: index prepared data into Elasticsearch.
+- `trialmatchai-run`: run the batch matching pipeline.
+
+## Tests and Checks
+
 ```bash
+uv run ruff check .
 uv run pytest
+uv run python scripts/scan_secrets.py
+uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
+docker compose config
+docker build .
 ```
 
-Integration tests (requires running ES):
+Integration tests require a running Elasticsearch instance:
+
 ```bash
-TRIALMATCHAI_RUN_INTEGRATION=1 pytest -m integration
+TRIALMATCHAI_RUN_INTEGRATION=1 uv run pytest -m integration
 ```
-
-## Contributing
-We welcome contributions. Please open an issue or submit a PR with tests.
 
 ## Support
+
 - Email: abdallahmajd7@gmail.com
 - DOI: https://doi.org/10.5281/zenodo.18329084
 - arXiv: https://arxiv.org/abs/2505.08508

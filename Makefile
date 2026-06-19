@@ -1,10 +1,13 @@
-.PHONY: venv sync test lock lint healthcheck bootstrap start-es index setup
+.PHONY: venv sync sync-gpu test lock lint audit healthcheck bootstrap start-es index run setup
 
 venv:
 	uv venv
 
 sync:
 	uv sync
+
+sync-gpu:
+	uv sync --extra gpu
 
 test:
 	uv run pytest
@@ -15,17 +18,23 @@ lock:
 lint:
 	uv run python -m ruff check .
 
+audit:
+	uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
+
 healthcheck:
-	uv run trialmatchai-healthcheck --config Matcher/config/config.json --start-es
+	uv run trialmatchai-healthcheck
 
 bootstrap:
-	bash scripts/bootstrap_data.sh
+	uv run trialmatchai-bootstrap-data
 
 start-es:
 	bash scripts/start_es.sh
 
 index:
-	bash scripts/index_data.sh
+	uv run trialmatchai-index
+
+run:
+	uv run trialmatchai-run
 
 setup:
 	bash setup.sh

@@ -7,6 +7,10 @@ src/
 ablation/
 logs/
 *.log
+.env
+.env.*
+!.env.example
+!elasticsearch/.env.example
 
 # ============================
 # Finetuning ignore rules
@@ -29,11 +33,16 @@ utils/finetuning/finetune_ner
 # ============================
 # ElasticSearch artifacts
 # ============================
+elasticsearch/.env
+elasticsearch/certs/
+elasticsearch/config/
+elasticsearch/tmp-config/
 elasticsearch/sif/
 elasticsearch/data1/
 elasticsearch/data/
 elasticsearch/logs/
 elasticsearch/sif/*.sif
+*.keystore
 
 # ============================
 # Parser artifacts
@@ -43,13 +52,28 @@ source/Parser/resources/
 source/Parser/models/
 source/Parser/input/
 source/Parser/output/
+source/Parser/logs/
 Parser/logs/
+
+# ============================
+# Generated indexing state
+# ============================
+utils/DataLoader/nct_ids.txt
+utils/Indexer/nct_ids.txt
+utils/Indexer/processed_ids.txt
+utils/Indexer/*.log
 
 # ============================
 # Python cache
 # ============================
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+*.egg-info/
 
 # ============================
 # Temporary / cache files

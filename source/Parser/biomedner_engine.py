@@ -21,8 +21,6 @@ import numpy as np
 from Parser.convert import get_pub_annotation
 from Parser.normalizer import Normalizer
 
-print(os.getcwd())
-
 # Paths
 DICT_PATH = Path("Parser/resources/normalization/dictionary")
 dict_paths = {

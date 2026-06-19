@@ -1,13 +1,14 @@
+import json
 import os
-import torch
-import unicodedata
 import re
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+import unicodedata
 from multiprocessing import get_context
+
+import torch
+from peft import PeftModel
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from tqdm import tqdm
-from peft import PeftModel
-import json
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 # Set CUDA devices
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
@@ -190,12 +191,10 @@ class EvaluationScript:
             for entry, pred in zip(dataset, predictions)
             if pred["prediction"] != entry["output"]
         ]
-
-        # Optionally, save incorrect examples.
-        # with open(save_path, "w", encoding="utf-8") as f:
-        #     for example in incorrect_examples:
-        #         json.dump(example, f)
-        #         f.write("\n")
+        with open(save_path, "w", encoding="utf-8") as f:
+            for example in incorrect_examples:
+                json.dump(example, f)
+                f.write("\n")
 
         references = [entry["output"] for entry in dataset]
         predictions_only = [pred["prediction"] for pred in predictions]

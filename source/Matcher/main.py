@@ -4,8 +4,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import torch
-from Parser.biomedner_engine import BioMedNER
-
 from elasticsearch import Elasticsearch
 
 from Matcher.config.config_loader import load_config
@@ -24,7 +22,11 @@ from Matcher.pipeline.trial_ranker import (
 from Matcher.pipeline.trial_search.first_level_search import ClinicalTrialSearch
 from Matcher.pipeline.trial_search.second_level_search import SecondStageRetriever
 from Matcher.services.biomedner_service import initialize_biomedner_services
-from Matcher.services.elasticsearch_service import ensure_elasticsearch
+from Matcher.services.elasticsearch_service import (
+    build_elasticsearch_client,
+    ensure_elasticsearch,
+)
+from Matcher.services.preflight import run_preflight_checks
 from Matcher.utils.file_utils import (
     create_directory,
     read_json_file,
@@ -214,11 +216,34 @@ def run_rag_processing(
     logger.info("RAG-based trial matching complete.")
 
 
-def main_pipeline():
+def main_pipeline(config_path: str | None = None) -> int:
     logger.info("Starting TrialMatchAI pipeline...")
-    config = load_config()
+    config = load_config(config_path)
     paths = config["paths"]
     create_directory(paths["output_dir"])
+
+    es_client = build_elasticsearch_client(config)
+    preflight_issues = run_preflight_checks(
+        config,
+        es_client=es_client,
+        require_patient_inputs=True,
+        require_trials_json=True,
+        require_models=True,
+        require_indices=False,
+    )
+    if preflight_issues:
+        return 1
+
+    if not ensure_elasticsearch(es_client, config):
+        return 1
+
+    index_issues = run_preflight_checks(
+        config,
+        es_client=es_client,
+        require_indices=True,
+    )
+    if index_issues:
+        return 1
 
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
@@ -226,6 +251,7 @@ def main_pipeline():
             torch.backends.cuda.enable_flash_sdp(True)
 
     initialize_biomedner_services(config)
+    from Parser.biomedner_engine import BioMedNER
 
     import warnings
 
@@ -250,6 +276,8 @@ def main_pipeline():
     embedder = TextEmbedder(
         TextEmbedderConfig(
             model_name=embedder_cfg.get("model_name", "BAAI/bge-m3"),
+            revision=embedder_cfg.get("revision"),
+            trust_remote_code=embedder_cfg.get("trust_remote_code", False),
             pooling=embedder_cfg.get("pooling", "mean"),
             max_length=embedder_cfg.get("max_length", 512),
             batch_size=embedder_cfg.get("batch_size", 32),
@@ -269,20 +297,9 @@ def main_pipeline():
             adapter_path=config["model"]["reranker_adapter_path"],
             device=config["global"]["device"],
             batch_size=config["rag"]["batch_size"] * 2,
+            revision=config["model"].get("reranker_model_revision"),
+            trust_remote_code=config["model"].get("trust_remote_code", False),
         )
-
-    es_client = Elasticsearch(
-        hosts=[config["elasticsearch"]["host"]],
-        ca_certs=paths["docker_certs"],
-        basic_auth=(
-            config["elasticsearch"]["username"],
-            config["elasticsearch"]["password"],
-        ),
-        request_timeout=config["elasticsearch"]["request_timeout"],
-        retry_on_timeout=config["elasticsearch"]["retry_on_timeout"],
-    )
-    if not ensure_elasticsearch(es_client, config):
-        return
 
     gemma_retriever = SecondStageRetriever(
         es_client=es_client,
@@ -296,13 +313,13 @@ def main_pipeline():
     patient_folder = Path(paths["patients_dir"])
     if not patient_folder.exists():
         logger.error("Patients folder not found: %s", patient_folder)
-        return
+        return 1
     phenopacket_files = sorted(
         [p for p in patient_folder.iterdir() if p.suffix == ".json"]
     )
     if not phenopacket_files:
         logger.warning("No patient files found in %s", patient_folder)
-        return
+        return 1
 
     for phenopacket_path in phenopacket_files:
         patient_id = phenopacket_path.stem
@@ -390,6 +407,8 @@ def main_pipeline():
         finally:
             reset_request_id(token)
 
+    return 0
+
 
 if __name__ == "__main__":
-    main_pipeline()
+    raise SystemExit(main_pipeline())

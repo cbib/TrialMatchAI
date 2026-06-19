@@ -1,25 +1,16 @@
 #!/usr/bin/env python3
-import os
-import json
 import argparse
+import json
+import os
 from pathlib import Path
 
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 
-
-def load_config(path: str) -> dict:
-    return json.loads(Path(path).read_text())
-
-
-def make_es_client(cfg: dict) -> Elasticsearch:
-    es_conf = cfg["elasticsearch"]
-    return Elasticsearch(
-        hosts=es_conf["hosts"],
-        basic_auth=(es_conf["username"], es_conf["password"]),
-        ca_certs=es_conf["ca_certs"],
-        verify_certs=True,
-    )
+try:
+    from .es_config import load_config, make_es_client
+except ImportError:  # pragma: no cover - direct script execution
+    from es_config import load_config, make_es_client
 
 
 def detect_vector_dim(sample: dict) -> int:

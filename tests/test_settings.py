@@ -1,10 +1,6 @@
 import os
-import sys
 import unittest
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(ROOT / "source"))
 
 from Matcher.config.config_loader import load_config
 from Matcher.config.settings import apply_env_overrides

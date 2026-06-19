@@ -18,6 +18,8 @@ PoolingStrategy = Literal["cls", "mean"]
 @dataclass(frozen=True)
 class TextEmbedderConfig:
     model_name: str = "BAAI/bge-m3"
+    revision: str | None = None
+    trust_remote_code: bool = False
     pooling: PoolingStrategy = "mean"
     max_length: int = 512
     batch_size: int = 32
@@ -35,8 +37,16 @@ class TextEmbedder:
         logger.info(
             "Loading embedder model %s on device %s", config.model_name, self.device
         )
-        self.tokenizer = AutoTokenizer.from_pretrained(config.model_name)
-        self.model = AutoModel.from_pretrained(config.model_name).to(self.device)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            config.model_name,
+            revision=config.revision,
+            trust_remote_code=config.trust_remote_code,
+        )
+        self.model = AutoModel.from_pretrained(
+            config.model_name,
+            revision=config.revision,
+            trust_remote_code=config.trust_remote_code,
+        ).to(self.device)
         self.model.eval()
         if config.use_fp16 and self.device.type == "cuda":
             self.model = self.model.half()

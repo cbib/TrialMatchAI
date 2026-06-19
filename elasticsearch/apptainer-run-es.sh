@@ -29,6 +29,12 @@ ES_PORT3=$((ES_PORT1 + 2))
 
 ELASTIC_PASSWORD="${ELASTIC_PASSWORD:?ELASTIC_PASSWORD not set in .env}"
 
+if [ ! -f "$CERTS_DIR/ca/ca.crt" ] || [ ! -f "$CERTS_DIR/es01/es01.crt" ]; then
+  echo "[ERROR] Elasticsearch TLS certs are not present in $CERTS_DIR."
+  echo "[ERROR] Generate local certs with Docker Compose first or provide certs out of band."
+  exit 1
+fi
+
 #=== PREPARE FOLDERS ===#
 mkdir -p "$CONFIG_DIR/es01" "$CONFIG_DIR/es02" "$CONFIG_DIR/es03"
 mkdir -p "$DATA_DIR/es01" "$DATA_DIR/es02" "$DATA_DIR/es03"

@@ -5,6 +5,7 @@ from typing import Dict, List
 
 import torch
 from Matcher.utils.file_utils import read_json_file, write_json_file, write_text_file
+from Matcher.utils.json_utils import extract_json_object
 from Matcher.utils.logging_config import setup_logging
 from tqdm import tqdm
 
@@ -144,7 +145,6 @@ class BatchTrialProcessor:
                         "----\n"
                         "---Start of Patient Description---\n"
                         f"{patient_profile}\n"
-                        "Written informed consent has been obtained from the patient or their legal representative.\n"
                         "---End of Patient Description---\n"
                         "## IMPORTANT REMINDER:\n"
                         "NEVER make assumptions, inferences, or extrapolations beyond the explicitly stated patient information."
@@ -267,18 +267,15 @@ class BatchTrialProcessor:
             txt_path = f"{output_folder}/{nct_id}.txt"
             write_text_file([response], txt_path)
             try:
-                # naive JSON slice (you may replace with a balanced-brace parser if needed)
-                start = response.find("{")
-                end = response.rfind("}")
-                if start != -1 and end != -1 and end > start:
-                    json_str = response[start : end + 1]
-                    json_data = json.loads(json_str)
-                    write_json_file(json_data, f"{output_folder}/{nct_id}.json")
-                    logger.info(f"Processed {nct_id} successfully")
-                else:
-                    logger.error(f"Invalid JSON boundaries for {nct_id}")
-            except json.JSONDecodeError as e:
+                json_data = extract_json_object(response)
+                write_json_file(json_data, f"{output_folder}/{nct_id}.json")
+                logger.info(f"Processed {nct_id} successfully")
+            except (json.JSONDecodeError, ValueError) as e:
                 logger.error(f"Invalid JSON response for {nct_id}: {str(e)}")
+                write_json_file(
+                    {"error": "invalid_json_response", "raw_output": response},
+                    f"{output_folder}/{nct_id}.json",
+                )
         except Exception as e:
             logger.error(f"Failed to save {nct_id}: {str(e)}")
 

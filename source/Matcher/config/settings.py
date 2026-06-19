@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Tuple
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -18,6 +18,7 @@ class BioMedNerSettings(BaseModel):
 class ServicesSettings(BaseModel):
     stop_script: str
     run_script: str
+    auto_start: bool = False
 
 
 class PathsSettings(BaseModel):
@@ -40,6 +41,9 @@ class ModelSettings(BaseModel):
     cot_adapter_path: str
     reranker_model_path: str
     reranker_adapter_path: str
+    trust_remote_code: bool = False
+    base_model_revision: str | None = None
+    reranker_model_revision: str | None = None
 
 
 class TokenizerSettings(BaseModel):
@@ -66,6 +70,8 @@ class ElasticsearchSettings(BaseModel):
 
 class EmbedderSettings(BaseModel):
     model_name: str = "BAAI/bge-m3"
+    revision: str | None = None
+    trust_remote_code: bool = False
     pooling: str = "mean"
     max_length: int = 512
     batch_size: int = 32
@@ -144,34 +150,98 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Override config with environment variables for sensitive fields."""
     import os
 
-    env_map = {
+    string_env_map: dict[str, Tuple[str, ...]] = {
         "TRIALMATCHAI_ES_HOST": ("elasticsearch", "host"),
         "TRIALMATCHAI_ES_USERNAME": ("elasticsearch", "username"),
         "TRIALMATCHAI_ES_PASSWORD": ("elasticsearch", "password"),
+        "TRIALMATCHAI_ES_CA_CERTS": ("paths", "docker_certs"),
+        "TRIALMATCHAI_PATIENTS_DIR": ("paths", "patients_dir"),
+        "TRIALMATCHAI_OUTPUT_DIR": ("paths", "output_dir"),
+        "TRIALMATCHAI_TRIALS_JSON_FOLDER": ("paths", "trials_json_folder"),
+        "TRIALMATCHAI_INDEX_TRIALS": ("elasticsearch", "index_trials"),
+        "TRIALMATCHAI_INDEX_TRIALS_ELIGIBILITY": (
+            "elasticsearch",
+            "index_trials_eligibility",
+        ),
         "TRIALMATCHAI_EMBEDDER_MODEL_NAME": ("embedder", "model_name"),
+        "TRIALMATCHAI_EMBEDDER_REVISION": ("embedder", "revision"),
+        "TRIALMATCHAI_MODEL_BASE_MODEL": ("model", "base_model"),
+        "TRIALMATCHAI_MODEL_BASE_MODEL_REVISION": (
+            "model",
+            "base_model_revision",
+        ),
+        "TRIALMATCHAI_MODEL_COT_ADAPTER_PATH": ("model", "cot_adapter_path"),
+        "TRIALMATCHAI_MODEL_RERANKER_MODEL_PATH": (
+            "model",
+            "reranker_model_path",
+        ),
+        "TRIALMATCHAI_MODEL_RERANKER_MODEL_REVISION": (
+            "model",
+            "reranker_model_revision",
+        ),
+        "TRIALMATCHAI_MODEL_RERANKER_ADAPTER_PATH": (
+            "model",
+            "reranker_adapter_path",
+        ),
+        "TRIALMATCHAI_COT_BACKEND": ("cot_backend",),
+        "TRIALMATCHAI_ES_START_SCRIPT": ("elasticsearch", "start_script"),
     }
-    for env_key, path in env_map.items():
+    for env_key, path in string_env_map.items():
         value = os.getenv(env_key)
         if value:
-            cursor: Dict[str, Any] = raw
-            for key in path[:-1]:
-                cursor = cursor.setdefault(key, {})
-            cursor[path[-1]] = value
-    auto_start = os.getenv("TRIALMATCHAI_ES_AUTO_START")
-    if auto_start is not None:
-        cursor = raw.setdefault("elasticsearch", {})
-        cursor["auto_start"] = auto_start.strip().lower() in {"1", "true", "yes"}
+            _set_nested(raw, path, value)
 
-    start_script = os.getenv("TRIALMATCHAI_ES_START_SCRIPT")
-    if start_script:
-        cursor = raw.setdefault("elasticsearch", {})
-        cursor["start_script"] = start_script
+    bool_env_map: dict[str, Tuple[str, ...]] = {
+        "TRIALMATCHAI_ES_AUTO_START": ("elasticsearch", "auto_start"),
+        "TRIALMATCHAI_ES_RETRY_ON_TIMEOUT": ("elasticsearch", "retry_on_timeout"),
+        "TRIALMATCHAI_BIOMEDNER_AUTO_START": ("services", "auto_start"),
+        "TRIALMATCHAI_EMBEDDER_USE_GPU": ("embedder", "use_gpu"),
+        "TRIALMATCHAI_EMBEDDER_USE_FP16": ("embedder", "use_fp16"),
+        "TRIALMATCHAI_EMBEDDER_TRUST_REMOTE_CODE": (
+            "embedder",
+            "trust_remote_code",
+        ),
+        "TRIALMATCHAI_MODEL_TRUST_REMOTE_CODE": ("model", "trust_remote_code"),
+    }
+    for env_key, path in bool_env_map.items():
+        value = os.getenv(env_key)
+        if value is not None:
+            _set_nested(raw, path, _parse_bool(value))
 
-    start_timeout = os.getenv("TRIALMATCHAI_ES_START_TIMEOUT")
-    if start_timeout:
-        cursor = raw.setdefault("elasticsearch", {})
-        try:
-            cursor["start_timeout"] = int(start_timeout)
-        except ValueError:
-            pass
+    int_env_map: dict[str, Tuple[str, ...]] = {
+        "TRIALMATCHAI_ES_REQUEST_TIMEOUT": ("elasticsearch", "request_timeout"),
+        "TRIALMATCHAI_ES_START_TIMEOUT": ("elasticsearch", "start_timeout"),
+        "TRIALMATCHAI_EMBEDDER_BATCH_SIZE": ("embedder", "batch_size"),
+        "TRIALMATCHAI_SEARCH_MAX_TRIALS_FIRST_LEVEL": (
+            "search",
+            "max_trials_first_level",
+        ),
+        "TRIALMATCHAI_SEARCH_MAX_TRIALS_SECOND_LEVEL": (
+            "search",
+            "max_trials_second_level",
+        ),
+        "TRIALMATCHAI_RAG_MAX_TRIALS": ("rag", "max_trials_rag"),
+        "TRIALMATCHAI_VLLM_BATCH_SIZE": ("vllm", "batch_size"),
+        "TRIALMATCHAI_VLLM_MAX_NEW_TOKENS": ("vllm", "max_new_tokens"),
+    }
+    for env_key, path in int_env_map.items():
+        value = os.getenv(env_key)
+        if value:
+            try:
+                _set_nested(raw, path, int(value))
+            except ValueError:
+                pass
+
     return raw
+
+
+def _set_nested(raw: Dict[str, Any], path: Iterable[str], value: Any) -> None:
+    keys = tuple(path)
+    cursor: Dict[str, Any] = raw
+    for key in keys[:-1]:
+        cursor = cursor.setdefault(key, {})
+    cursor[keys[-1]] = value
+
+
+def _parse_bool(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}

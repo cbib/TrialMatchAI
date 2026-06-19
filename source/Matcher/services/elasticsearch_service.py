@@ -7,9 +7,26 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 
+from elasticsearch import Elasticsearch
+
 from Matcher.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
+
+
+def build_elasticsearch_client(config: Dict[str, Any]) -> Elasticsearch:
+    es_cfg = config["elasticsearch"]
+    paths = config.get("paths", {})
+    kwargs: dict[str, Any] = {
+        "hosts": [es_cfg["host"]],
+        "basic_auth": (es_cfg["username"], es_cfg["password"]),
+        "request_timeout": es_cfg["request_timeout"],
+        "retry_on_timeout": es_cfg["retry_on_timeout"],
+    }
+    ca_certs = paths.get("docker_certs")
+    if ca_certs and Path(ca_certs).exists():
+        kwargs["ca_certs"] = ca_certs
+    return Elasticsearch(**kwargs)
 
 
 def ensure_elasticsearch(es_client: Any, config: Dict[str, Any]) -> bool:

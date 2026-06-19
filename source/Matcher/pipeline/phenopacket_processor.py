@@ -1,10 +1,10 @@
 import json
-import re
 from typing import Dict, List, Optional
 
 import torch
 from Matcher.schemas.phenopacket import Phenopacket
 from Matcher.utils.file_utils import read_json_file, write_json_file
+from Matcher.utils.json_utils import extract_json_object
 from Matcher.utils.logging_config import setup_logging
 from Matcher.utils.temporal_utils import parse_iso_duration, parse_temporal
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -329,19 +329,7 @@ class ClinicalSummarizer:
 
     def _extract_llm_output(self, generated_text: str) -> Dict:
         try:
-            match = re.search(r"\{.*\}", generated_text, re.DOTALL)
-            if not match:
-                logger.error("No JSON object found in LLM output")
-                return {
-                    "error": "No JSON object found",
-                    "main_conditions": [],
-                    "other_conditions": [],
-                    "expanded_sentences": [],
-                }
-            json_str = match.group()
-            json_str = re.sub(r"```(?:json)?\s*", "", json_str)
-            json_str = re.sub(r"\s*```", "", json_str)
-            result = json.loads(json_str)
+            result = extract_json_object(generated_text)
             expected_keys = [
                 "main_conditions",
                 "other_conditions",
@@ -350,8 +338,8 @@ class ClinicalSummarizer:
             if not all(key in result for key in expected_keys):
                 raise ValueError("Missing required JSON keys in LLM output")
             return result
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON decoding failed: {e}")
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"JSON extraction failed: {e}")
             return {
                 "error": f"Invalid JSON format: {str(e)}",
                 "main_conditions": [],

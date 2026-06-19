@@ -1,39 +1,34 @@
---extra-index-url https://download.pytorch.org/whl/cu128
-
 # Core ML / NLP
-torch==2.7.1
-torchvision==0.22.1
-torchaudio==2.7.1
-transformers==4.55.0
+torch==2.11.0
+transformers==5.6.2
 accelerate==1.8.1
-tokenizers==0.21.1
-safetensors==0.5.3
-sentence-transformers==2.7.0
-sentencepiece==0.2.0
-datasets==2.19.0
+tokenizers==0.22.1
+safetensors>=0.6.2,<0.7
+sentencepiece==0.2.1
+elasticsearch==8.17.2
 faiss-cpu==1.9.0.post1
 peft==0.15.2
 einops==0.8.0
 tiktoken==0.8.0
-bitsandbytes==0.46.1
-vllm==0.10.1.1
 
-# vllm dependencies (pin to avoid backtracking)
-fastapi>=0.115.0
-uvicorn[standard]>=0.30.0
-dnspython>=2.6.0
-email-validator>=2.0.0
+# GPU inference extra: install with `uv sync --extra gpu`.
+bitsandbytes==0.49.2; sys_platform == "linux" or sys_platform == "win32"
+vllm==0.23.0; sys_platform == "linux"
 
 # Classical stack & utilities
-numpy==1.26.4
+numpy>=2.0,<3
 scipy==1.15.1
 scikit-learn==1.6.1
 pandas==2.2.3
+python-dateutil==2.9.0.post0
+requests==2.34.2
+tenacity==9.0.0
+joblib==1.4.2
 tqdm==4.67.1
-regex==2024.11.6
-orjson==3.10.14
+regex>=2025.10.22,<2027
+orjson==3.11.9
 PyYAML==6.0.2
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 rich==13.9.4
 
 # spaCy / medspaCy (for your medical text work)
@@ -44,19 +39,25 @@ PyRuSH==1.0.9
 PyFastNER==1.0.10
 pysbd==0.3.4
 quicksectx==0.4.0
-gliner==0.2.16
+gliner==0.2.27
 
 # App / infra
 SQLAlchemy==2.0.37
-pydantic==2.11.7
-pydantic-settings==2.7.1
+pydantic>=2.12.0,<3
+pydantic-settings>=2.10.1,<3
 
-# Optional APIs
-openai==1.99.1
+# LLM tooling extra: install with `uv sync --extra llm`.
+openai>=2.26.0,<3
 httpx==0.28.1
-langchain==0.3.18
-langchain-core==0.3.35
-langchain-community==0.3.17
-langchain-openai==0.3.5
-langsmith==0.2.11
-huggingface_hub==0.34.4
+langchain==1.3.10
+langchain-community==0.4.2
+langchain-openai==1.3.2
+huggingface_hub>=1.5.0,<2
+bioregistry==0.13.62
+rapidfuzz==3.14.5
+
+# Training/evaluation extra: install with `uv sync --extra training`.
+datasets==2.19.0
+bert-score==0.3.13
+jinja2==3.1.6
+nltk==3.9.4

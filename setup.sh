@@ -31,6 +31,7 @@ fi
 if command -v uv &> /dev/null; then
   info "Installing Python dependencies with uv..."
   uv sync
+  RUNNER=(uv run)
 else
   if ! command -v pip &> /dev/null; then
     error "pip not found. Please install Python and pip first."
@@ -38,11 +39,13 @@ else
   info "Installing Python requirements with pip..."
   pip install --upgrade pip
   pip install -r requirements.txt
+  pip install -e .
+  RUNNER=()
 fi
 
 # 2) Prepare data and models
 info "Bootstrapping data and models..."
-bash scripts/bootstrap_data.sh
+"${RUNNER[@]}" trialmatchai-bootstrap-data
 
 # 3) Launch Elasticsearch
 info "Starting Elasticsearch..."
@@ -50,6 +53,6 @@ bash scripts/start_es.sh
 
 # 4) Launch indexers in background
 info "Indexing trial data..."
-bash scripts/index_data.sh
+"${RUNNER[@]}" trialmatchai-index
 
-info "✅ TrialMatchAI setup is complete!"
+info "TrialMatchAI setup is complete."

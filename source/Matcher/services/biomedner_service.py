@@ -22,6 +22,12 @@ def run_script(script_path: str):
 
 
 def initialize_biomedner_services(config: dict):
+    if not config.get("services", {}).get("auto_start", False):
+        logger.info(
+            "BioMedNER auto-start is disabled. Set TRIALMATCHAI_BIOMEDNER_AUTO_START=true to start local services."
+        )
+        return
+
     ports_to_check = [
         config["bio_med_ner"]["biomedner_port"],
         config["bio_med_ner"]["gner_port"],

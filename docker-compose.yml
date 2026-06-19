@@ -1,0 +1,133 @@
+services:
+  setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-8.13.4}
+    user: "0"
+    volumes:
+      - ./elasticsearch/certs:/usr/share/elasticsearch/config/certs
+    command: >
+      bash -c '
+        if [ -z "$${TRIALMATCHAI_ES_PASSWORD}" ]; then
+          echo "Set TRIALMATCHAI_ES_PASSWORD in .env";
+          exit 1;
+        fi;
+        if [ ! -f config/certs/ca.zip ]; then
+          bin/elasticsearch-certutil ca --silent --pem -out config/certs/ca.zip;
+          unzip config/certs/ca.zip -d config/certs;
+        fi;
+        if [ ! -f config/certs/certs.zip ]; then
+          printf "%s\n" \
+            "instances:" \
+            "  - name: es01" \
+            "    dns:" \
+            "      - es01" \
+            "      - elasticsearch" \
+            "      - localhost" \
+            "    ip:" \
+            "      - 127.0.0.1" \
+            > config/certs/instances.yml;
+          bin/elasticsearch-certutil cert --silent --pem
+            -out config/certs/certs.zip
+            --in config/certs/instances.yml
+            --ca-cert config/certs/ca/ca.crt
+            --ca-key config/certs/ca/ca.key;
+          unzip config/certs/certs.zip -d config/certs;
+        fi;
+        chown -R root:root config/certs;
+        find config/certs -type d -exec chmod 750 {} \;;
+        find config/certs -type f -exec chmod 640 {} \;;
+      '
+    environment:
+      TRIALMATCHAI_ES_PASSWORD: ${TRIALMATCHAI_ES_PASSWORD:-}
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f config/certs/es01/es01.crt ]"]
+      interval: 1s
+      timeout: 5s
+      retries: 120
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-8.13.4}
+    depends_on:
+      setup:
+        condition: service_healthy
+    volumes:
+      - ./elasticsearch/certs:/usr/share/elasticsearch/config/certs:ro
+      - esdata01:/usr/share/elasticsearch/data
+    ports:
+      - "${ES_PORT:-9200}:9200"
+    environment:
+      node.name: es01
+      cluster.name: ${CLUSTER_NAME:-trialmatchai-local}
+      discovery.type: single-node
+      ELASTIC_PASSWORD: ${TRIALMATCHAI_ES_PASSWORD:-}
+      bootstrap.memory_lock: "true"
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "true"
+      xpack.security.http.ssl.key: certs/es01/es01.key
+      xpack.security.http.ssl.certificate: certs/es01/es01.crt
+      xpack.security.http.ssl.certificate_authorities: certs/ca/ca.crt
+      xpack.security.transport.ssl.enabled: "true"
+      xpack.security.transport.ssl.key: certs/es01/es01.key
+      xpack.security.transport.ssl.certificate: certs/es01/es01.crt
+      xpack.security.transport.ssl.certificate_authorities: certs/ca/ca.crt
+      xpack.security.transport.ssl.verification_mode: certificate
+      xpack.license.self_generated.type: ${LICENSE:-basic}
+    mem_limit: ${MEM_LIMIT:-2147483648}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+
+  trialmatchai-worker:
+    build: .
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./results:/app/results
+      - ./example:/app/example:ro
+      - ./elasticsearch/certs:/app/elasticsearch/certs:ro
+    environment:
+      TRIALMATCHAI_ES_HOST: https://elasticsearch:9200
+      TRIALMATCHAI_ES_USERNAME: elastic
+      TRIALMATCHAI_ES_PASSWORD: ${TRIALMATCHAI_ES_PASSWORD:-}
+      TRIALMATCHAI_ES_CA_CERTS: /app/elasticsearch/certs/ca/ca.crt
+      TRIALMATCHAI_ES_AUTO_START: "false"
+      TRIALMATCHAI_BIOMEDNER_AUTO_START: "false"
+      TRIALMATCHAI_PATIENTS_DIR: /app/example
+      TRIALMATCHAI_OUTPUT_DIR: /app/results
+      TRIALMATCHAI_TRIALS_JSON_FOLDER: /app/data/trials_jsons
+      TRIALMATCHAI_LOG_JSON: "1"
+    command: ["trialmatchai-healthcheck"]
+
+  kibana:
+    profiles: ["kibana"]
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION:-8.13.4}
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./elasticsearch/certs:/usr/share/kibana/config/certs:ro
+      - kibanadata:/usr/share/kibana/data
+    ports:
+      - "${KIBANA_PORT:-5601}:5601"
+    environment:
+      SERVERNAME: kibana
+      ELASTICSEARCH_HOSTS: https://elasticsearch:9200
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${KIBANA_PASSWORD:-}
+      ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES: config/certs/ca/ca.crt
+
+volumes:
+  esdata01:
+  kibanadata:

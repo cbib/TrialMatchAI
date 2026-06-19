@@ -175,9 +175,9 @@ def extract_study_info(nct_id):
 
             # Extract primary end date
             primary_end_date = root.find(".//primary_completion_date")
-            if end_date is not None:
-                end_date_text = end_date.text.strip()
-                f.write(f"Primary End Date:\n{end_date_text}\n\n")
+            if primary_end_date is not None:
+                primary_end_date_text = primary_end_date.text.strip()
+                f.write(f"Primary End Date:\n{primary_end_date_text}\n\n")
 
             # Extract overall status
             overall_status = root.find(".//overall_status")
@@ -475,14 +475,12 @@ def resolve_ner_overlaps(ner1_results, ner2_results):
     for entity1 in ner1_results:
         entity1_start = entity1["start"]
         entity1_end = entity1["end"]
-        entity1_label = entity1["entity_group"]
 
         # Check if the entity from the first model overlaps with any entity from the second model
         overlaps = False
         for entity2 in ner2_results:
             entity2_start = entity2["start"]
             entity2_end = entity2["end"]
-            entity2_label = entity2["entity_group"]
 
             if entity1_start < entity2_end and entity1_end > entity2_start:
                 overlaps = True
@@ -496,13 +494,11 @@ def resolve_ner_overlaps(ner1_results, ner2_results):
     for entity2 in ner2_results:
         entity2_start = entity2["start"]
         entity2_end = entity2["end"]
-        entity2_label = entity2["entity_group"]
 
         overlaps = False
         for entity1 in resolved_results:
             entity1_start = entity1["start"]
             entity1_end = entity1["end"]
-            entity1_label = entity1["entity_group"]
 
             if entity2_start < entity1_end and entity2_end > entity1_start:
                 overlaps = True
