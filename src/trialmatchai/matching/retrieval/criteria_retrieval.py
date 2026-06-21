@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import math
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
-from trialmatchai.models.embedding.text_embedder import TextEmbedder
-from trialmatchai.models.llm.llm_reranker import LLMReranker
 from trialmatchai.search.lancedb_backend import TrialSearchBackend
 from trialmatchai.utils.file_utils import write_text_file
 from trialmatchai.utils.logging_config import setup_logging
+
+if TYPE_CHECKING:
+    from trialmatchai.models.embedding.text_embedder import TextEmbedder
+    from trialmatchai.models.llm.llm_reranker import LLMReranker
 
 logger = setup_logging(__name__)
 

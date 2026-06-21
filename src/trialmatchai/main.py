@@ -1,14 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
-import torch
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from trialmatchai.config.config_loader import load_config
-from trialmatchai.models.embedding.text_embedder import TextEmbedder, TextEmbedderConfig
-from trialmatchai.models.llm.llm_loader import load_model_and_tokenizer
-from trialmatchai.models.llm.llm_reranker import LLMReranker
 from trialmatchai.entities import build_entity_annotator
 from trialmatchai.matching.eligibility_reasoning import BatchTrialProcessor
 from trialmatchai.matching.trial_ranker import (
@@ -33,6 +28,9 @@ from trialmatchai.utils.file_utils import (
 from trialmatchai.schemas.phenopacket import Keywords
 from trialmatchai.utils.logging_config import reset_request_id, set_request_id, setup_logging
 from trialmatchai.utils.timing import log_timing
+
+if TYPE_CHECKING:
+    from trialmatchai.models.embedding.text_embedder import TextEmbedder
 
 logger = setup_logging(__name__)
 
@@ -248,6 +246,22 @@ def main_pipeline(config_path: str | None = None) -> int:
     if not patient_inputs:
         logger.error("No patient profiles were available for matching.")
         return 1
+
+    try:
+        import torch
+    except ImportError:
+        logger.error(
+            "PyTorch is required to run matching. Install the ML extras with "
+            "`uv sync --extra llm --extra entity`."
+        )
+        return 1
+
+    from trialmatchai.models.embedding.text_embedder import (
+        TextEmbedder,
+        TextEmbedderConfig,
+    )
+    from trialmatchai.models.llm.llm_loader import load_model_and_tokenizer
+    from trialmatchai.models.llm.llm_reranker import LLMReranker
 
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True

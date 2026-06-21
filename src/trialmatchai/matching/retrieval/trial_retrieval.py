@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 from dateutil import parser as date_parser
-from trialmatchai.models.embedding.text_embedder import TextEmbedder
 from trialmatchai.search.lancedb_backend import TrialSearchBackend
 from trialmatchai.utils.logging_config import setup_logging
+
+if TYPE_CHECKING:
+    from trialmatchai.models.embedding.text_embedder import TextEmbedder
 
 logger = setup_logging(__name__)
 

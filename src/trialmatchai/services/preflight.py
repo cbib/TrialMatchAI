@@ -82,21 +82,25 @@ def run_preflight_checks(
             required=True,
         )
         if config.get("cot_backend") == "vllm":
-            if importlib.util.find_spec("vllm") is None:
+            vllm_available = importlib.util.find_spec("vllm") is not None
+            if not vllm_available:
                 issues.append(
                     "cot_backend=vllm requires the GPU extra "
                     "(`uv sync --extra llm --extra gpu`)."
                 )
-            try:
-                import torch
-            except Exception:
-                issues.append(
-                    "cot_backend=vllm requires PyTorch "
-                    "(`uv sync --extra llm --extra gpu`)."
-                )
             else:
-                if not torch.cuda.is_available():
-                    issues.append("cot_backend=vllm requires a CUDA-capable runtime.")
+                try:
+                    import torch
+                except Exception:
+                    issues.append(
+                        "cot_backend=vllm requires PyTorch "
+                        "(`uv sync --extra llm --extra gpu`)."
+                    )
+                else:
+                    if not torch.cuda.is_available():
+                        issues.append(
+                            "cot_backend=vllm requires a CUDA-capable runtime."
+                        )
 
     search_cfg = config.get("search_backend", {})
     if search_cfg:

@@ -1,15 +1,34 @@
 import json
 from typing import Dict, List, Optional
 
-import torch
 from trialmatchai.schemas.phenopacket import Phenopacket
 from trialmatchai.utils.file_utils import read_json_file, write_json_file
 from trialmatchai.utils.json_utils import extract_json_object
 from trialmatchai.utils.logging_config import setup_logging
 from trialmatchai.utils.temporal_utils import parse_iso_duration, parse_temporal
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 logger = setup_logging(__name__)
+
+try:
+    import torch
+except ImportError:  # pragma: no cover - exercised by lean package imports
+    torch = None  # type: ignore[assignment]
+
+
+def _require_llm_dependencies():
+    if torch is None:
+        raise RuntimeError(
+            "ClinicalSummarizer requires PyTorch. Install the ML extras with "
+            "`uv sync --extra llm` or `pip install 'trialmatchai[llm]'`."
+        )
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+    except ImportError as exc:
+        raise RuntimeError(
+            "ClinicalSummarizer requires Transformers. Install the ML extras with "
+            "`uv sync --extra llm` or `pip install 'trialmatchai[llm]'`."
+        ) from exc
+    return torch, AutoModelForCausalLM, AutoTokenizer
 
 
 class PhenopacketProcessor:
@@ -246,10 +265,11 @@ class ClinicalSummarizer:
             self.model = model
             self.tokenizer = tokenizer
         elif model_name is not None:
+            torch_module, AutoModelForCausalLM, AutoTokenizer = _require_llm_dependencies()
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_name,
-                torch_dtype=torch.float16,
+                torch_dtype=torch_module.float16,
                 device_map="auto",
             )
         else:
@@ -260,6 +280,7 @@ class ClinicalSummarizer:
         self.model.eval()
 
     def generate_summary(self, sentences: List[str]) -> Dict:
+        torch_module = _require_llm_dependencies()[0]
         SYSTEM_PROMPT = """
         You are a specialized medical assistant designed for precise and accurate clinical trial matching.
         Analyze the patient's medical description carefully and extract clinically relevant information for trial eligibility assessment.
@@ -303,7 +324,7 @@ class ClinicalSummarizer:
                 return_tensors="pt",
             ).to(self.model.device)
 
-            with torch.no_grad():
+            with torch_module.no_grad():
                 output_ids = self.model.generate(
                     prompt,
                     max_new_tokens=2048,

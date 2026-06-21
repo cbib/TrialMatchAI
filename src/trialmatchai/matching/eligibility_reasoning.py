@@ -3,13 +3,26 @@ import os
 import time
 from typing import Dict, List
 
-import torch
 from trialmatchai.utils.file_utils import read_json_file, write_json_file, write_text_file
 from trialmatchai.utils.json_utils import extract_json_object
 from trialmatchai.utils.logging_config import setup_logging
 from tqdm import tqdm
 
 logger = setup_logging(__name__)
+
+try:
+    import torch
+except ImportError:  # pragma: no cover - exercised by lean package imports
+    torch = None  # type: ignore[assignment]
+
+
+def _require_torch():
+    if torch is None:
+        raise RuntimeError(
+            "BatchTrialProcessor requires PyTorch. Install the ML extras with "
+            "`uv sync --extra llm` or `pip install 'trialmatchai[llm]'`."
+        )
+    return torch
 
 
 class BatchTrialProcessor:
@@ -30,6 +43,7 @@ class BatchTrialProcessor:
         - length bucketing (sort by prompt token length) to reduce padding waste
         - telemetry for tokens/sec and stage timings
         """
+        torch_module = _require_torch()
         self.device = device
         self.device_str = f"cuda:{device}"
         self.batch_size = batch_size
@@ -42,8 +56,8 @@ class BatchTrialProcessor:
         self.model.eval()
         try:
             # Allow TF32 on Ampere+ (gives a free speedup for matmuls with minimal accuracy loss)
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.set_float32_matmul_precision("high")
+            torch_module.backends.cuda.matmul.allow_tf32 = True
+            torch_module.set_float32_matmul_precision("high")
         except Exception:
             pass
 
@@ -198,6 +212,7 @@ class BatchTrialProcessor:
         """
         Expects a list of dicts with keys: nct_id, prompt
         """
+        torch_module = _require_torch()
         try:
             t0 = time.time()
             # Tokenize once; pad to the longest in this batch only
@@ -213,13 +228,13 @@ class BatchTrialProcessor:
 
             # Autocast to model dtype if it's half/bfloat16 for extra speed
             model_dtype = next(self.model.parameters()).dtype
-            use_autocast = model_dtype in (torch.float16, torch.bfloat16)
+            use_autocast = model_dtype in (torch_module.float16, torch_module.bfloat16)
 
-            with torch.inference_mode():
+            with torch_module.inference_mode():
                 ctx = (
-                    torch.autocast(device_type="cuda", dtype=model_dtype)
+                    torch_module.autocast(device_type="cuda", dtype=model_dtype)
                     if use_autocast
-                    else torch.cuda.amp.autocast(enabled=False)
+                    else torch_module.cuda.amp.autocast(enabled=False)
                 )
                 with ctx:
                     outputs = self.model.generate(

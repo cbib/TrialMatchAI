@@ -3,10 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, List, Literal, Sequence, Any
 
-import torch
-import torch.nn.functional as F
-from transformers import AutoModel, AutoTokenizer
-
 from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
@@ -30,6 +26,9 @@ class TextEmbedderConfig:
 
 class TextEmbedder:
     def __init__(self, config: TextEmbedderConfig):
+        torch, F, AutoModel, AutoTokenizer = _load_embedding_dependencies()
+        self._torch = torch
+        self._functional = F
         self.config = config
         self.device = torch.device(
             "cuda" if config.use_gpu and torch.cuda.is_available() else "cpu"
@@ -71,21 +70,21 @@ class TextEmbedder:
                 return_tensors="pt",
                 max_length=self.config.max_length,
             ).to(self.device)
-            with torch.inference_mode():
+            with self._torch.inference_mode():
                 outputs = self.model(**enc)
                 pooled = self._pool(outputs, enc["attention_mask"])
                 if self.config.normalize:
-                    pooled = F.normalize(pooled, p=2, dim=1)
+                    pooled = self._functional.normalize(pooled, p=2, dim=1)
             vectors.extend(pooled.cpu().tolist())
         return vectors
 
-    def _pool(self, outputs: Any, attention_mask: torch.Tensor) -> torch.Tensor:
+    def _pool(self, outputs: Any, attention_mask: Any) -> Any:
         if self.config.pooling == "cls":
             return outputs.last_hidden_state[:, 0, :]
         token_embeddings = outputs.last_hidden_state
         mask = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-        summed = torch.sum(token_embeddings * mask, dim=1)
-        counts = torch.clamp(mask.sum(dim=1), min=1e-9)
+        summed = self._torch.sum(token_embeddings * mask, dim=1)
+        counts = self._torch.clamp(mask.sum(dim=1), min=1e-9)
         return summed / counts
 
 
@@ -94,3 +93,16 @@ def _batched(items: Sequence[str], batch_size: int) -> Iterable[Sequence[str]]:
         raise ValueError("batch_size must be positive.")
     for i in range(0, len(items), batch_size):
         yield items[i : i + batch_size]
+
+
+def _load_embedding_dependencies():
+    try:
+        import torch
+        import torch.nn.functional as F
+        from transformers import AutoModel, AutoTokenizer
+    except ImportError as exc:
+        raise RuntimeError(
+            "Text embedding requires the ML dependencies. Install them with "
+            "`uv sync --extra llm` or `pip install 'trialmatchai[llm]'`."
+        ) from exc
+    return torch, F, AutoModel, AutoTokenizer

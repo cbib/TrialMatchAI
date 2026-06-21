@@ -100,14 +100,11 @@ def test_preflight_reports_missing_search_db_path(tmp_path):
 
 
 def test_preflight_reports_missing_vllm_extra(tmp_path, monkeypatch):
-    import torch
-
     cfg = _base_config(tmp_path)
     cfg["cot_backend"] = "vllm"
     Path(cfg["model"]["cot_adapter_path"]).mkdir(parents=True)
     Path(cfg["model"]["reranker_adapter_path"]).mkdir(parents=True)
     monkeypatch.setattr(preflight.importlib.util, "find_spec", lambda name: None)
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
 
     issues = run_preflight_checks(cfg, require_models=True)
 
