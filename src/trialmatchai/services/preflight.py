@@ -22,12 +22,15 @@ def run_preflight_checks(
     issues: List[str] = []
     paths = config.get("paths", {})
 
-    _require_path(
-        issues,
-        "paths.patients_dir",
-        paths.get("patients_dir"),
-        required=require_patient_inputs,
-    )
+    if require_patient_inputs:
+        _require_patient_inputs(issues, config)
+    else:
+        _require_path(
+            issues,
+            "paths.patients_dir",
+            paths.get("patients_dir"),
+            required=False,
+        )
     _require_path(
         issues,
         "paths.trials_json_folder",
@@ -150,3 +153,18 @@ def _require_output_dir(issues: List[str], value: str | None) -> None:
         path.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         issues.append(f"paths.output_dir is not writable: {path} ({exc})")
+
+
+def _require_patient_inputs(issues: List[str], config: Dict[str, Any]) -> None:
+    paths = config.get("paths", {})
+    patient_cfg = config.get("patient_inputs", {})
+    profile_dir = Path(patient_cfg.get("profile_dir", ""))
+    legacy_dir = Path(paths.get("patients_dir", ""))
+    has_profiles = profile_dir.exists()
+    has_legacy = legacy_dir.exists()
+    if has_profiles or has_legacy:
+        return
+    if profile_dir:
+        issues.append(f"patient_inputs.profile_dir does not exist: {profile_dir}")
+    if legacy_dir:
+        issues.append(f"paths.patients_dir does not exist: {legacy_dir}")

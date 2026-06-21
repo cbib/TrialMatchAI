@@ -87,6 +87,12 @@ def normalize_config_paths(cfg: Dict[str, Any], config_path: Path) -> Dict[str, 
         if value:
             cfg["paths"][key] = str(_resolve_local_path(value, root))
 
+    patient_inputs = cfg.get("patient_inputs", {})
+    for key in ("raw_dir", "profile_dir", "summary_dir"):
+        value = patient_inputs.get(key)
+        if value:
+            patient_inputs[key] = str(_resolve_local_path(value, root))
+
     schema_path = cfg.get("entity_extraction", {}).get("schema_path")
     if schema_path:
         cfg["entity_extraction"]["schema_path"] = str(

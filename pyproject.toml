@@ -58,6 +58,7 @@ trialmatchai-bootstrap-data = "trialmatchai.cli.bootstrap_data:main"
 trialmatchai-index = "trialmatchai.cli.index_data:main"
 trialmatchai-build-concepts = "trialmatchai.cli.build_concepts:main"
 trialmatchai-update-registry = "trialmatchai.cli.update_registry:main"
+trialmatchai-import-patient = "trialmatchai.cli.import_patient:main"
 
 [dependency-groups]
 dev = [

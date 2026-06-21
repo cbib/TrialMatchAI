@@ -9,11 +9,8 @@ from trialmatchai.config.config_loader import load_config
 from trialmatchai.models.embedding.text_embedder import TextEmbedder, TextEmbedderConfig
 from trialmatchai.models.llm.llm_loader import load_model_and_tokenizer
 from trialmatchai.models.llm.llm_reranker import LLMReranker
-from trialmatchai.models.llm.vllm_loader import load_vllm_engine
 from trialmatchai.entities import build_entity_annotator
 from trialmatchai.matching.eligibility_reasoning import BatchTrialProcessor
-from trialmatchai.matching.eligibility_reasoning_vllm import BatchTrialProcessorVLLM
-from trialmatchai.matching.phenopacket_processor import process_phenopacket
 from trialmatchai.matching.trial_ranker import (
     load_trial_data,
     rank_trials,
@@ -23,6 +20,9 @@ from trialmatchai.matching.retrieval.trial_retrieval import ClinicalTrialSearch
 from trialmatchai.matching.retrieval.criteria_retrieval import SecondStageRetriever
 from trialmatchai.search import LanceDBSearchBackend
 from trialmatchai.services.preflight import run_preflight_checks
+from trialmatchai.interop.exporters import profile_to_matching_summary
+from trialmatchai.interop.importers import import_patient_path
+from trialmatchai.interop.models import PatientProfile
 from trialmatchai.utils.file_utils import (
     create_directory,
     read_json_file,
@@ -30,7 +30,7 @@ from trialmatchai.utils.file_utils import (
     write_json_file,
     write_text_file,
 )
-from trialmatchai.schemas.phenopacket import Keywords, Phenopacket
+from trialmatchai.schemas.phenopacket import Keywords
 from trialmatchai.utils.logging_config import reset_request_id, set_request_id, setup_logging
 from trialmatchai.utils.timing import log_timing
 
@@ -168,6 +168,10 @@ def run_rag_processing(
 
     if use_vllm:
         logger.info("Using vLLM backend for CoT reasoning")
+        from trialmatchai.matching.eligibility_reasoning_vllm import (
+            BatchTrialProcessorVLLM,
+        )
+        from trialmatchai.models.llm.vllm_loader import load_vllm_engine
 
         # Load vLLM configuration
         vllm_cfg = config.get("vllm", {})
@@ -240,6 +244,11 @@ def main_pipeline(config_path: str | None = None) -> int:
     if index_issues:
         return 1
 
+    patient_inputs = _load_patient_inputs(config)
+    if not patient_inputs:
+        logger.error("No patient profiles were available for matching.")
+        return 1
+
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
         if hasattr(torch.backends.cuda, "enable_flash_sdp"):
@@ -301,39 +310,21 @@ def main_pipeline(config_path: str | None = None) -> int:
         search_mode=config["search"].get("mode", "hybrid"),
     )
 
-    # Process phenopackets
-    patient_folder = Path(paths["patients_dir"])
-    if not patient_folder.exists():
-        logger.error("Patients folder not found: %s", patient_folder)
-        return 1
-    phenopacket_files = sorted(
-        [p for p in patient_folder.iterdir() if p.suffix == ".json"]
-    )
-    if not phenopacket_files:
-        logger.warning("No patient files found in %s", patient_folder)
-        return 1
-
-    for phenopacket_path in phenopacket_files:
-        patient_id = phenopacket_path.stem
+    for profile, summary in patient_inputs:
+        patient_id = profile.patient_id
         token = set_request_id(patient_id)
         output_folder = Path(paths["output_dir"]) / patient_id
         create_directory(str(output_folder))
 
-        input_file = str(phenopacket_path)
-        output_file = str(output_folder / "keywords.json")
-
         try:
-            with log_timing(logger, "Phenopacket processing"):
-                with torch.no_grad():
-                    process_phenopacket(
-                        input_file, output_file, model=model, tokenizer=tokenizer
-                    )
-
-            keywords = Keywords.model_validate(read_json_file(output_file)).model_dump()
-            patient_info = Phenopacket.model_validate(
-                read_json_file(input_file)
-            ).model_dump()
-            patient_info["split_raw_description"] = keywords.get(
+            write_json_file(summary, str(output_folder / "keywords.json"))
+            write_json_file(
+                profile.model_dump(mode="json", exclude_none=True),
+                str(output_folder / "patient_profile.json"),
+            )
+            keywords = Keywords.model_validate(summary).model_dump()
+            patient_info = dict(summary)
+            patient_info["split_raw_description"] = summary.get(
                 "expanded_sentences", []
             )
 
@@ -400,6 +391,65 @@ def main_pipeline(config_path: str | None = None) -> int:
             reset_request_id(token)
 
     return 0
+
+
+def _load_patient_inputs(config: Dict) -> list[tuple[PatientProfile, Dict]]:
+    patient_cfg = config.get("patient_inputs", {})
+    profile_dir = Path(patient_cfg.get("profile_dir", "data/patients/profiles"))
+    summary_dir = Path(patient_cfg.get("summary_dir", "data/patients/summaries"))
+    profile_files = sorted(profile_dir.glob("*.json")) if profile_dir.exists() else []
+    if profile_files:
+        loaded: list[tuple[PatientProfile, Dict]] = []
+        for profile_file in profile_files:
+            try:
+                profile = PatientProfile.model_validate(read_json_file(str(profile_file)))
+                summary_path = summary_dir / profile_file.name
+                if summary_path.exists():
+                    summary = read_json_file(str(summary_path))
+                else:
+                    summary = profile_to_matching_summary(profile)
+                loaded.append((profile, summary))
+            except Exception:
+                logger.exception("Failed to load patient profile: %s", profile_file)
+        return loaded
+
+    patient_folder = Path(config.get("paths", {}).get("patients_dir", ""))
+    if not patient_folder.exists():
+        logger.error("Patient profile directory and legacy patients_dir are missing.")
+        return []
+
+    legacy_files = sorted(path for path in patient_folder.glob("*.json") if path.is_file())
+    if not legacy_files:
+        logger.warning("No patient profile or legacy phenopacket files found.")
+        return []
+
+    logger.warning(
+        "No canonical patient profiles found in %s. Importing legacy Phenopacket "
+        "JSON files from %s for this run.",
+        profile_dir,
+        patient_folder,
+    )
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    imported: list[tuple[PatientProfile, Dict]] = []
+    for legacy_file in legacy_files:
+        try:
+            profiles = import_patient_path(
+                legacy_file,
+                input_format="phenopacket",
+                strict=bool(patient_cfg.get("strict_validation", False)),
+            )
+            for profile in profiles:
+                summary = profile_to_matching_summary(profile)
+                write_json_file(
+                    profile.model_dump(mode="json", exclude_none=True),
+                    str(profile_dir / f"{profile.patient_id}.json"),
+                )
+                write_json_file(summary, str(summary_dir / f"{profile.patient_id}.json"))
+                imported.append((profile, summary))
+        except Exception:
+            logger.exception("Failed to import legacy patient file: %s", legacy_file)
+    return imported
 
 
 if __name__ == "__main__":

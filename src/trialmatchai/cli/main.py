@@ -11,12 +11,33 @@ def main() -> int:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("healthcheck", help="Run deployment health checks")
-    subparsers.add_parser("bootstrap-data", help="Download data and model artifacts")
-    subparsers.add_parser("index", help="Build LanceDB search tables")
-    subparsers.add_parser("build-concepts", help="Build LanceDB concept table")
-    subparsers.add_parser("update-registry", help="Fetch and upsert registry studies")
-    subparsers.add_parser("run", help="Run the matching pipeline")
+    subparsers.add_parser(
+        "healthcheck",
+        help="Run deployment health checks",
+        add_help=False,
+    )
+    subparsers.add_parser(
+        "bootstrap-data",
+        help="Download data and model artifacts",
+        add_help=False,
+    )
+    subparsers.add_parser("index", help="Build LanceDB search tables", add_help=False)
+    subparsers.add_parser(
+        "build-concepts",
+        help="Build LanceDB concept table",
+        add_help=False,
+    )
+    subparsers.add_parser(
+        "update-registry",
+        help="Fetch and upsert registry studies",
+        add_help=False,
+    )
+    subparsers.add_parser(
+        "import-patient",
+        help="Import patient data profiles",
+        add_help=False,
+    )
+    subparsers.add_parser("run", help="Run the matching pipeline", add_help=False)
 
     args, remainder = parser.parse_known_args()
     if args.command == "healthcheck":
@@ -29,6 +50,8 @@ def main() -> int:
         from trialmatchai.cli.build_concepts import main as command
     elif args.command == "update-registry":
         from trialmatchai.cli.update_registry import main as command
+    elif args.command == "import-patient":
+        from trialmatchai.cli.import_patient import main as command
     elif args.command == "run":
         from trialmatchai.cli.run import main as command
     else:  # pragma: no cover - argparse enforces choices

@@ -26,6 +26,7 @@ class TestConfigLoading(unittest.TestCase):
             "search": {"mode": "hybrid"},
             "entity_extraction": {"backend": "gliner2"},
             "concept_linker": {"db_path": "old"},
+            "patient_inputs": {"profile_dir": "old-profiles"},
             "registry": {"since_days": 7, "raw_dir": "old-raw"},
         }
         os.environ["TRIALMATCHAI_SEARCH_DB_PATH"] = "data/search-test"
@@ -34,6 +35,8 @@ class TestConfigLoading(unittest.TestCase):
         os.environ["TRIALMATCHAI_EMBEDDER_MODEL_NAME"] = "new-model"
         os.environ["TRIALMATCHAI_ENTITY_BACKEND"] = "regex"
         os.environ["TRIALMATCHAI_CONCEPT_DB_PATH"] = "concepts"
+        os.environ["TRIALMATCHAI_PATIENT_PROFILE_DIR"] = "patients/profiles"
+        os.environ["TRIALMATCHAI_PATIENT_STRICT_VALIDATION"] = "true"
         os.environ["TRIALMATCHAI_REGISTRY_SINCE_DAYS"] = "30"
         os.environ["TRIALMATCHAI_REGISTRY_RAW_DIR"] = "registry/raw"
         try:
@@ -45,6 +48,8 @@ class TestConfigLoading(unittest.TestCase):
             os.environ.pop("TRIALMATCHAI_EMBEDDER_MODEL_NAME", None)
             os.environ.pop("TRIALMATCHAI_ENTITY_BACKEND", None)
             os.environ.pop("TRIALMATCHAI_CONCEPT_DB_PATH", None)
+            os.environ.pop("TRIALMATCHAI_PATIENT_PROFILE_DIR", None)
+            os.environ.pop("TRIALMATCHAI_PATIENT_STRICT_VALIDATION", None)
             os.environ.pop("TRIALMATCHAI_REGISTRY_SINCE_DAYS", None)
             os.environ.pop("TRIALMATCHAI_REGISTRY_RAW_DIR", None)
 
@@ -54,6 +59,8 @@ class TestConfigLoading(unittest.TestCase):
         self.assertEqual(updated["embedder"]["model_name"], "new-model")
         self.assertEqual(updated["entity_extraction"]["backend"], "regex")
         self.assertEqual(updated["concept_linker"]["db_path"], "concepts")
+        self.assertEqual(updated["patient_inputs"]["profile_dir"], "patients/profiles")
+        self.assertTrue(updated["patient_inputs"]["strict_validation"])
         self.assertEqual(updated["registry"]["since_days"], 30)
         self.assertEqual(updated["registry"]["raw_dir"], "registry/raw")
 

@@ -69,6 +69,15 @@ uv run trialmatchai-update-registry --since 2026-06-01 --max-studies 100
 uv run trialmatchai-index --prepare
 ```
 
+Import patient data into canonical profiles before matching:
+
+```bash
+uv run trialmatchai-import-patient --input data/patients/raw/patient-1.txt --format text
+uv run trialmatchai-import-patient --input data/patients/raw/patient-1.fhir.json
+uv run trialmatchai-import-patient --input data/patients/raw/patient-1.phenopacket.json
+uv run trialmatchai-import-patient --input data/patients/omop_extract --format omop
+```
+
 Run the batch matcher:
 
 ```bash
@@ -85,6 +94,11 @@ Configuration defaults live in `src/trialmatchai/config/config.json`. Runtime ov
 TRIALMATCHAI_PATIENTS_DIR=example
 TRIALMATCHAI_OUTPUT_DIR=results
 TRIALMATCHAI_TRIALS_JSON_FOLDER=data/trials_jsons
+TRIALMATCHAI_PATIENT_RAW_DIR=data/patients/raw
+TRIALMATCHAI_PATIENT_PROFILE_DIR=data/patients/profiles
+TRIALMATCHAI_PATIENT_SUMMARY_DIR=data/patients/summaries
+TRIALMATCHAI_PATIENT_INPUT_FORMAT=auto
+TRIALMATCHAI_PATIENT_STRICT_VALIDATION=false
 
 TRIALMATCHAI_SEARCH_BACKEND=lancedb
 TRIALMATCHAI_SEARCH_DB_PATH=data/search
@@ -122,6 +136,7 @@ Use `TRIALMATCHAI_MODEL_TRUST_REMOTE_CODE=true` only when a selected model expli
 - `trialmatchai-build-concepts`: build the LanceDB concept table used for entity normalization.
 - `trialmatchai-update-registry`: fetch new/changed ClinicalTrials.gov studies, write normalized JSON, and upsert LanceDB.
 - `trialmatchai-index`: build the LanceDB trial and criteria search tables from prepared rows or `--prepare` normalized JSON.
+- `trialmatchai-import-patient`: import text, Phenopacket, FHIR, or OMOP patient data into canonical profiles.
 - `trialmatchai-run`: run the batch matching pipeline.
 
 The command group is also available as:
@@ -129,8 +144,11 @@ The command group is also available as:
 ```bash
 uv run python -m trialmatchai healthcheck
 uv run trialmatchai bootstrap-data --skip-models
+uv run trialmatchai import-patient --input data/patients/raw/patient-1.txt --format text
 uv run trialmatchai update-registry --dry-run --max-studies 25
 ```
+
+Patient interoperability details are documented in `docs/interoperability.md`.
 
 ## Registry Updater
 

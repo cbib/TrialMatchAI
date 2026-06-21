@@ -23,6 +23,14 @@
     "output_dir": "results",
     "trials_json_folder": "data/trials_jsons"
   },
+  "patient_inputs": {
+    "raw_dir": "data/patients/raw",
+    "profile_dir": "data/patients/profiles",
+    "summary_dir": "data/patients/summaries",
+    "default_format": "auto",
+    "strict_validation": false,
+    "copy_raw": true
+  },
   "model": {
     "base_model": "microsoft/phi-4",
     "base_model_revision": null,

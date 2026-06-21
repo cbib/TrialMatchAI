@@ -40,6 +40,15 @@ class PathsSettings(BaseModel):
     trials_json_folder: str
 
 
+class PatientInputSettings(BaseModel):
+    raw_dir: str = "data/patients/raw"
+    profile_dir: str = "data/patients/profiles"
+    summary_dir: str = "data/patients/summaries"
+    default_format: Literal["auto", "text", "phenopacket", "fhir", "fhir-ndjson", "omop"] = "auto"
+    strict_validation: bool = False
+    copy_raw: bool = True
+
+
 class ModelQuantizationSettings(BaseModel):
     load_in_4bit: bool = True
     bnb_4bit_use_double_quant: bool = True
@@ -150,6 +159,7 @@ class TrialMatchSettings(BaseModel):
     tokenizer: TokenizerSettings
     global_: GlobalSettings = Field(alias="global")
     search_backend: SearchBackendSettings = Field(default_factory=SearchBackendSettings)
+    patient_inputs: PatientInputSettings = Field(default_factory=PatientInputSettings)
     registry: RegistrySettings = Field(default_factory=RegistrySettings)
     embedder: EmbedderSettings
     cot: CotSettings
@@ -179,6 +189,10 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
         "TRIALMATCHAI_PATIENTS_DIR": ("paths", "patients_dir"),
         "TRIALMATCHAI_OUTPUT_DIR": ("paths", "output_dir"),
         "TRIALMATCHAI_TRIALS_JSON_FOLDER": ("paths", "trials_json_folder"),
+        "TRIALMATCHAI_PATIENT_RAW_DIR": ("patient_inputs", "raw_dir"),
+        "TRIALMATCHAI_PATIENT_PROFILE_DIR": ("patient_inputs", "profile_dir"),
+        "TRIALMATCHAI_PATIENT_SUMMARY_DIR": ("patient_inputs", "summary_dir"),
+        "TRIALMATCHAI_PATIENT_INPUT_FORMAT": ("patient_inputs", "default_format"),
         "TRIALMATCHAI_SEARCH_BACKEND": ("search_backend", "backend"),
         "TRIALMATCHAI_SEARCH_DB_PATH": ("search_backend", "db_path"),
         "TRIALMATCHAI_SEARCH_TRIALS_TABLE": ("search_backend", "trials_table"),
@@ -244,6 +258,11 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
             "trust_remote_code",
         ),
         "TRIALMATCHAI_CONCEPT_LINKER_ENABLED": ("concept_linker", "enabled"),
+        "TRIALMATCHAI_PATIENT_STRICT_VALIDATION": (
+            "patient_inputs",
+            "strict_validation",
+        ),
+        "TRIALMATCHAI_PATIENT_COPY_RAW": ("patient_inputs", "copy_raw"),
     }
     for env_key, path in bool_env_map.items():
         value = os.getenv(env_key)

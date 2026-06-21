@@ -3,20 +3,12 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from trialmatchai.utils.file_utils import read_json_file, write_json_file, write_text_file
 from trialmatchai.utils.json_utils import extract_json_object
 from trialmatchai.utils.logging_config import setup_logging
 from tqdm import tqdm
-
-from vllm import LLM, SamplingParams
-
-try:
-    # Present in vLLM when LoRA is enabled
-    from vllm.lora.request import LoRARequest  # type: ignore
-except Exception:  # pragma: no cover
-    LoRARequest = None  # type: ignore
 
 logger = setup_logging(__name__)
 
@@ -24,7 +16,7 @@ logger = setup_logging(__name__)
 class BatchTrialProcessorVLLM:
     def __init__(
         self,
-        llm: LLM,
+        llm: Any,
         tokenizer=None,
         batch_size: int = 16,
         use_cot: bool = True,
@@ -33,7 +25,7 @@ class BatchTrialProcessorVLLM:
         top_p: float = 1.0,
         seed: Optional[int] = 1234,
         length_bucket: bool = True,
-        lora_request: Optional[LoRARequest] = None,  # type: ignore
+        lora_request: Optional[Any] = None,
     ):
         """
         vLLM-backed trial processor for CoT eligibility evaluation.
@@ -53,6 +45,8 @@ class BatchTrialProcessorVLLM:
 
         # Validate LoRA request during initialization
         self.lora_request = self._init_validate_lora_request(lora_request)
+
+        from vllm import SamplingParams  # type: ignore
 
         self.sampling_params = SamplingParams(
             max_tokens=self.max_new_tokens,

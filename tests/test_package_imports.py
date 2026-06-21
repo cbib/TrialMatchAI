@@ -28,4 +28,6 @@ def test_command_group_includes_bootstrap_data(monkeypatch, capsys):
         main()
 
     assert exc.value.code == 0
-    assert "bootstrap-data" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "bootstrap-data" in output
+    assert "import-patient" in output
