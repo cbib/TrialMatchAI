@@ -1,35 +1,221 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
+import hashlib
+import os
 import sys
+import tarfile
+import zipfile
+from collections.abc import Sequence
 from pathlib import Path
 
+import requests
 
-def main() -> int:
+DATA_URL = "https://zenodo.org/records/15516900/files/processed_trials.tar.gz?download=1"
+MODELS_URL = "https://zenodo.org/records/15516900/files/models.tar.gz?download=1"
+CRITERIA_ZIP_BASE_URL = "https://zenodo.org/records/15516900/files"
+CHUNK_PREFIX = "criteria_part"
+CHUNK_COUNT = 6
+PROCESSED_TRIALS_ARCHIVE = "processed_trials.tar.gz"
+MODELS_ARCHIVE = "models.tar.gz"
+
+
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Download and prepare TrialMatchAI data and model artifacts"
     )
     parser.add_argument(
-        "--script",
-        default="scripts/bootstrap_data.sh",
-        help="Bootstrap script path relative to the repository root",
+        "--root",
+        type=Path,
+        default=None,
+        help="Runtime root for data/ and models/; defaults to repository root or current directory",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--data-url",
+        default=DATA_URL,
+        help="processed_trials.tar.gz URL",
+    )
+    parser.add_argument(
+        "--models-url",
+        default=MODELS_URL,
+        help="models.tar.gz URL",
+    )
+    parser.add_argument(
+        "--criteria-base-url",
+        default=CRITERIA_ZIP_BASE_URL,
+        help="Base URL containing criteria_part_<n>.zip chunks",
+    )
+    parser.add_argument(
+        "--criteria-chunks",
+        type=int,
+        default=CHUNK_COUNT,
+        help="Number of criteria zip chunks to download",
+    )
+    parser.add_argument(
+        "--skip-models",
+        action="store_true",
+        help="Do not download or extract model artifacts",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-extract archives even when target directories already exist",
+    )
+    args = parser.parse_args(argv)
 
-    root = _repo_root()
-    script = (root / args.script).resolve()
-    if not script.exists():
-        raise FileNotFoundError(f"Bootstrap script not found: {script}")
-    return subprocess.run(["bash", str(script)], cwd=str(root), check=False).returncode
+    root = (args.root or _runtime_root()).resolve()
+    bootstrap_data(
+        root=root,
+        data_url=args.data_url,
+        models_url=args.models_url,
+        criteria_base_url=args.criteria_base_url,
+        criteria_chunks=args.criteria_chunks,
+        skip_models=args.skip_models,
+        force=args.force,
+    )
+    return 0
 
 
-def _repo_root() -> Path:
+def bootstrap_data(
+    *,
+    root: Path,
+    data_url: str = DATA_URL,
+    models_url: str = MODELS_URL,
+    criteria_base_url: str = CRITERIA_ZIP_BASE_URL,
+    criteria_chunks: int = CHUNK_COUNT,
+    skip_models: bool = False,
+    force: bool = False,
+) -> None:
+    data_dir = root / "data"
+    models_dir = root / "models"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    criteria_dir = data_dir / "processed_criteria"
+    if force or not _has_entries(criteria_dir):
+        criteria_dir.mkdir(parents=True, exist_ok=True)
+        for index in range(criteria_chunks):
+            chunk_name = f"{CHUNK_PREFIX}_{index}.zip"
+            chunk_path = data_dir / chunk_name
+            _download_if_missing(
+                f"{criteria_base_url.rstrip('/')}/{chunk_name}?download=1",
+                chunk_path,
+            )
+            _verify_sha256(
+                chunk_path,
+                os.getenv(f"TRIALMATCHAI_CRITERIA_PART_{index}_SHA256"),
+            )
+            _safe_extract_zip(chunk_path, criteria_dir)
+
+    processed_trials_dir = data_dir / "processed_trials"
+    if force or not _has_entries(processed_trials_dir):
+        processed_archive = data_dir / PROCESSED_TRIALS_ARCHIVE
+        _download_if_missing(data_url, processed_archive)
+        _verify_sha256(
+            processed_archive, os.getenv("TRIALMATCHAI_PROCESSED_TRIALS_SHA256")
+        )
+        _safe_extract_tar_gz(processed_archive, data_dir)
+
+    if not skip_models:
+        models_dir.mkdir(parents=True, exist_ok=True)
+        if force or not _has_entries(models_dir):
+            models_archive = data_dir / MODELS_ARCHIVE
+            _download_if_missing(models_url, models_archive)
+            _verify_sha256(models_archive, os.getenv("TRIALMATCHAI_MODELS_SHA256"))
+            _safe_extract_tar_gz(models_archive, models_dir)
+
+    _cleanup_archives(data_dir, criteria_chunks)
+
+
+def _download_if_missing(url: str, destination: Path) -> None:
+    if destination.exists():
+        _info(f"{destination.name} already exists; skipping download.")
+        return
+
+    _info(f"Downloading {destination.name}...")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    response = requests.get(url, stream=True, timeout=120)
+    response.raise_for_status()
+    with destination.open("wb") as file:
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            if chunk:
+                file.write(chunk)
+
+
+def _verify_sha256(path: Path, expected: str | None) -> None:
+    if not expected:
+        _warn(f"No SHA-256 checksum configured for {path.name}; skipping verification.")
+        return
+
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual != expected:
+        raise ValueError(
+            f"Checksum mismatch for {path}: expected {expected}, got {actual}"
+        )
+
+
+def _safe_extract_tar_gz(archive: Path, target: Path) -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive, "r:gz") as tar:
+        for member in tar.getmembers():
+            _validated_target_path(target, member.name)
+            if member.issym() or member.islnk() or member.isdev():
+                raise ValueError(f"Archive contains an unsafe member: {member.name}")
+        tar.extractall(target)
+
+
+def _safe_extract_zip(archive: Path, target: Path) -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive) as zip_file:
+        for member in zip_file.namelist():
+            _validated_target_path(target, member)
+        zip_file.extractall(target)
+
+
+def _validated_target_path(target: Path, member_name: str) -> Path:
+    if not member_name:
+        raise ValueError("Archive contains an empty path")
+    member_path = Path(member_name)
+    if member_path.is_absolute():
+        raise ValueError(f"Archive contains an absolute path: {member_name}")
+
+    resolved_target = target.resolve()
+    resolved_member = (resolved_target / member_path).resolve()
+    try:
+        resolved_member.relative_to(resolved_target)
+    except ValueError as exc:
+        raise ValueError(f"Archive contains an unsafe path: {member_name}") from exc
+    return resolved_member
+
+
+def _cleanup_archives(data_dir: Path, criteria_chunks: int) -> None:
+    for path in [data_dir / PROCESSED_TRIALS_ARCHIVE, data_dir / MODELS_ARCHIVE]:
+        path.unlink(missing_ok=True)
+    for index in range(criteria_chunks):
+        (data_dir / f"{CHUNK_PREFIX}_{index}.zip").unlink(missing_ok=True)
+
+
+def _has_entries(path: Path) -> bool:
+    return path.exists() and any(path.iterdir())
+
+
+def _runtime_root() -> Path:
     start = Path(__file__).resolve()
     for parent in start.parents:
         if (parent / "pyproject.toml").exists():
             return parent
-    return Path.cwd().resolve()
+    return Path.cwd()
+
+
+def _info(message: str) -> None:
+    print(f"[INFO] {message}")
+
+
+def _warn(message: str) -> None:
+    print(f"[WARN] {message}", file=sys.stderr)
 
 
 if __name__ == "__main__":

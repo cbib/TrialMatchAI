@@ -12,6 +12,7 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("healthcheck", help="Run deployment health checks")
+    subparsers.add_parser("bootstrap-data", help="Download data and model artifacts")
     subparsers.add_parser("index", help="Build LanceDB search tables")
     subparsers.add_parser("build-concepts", help="Build LanceDB concept table")
     subparsers.add_parser("update-registry", help="Fetch and upsert registry studies")
@@ -20,6 +21,8 @@ def main() -> int:
     args, remainder = parser.parse_known_args()
     if args.command == "healthcheck":
         from trialmatchai.cli.healthcheck import main as command
+    elif args.command == "bootstrap-data":
+        from trialmatchai.cli.bootstrap_data import main as command
     elif args.command == "index":
         from trialmatchai.cli.index_data import main as command
     elif args.command == "build-concepts":

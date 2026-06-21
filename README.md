@@ -30,6 +30,8 @@ cp .env.example .env
 
 Dependency auditing currently ignores `CVE-2025-3000` because vLLM 0.23 pins Torch 2.11.0 and the advisory has no fixed Torch version listed. Revisit that exception whenever upgrading vLLM or Torch.
 
+Artifact bootstrap supports optional SHA-256 verification through `TRIALMATCHAI_PROCESSED_TRIALS_SHA256`, `TRIALMATCHAI_MODELS_SHA256`, and `TRIALMATCHAI_CRITERIA_PART_<N>_SHA256`.
+
 ## Quickstart
 
 Install the package for local development and operational CLIs:
@@ -126,6 +128,7 @@ The command group is also available as:
 
 ```bash
 uv run python -m trialmatchai healthcheck
+uv run trialmatchai bootstrap-data --skip-models
 uv run trialmatchai update-registry --dry-run --max-studies 25
 ```
 
