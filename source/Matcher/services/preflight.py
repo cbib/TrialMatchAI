@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 import torch
 
@@ -14,11 +14,11 @@ logger = setup_logging(__name__)
 def run_preflight_checks(
     config: Dict[str, Any],
     *,
-    es_client: Any | None = None,
+    search_backend: Any | None = None,
     require_patient_inputs: bool = False,
     require_trials_json: bool = False,
     require_models: bool = False,
-    require_indices: bool = False,
+    require_search_tables: bool = False,
 ) -> List[str]:
     """Return blocking deployment/runtime issues discovered before heavy startup."""
     issues: List[str] = []
@@ -37,15 +37,6 @@ def run_preflight_checks(
         required=require_trials_json,
     )
     _require_output_dir(issues, paths.get("output_dir"))
-
-    host = str(config.get("elasticsearch", {}).get("host", ""))
-    if host.startswith("https://"):
-        _require_path(
-            issues,
-            "paths.docker_certs",
-            paths.get("docker_certs"),
-            required=True,
-        )
 
     if require_models:
         entity_cfg = config.get("entity_extraction")
@@ -98,21 +89,28 @@ def run_preflight_checks(
             if not torch.cuda.is_available():
                 issues.append("cot_backend=vllm requires a CUDA-capable runtime.")
 
-    if es_client is not None:
-        if not _ping(es_client):
-            issues.append(
-                f"Elasticsearch is not reachable at {config['elasticsearch']['host']}."
-            )
-        elif require_indices:
-            missing = _missing_indices(
-                es_client,
-                [
-                    config["elasticsearch"]["index_trials"],
-                    config["elasticsearch"]["index_trials_eligibility"],
-                ],
-            )
-            if missing:
-                issues.append("Missing Elasticsearch indices: " + ", ".join(missing))
+    search_cfg = config.get("search_backend", {})
+    if search_cfg:
+        _require_path(
+            issues,
+            "search_backend.db_path",
+            search_cfg.get("db_path"),
+            required=require_search_tables,
+        )
+    if require_search_tables:
+        if search_backend is None:
+            try:
+                from Matcher.search import LanceDBSearchBackend
+
+                search_backend = LanceDBSearchBackend.from_config(config)
+            except Exception as exc:
+                issues.append(f"Search backend is not available: {exc}")
+                search_backend = None
+        if search_backend is not None:
+            if hasattr(search_backend, "health"):
+                issues.extend(search_backend.health(require_tables=True))
+            else:
+                issues.append("Search backend does not expose a healthcheck.")
 
     for issue in issues:
         logger.error("Preflight: %s", issue)
@@ -146,22 +144,3 @@ def _require_output_dir(issues: List[str], value: str | None) -> None:
         path.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         issues.append(f"paths.output_dir is not writable: {path} ({exc})")
-
-
-def _ping(es_client: Any) -> bool:
-    try:
-        return bool(es_client.ping())
-    except Exception:
-        return False
-
-
-def _missing_indices(es_client: Any, names: Iterable[str]) -> list[str]:
-    missing: list[str] = []
-    for name in names:
-        try:
-            if not es_client.indices.exists(index=name):
-                missing.append(name)
-        except Exception as exc:
-            logger.warning("Could not check Elasticsearch index %s: %s", name, exc)
-            missing.append(name)
-    return missing

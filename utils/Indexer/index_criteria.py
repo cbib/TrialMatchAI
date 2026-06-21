@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import sys
 from pathlib import Path
 
-from elasticsearch import Elasticsearch, NotFoundError
-from elasticsearch.helpers import bulk
 
-try:
-    from .es_config import load_config, make_es_client
-except ImportError:  # pragma: no cover - direct script execution
-    from es_config import load_config, make_es_client
+ROOT = Path(__file__).resolve().parents[2]
+SOURCE = ROOT / "source"
+if str(SOURCE) not in sys.path:
+    sys.path.append(str(SOURCE))
+
+from Matcher.config.config_loader import load_config  # noqa: E402
+from Matcher.search import LanceDBSearchBackend  # noqa: E402
+
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s - %(message)s",
@@ -21,243 +25,120 @@ logger = logging.getLogger(__name__)
 
 
 class CriteriaIndexer:
-    def __init__(self, es: Elasticsearch, index_name: str, processed_file: Path):
-        self.es = es
-        self.index_name = index_name
+    def __init__(
+        self,
+        backend: LanceDBSearchBackend,
+        *,
+        processed_file: Path,
+    ) -> None:
+        self.backend = backend
         self.processed_file = processed_file
         self.processed_file.parent.mkdir(parents=True, exist_ok=True)
         self.processed_ids = self._load_processed_ids()
 
     def _load_processed_ids(self) -> set[str]:
         if self.processed_file.exists():
-            return set(self.processed_file.read_text().splitlines())
+            return set(self.processed_file.read_text(encoding="utf-8").splitlines())
         return set()
 
-    def _save_processed_ids(self):
-        self.processed_file.write_text("\n".join(sorted(self.processed_ids)) + "\n")
-
-    def _trial_indexed(self, nct_id: str) -> bool:
-        try:
-            res = self.es.count(
-                index=self.index_name, body={"query": {"term": {"nct_id": nct_id}}}
-            )
-            return res.get("count", 0) > 0
-        except NotFoundError:
-            return False
-
-    def _detect_dim(self, processed_folder: Path) -> int:
-        # find first JSON under any trial subfolder
-        for trial_dir in processed_folder.iterdir():
-            if not trial_dir.is_dir():
-                continue
-            for f in trial_dir.glob("*.json"):
-                doc = json.loads(f.read_text())
-                vec = doc.get("criterion_vector", [])
-                if isinstance(vec, list):
-                    return len(vec)
-        raise RuntimeError("No criterion_vector found in any processed JSON.")
-
-    def create_index(self, dims: int):
-        mapping = {
-            "settings": {
-                "analysis": {
-                    "analyzer": {
-                        "standard_lowercase": {
-                            "type": "custom",
-                            "tokenizer": "standard",
-                            "filter": ["lowercase"],
-                        }
-                    }
-                }
-            },
-            "mappings": {
-                "properties": {
-                    "criteria_id": {"type": "keyword"},
-                    "criterion": {"type": "text", "analyzer": "standard_lowercase"},
-                    "criterion_vector": {
-                        "type": "dense_vector",
-                        "dims": dims,
-                        "index": True,
-                        "similarity": "cosine",
-                        "index_options": {
-                            "type": "hnsw",
-                            "m": 16,
-                            "ef_construction": 100,
-                        },
-                    },
-                    "entities": {
-                        "type": "nested",
-                        "properties": {
-                            "normalized_id": {"type": "keyword"},
-                            "synonyms": {
-                                "type": "text",
-                                "analyzer": "standard_lowercase",
-                            },
-                            "entity": {
-                                "type": "text",
-                                "analyzer": "standard_lowercase",
-                            },
-                            "class": {"type": "keyword"},
-                            "entity_group": {"type": "keyword"},
-                            "text": {
-                                "type": "text",
-                                "analyzer": "standard_lowercase",
-                            },
-                            "score": {"type": "float"},
-                            "linker_score": {"type": "float"},
-                            "linker_status": {"type": "keyword"},
-                            "concept_candidates": {
-                                "type": "nested",
-                                "properties": {
-                                    "normalized_id": {"type": "keyword"},
-                                    "vocabulary_id": {"type": "keyword"},
-                                    "concept_code": {"type": "keyword"},
-                                    "concept_name": {
-                                        "type": "text",
-                                        "analyzer": "standard_lowercase",
-                                    },
-                                    "domain_id": {"type": "keyword"},
-                                    "score": {"type": "float"},
-                                },
-                            },
-                        },
-                    },
-                    "nct_id": {"type": "keyword"},
-                    "eligibility_type": {"type": "keyword"},
-                }
-            },
-        }
-        self.es.indices.create(
-            index=self.index_name, body=mapping, timeout="60s", master_timeout="60s"
+    def _save_processed_ids(self) -> None:
+        self.processed_file.write_text(
+            "\n".join(sorted(self.processed_ids)) + "\n",
+            encoding="utf-8",
         )
-        logger.info(f"Created index {self.index_name} with dims={dims}")
 
-    def _index_trial(self, trial_dir: Path, batch_size: int) -> tuple[str, int]:
-        nct_id = trial_dir.name
-
-        # skip if already done or in ES
-        if nct_id in self.processed_ids or self._trial_indexed(nct_id):
-            logger.info(f"Skipping {nct_id}: already indexed")
-            return nct_id, 0
-
-        # load docs
-        docs = []
-        for f in trial_dir.glob("*.json"):
-            try:
-                docs.append(json.loads(f.read_text()))
-            except Exception as e:
-                logger.warning(f"{nct_id}: failed to load {f.name}: {e}")
-
-        if not docs:
-            logger.info(f"No JSONs for {nct_id}; marking done")
-            return nct_id, 0
-
-        # bulk‐index in sub‐batches
-        total = 0
-        for i in range(0, len(docs), batch_size):
-            batch = docs[i : i + batch_size]
-            actions = [
-                {
-                    "_op_type": "index",
-                    "_index": self.index_name,
-                    "_id": doc["criteria_id"],
-                    "_source": doc,
-                }
-                for doc in batch
-            ]
-            result = bulk(
-                client=self.es,
-                actions=actions,
-                raise_on_error=False,
-                chunk_size=batch_size,
-            )
-            succ, fails = result if isinstance(result, tuple) else (result, [])
-            total += succ
-            logger.info(
-                f"{nct_id}: batch {i // batch_size + 1} → {succ} indexed, {len(fails) if isinstance(fails, list) else 0} failed"
-            )
-
-        return nct_id, total
+    def load_docs(
+        self,
+        processed_folder: Path,
+        *,
+        recreate: bool,
+    ) -> tuple[list[dict], set[str]]:
+        docs: list[dict] = []
+        completed: set[str] = set()
+        trial_dirs = sorted(path for path in processed_folder.iterdir() if path.is_dir())
+        for trial_dir in trial_dirs:
+            nct_id = trial_dir.name
+            if not recreate and nct_id in self.processed_ids:
+                logger.info("Skipping %s: already indexed", nct_id)
+                continue
+            trial_docs = []
+            for path in sorted(trial_dir.glob("*.json")):
+                try:
+                    trial_docs.append(json.loads(path.read_text(encoding="utf-8")))
+                except Exception as exc:
+                    logger.warning("%s: failed to load %s: %s", nct_id, path.name, exc)
+            if trial_docs:
+                docs.extend(trial_docs)
+            completed.add(nct_id)
+        return docs, completed
 
     def index_all(
         self,
         processed_folder: Path,
-        batch_size: int = 100,
-        max_workers: int = 4,
-        refresh: bool = True,
-    ):
-        trials = [d for d in processed_folder.iterdir() if d.is_dir()]
-        if not trials:
-            logger.info("No trial subfolders found.")
-            return
-
-        # 1) determine vector dims & create index if missing
-        if not self.es.indices.exists(index=self.index_name):
-            dims = self._detect_dim(processed_folder)
-            self.create_index(dims)
-        else:
-            logger.info(f"Index {self.index_name} exists; skipping creation")
-
-        # 2) parallel indexing across trials
-        total_indexed = 0
-        newly_done = []
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_nct = {
-                executor.submit(self._index_trial, td, batch_size): td.name
-                for td in trials
-            }
-            for future in as_completed(future_to_nct):
-                nct = future_to_nct[future]
-                try:
-                    nct_id, count = future.result()
-                    total_indexed += count
-                    newly_done.append(nct_id)
-                except Exception as e:
-                    logger.error(f"{nct}: unexpected error: {e}")
-                    newly_done.append(nct)
-
-        # 3) optionally refresh & persist processed IDs
-        if refresh:
-            self.es.indices.refresh(index=self.index_name)
-
-        self.processed_ids.update(newly_done)
+        *,
+        recreate: bool = True,
+    ) -> int:
+        if not processed_folder.exists():
+            raise FileNotFoundError(f"Criteria folder not found: {processed_folder}")
+        docs, completed = self.load_docs(processed_folder, recreate=recreate)
+        if not docs:
+            logger.info("No prepared criteria JSON files found.")
+            return 0
+        count = self.backend.index_criteria(docs, recreate=recreate)
+        self.processed_ids.update(completed)
         self._save_processed_ids()
         logger.info(
-            f"✅ Indexed {total_indexed} criteria across {len(newly_done)} trials (skipped: {len(self.processed_ids) - len(newly_done)})."
+            "Indexed %s criteria documents into %s/%s.",
+            count,
+            self.backend.db_path,
+            self.backend.criteria_table,
         )
+        return count
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Bulk‑index prepared eligibility criteria in parallel"
+        description="Create or update the LanceDB eligibility criteria search table."
     )
-    parser.add_argument("--config", required=True, help="Path to config.json")
+    parser.add_argument("--config", default=None, help="Path to TrialMatchAI config JSON")
     parser.add_argument(
-        "--processed-folder", required=True, help="Root folder of trial subfolders"
+        "--processed-folder",
+        required=True,
+        help="Root folder containing one prepared criteria subfolder per trial",
+    )
+    parser.add_argument("--db-path", default=None, help="Override search DB path")
+    parser.add_argument("--table", default=None, help="Override criteria table name")
+    parser.add_argument(
+        "--processed-file",
+        default="utils/Indexer/processed_ids.txt",
+        help="File used to track already appended trial IDs",
     )
     parser.add_argument(
-        "--index-name", default="trials_eligibility", help="ES index name"
-    )
-    parser.add_argument(
-        "--batch-size", type=int, default=100, help="Docs per bulk request"
-    )
-    parser.add_argument(
-        "--max-workers", type=int, default=4, help="Parallel trial threads"
+        "--recreate",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Overwrite the target table before writing.",
     )
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
-    es = make_es_client(cfg)
+    config = load_config(args.config)
+    search_cfg = config["search_backend"]
+    if args.db_path:
+        search_cfg["db_path"] = str(Path(args.db_path).expanduser().resolve())
+    if args.table:
+        search_cfg["criteria_table"] = args.table
 
+    backend = LanceDBSearchBackend.from_config(config)
     indexer = CriteriaIndexer(
-        es=es, index_name=args.index_name, processed_file=Path("processed_ids.txt")
+        backend=backend,
+        processed_file=(ROOT / args.processed_file).resolve(),
     )
-    indexer.index_all(
-        processed_folder=Path(args.processed_folder),
-        batch_size=args.batch_size,
-        max_workers=args.max_workers,
+    count = indexer.index_all(
+        Path(args.processed_folder),
+        recreate=args.recreate,
     )
+    return 0 if count else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

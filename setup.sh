@@ -47,11 +47,7 @@ fi
 info "Bootstrapping data and models..."
 "${RUNNER[@]}" trialmatchai-bootstrap-data
 
-# 3) Launch Elasticsearch
-info "Starting Elasticsearch..."
-bash scripts/start_es.sh
-
-# 4) Launch indexers in background
+# 3) Build local LanceDB search tables
 info "Indexing trial data..."
 "${RUNNER[@]}" trialmatchai-index
 

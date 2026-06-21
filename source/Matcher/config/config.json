@@ -21,8 +21,7 @@
   "paths": {
     "patients_dir": "example",
     "output_dir": "results",
-    "trials_json_folder": "data/trials_jsons",
-    "docker_certs": "elasticsearch/certs/ca/ca.crt"
+    "trials_json_folder": "data/trials_jsons"
   },
   "model": {
     "base_model": "microsoft/phi-4",
@@ -46,17 +45,12 @@
   "global": {
     "device": 0
   },
-  "elasticsearch": {
-    "host": "https://localhost:9200",
-    "username": "elastic",
-    "password": "CHANGE_ME",
-    "request_timeout": 600,
-    "retry_on_timeout": true,
-    "index_trials": "clinical_trials",
-    "index_trials_eligibility": "trials_eligibility",
-    "auto_start": false,
-    "start_script": "elasticsearch/apptainer-run-es.sh",
-    "start_timeout": 600
+  "search_backend": {
+    "backend": "lancedb",
+    "db_path": "data/search",
+    "trials_table": "trials",
+    "criteria_table": "criteria",
+    "candidate_limit": 1000
   },
   "embedder": {
     "model_name": "BAAI/bge-m3",
@@ -76,6 +70,7 @@
     "batch_size": 20
   },
   "search": {
+    "mode": "hybrid",
     "vector_score_threshold": 0.5,
     "max_trials_first_level": 300,
     "max_trials_second_level": 100

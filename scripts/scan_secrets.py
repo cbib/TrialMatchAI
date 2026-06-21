@@ -9,19 +9,13 @@ from pathlib import Path
 
 SECRET_PATTERNS = [
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    re.compile(
-        r"\bELASTIC_PASSWORD\s*=\s*['\"]?(?!change-me|CHANGE_ME|<|\$|$)[^\s'\"]+"
-    ),
-    re.compile(
-        r"\bKIBANA_PASSWORD\s*=\s*['\"]?(?!change-me|CHANGE_ME|<|\$|$)[^\s'\"]+"
-    ),
     re.compile(r"\bpassword['\"]?\s*:\s*['\"](?!CHANGE_ME|change-me)[^'\"]{12,}['\"]"),
+    re.compile(r"\b[A-Z0-9_]*TOKEN\s*=\s*['\"]?(?!change-me|CHANGE_ME|<|\$|$)[^\s'\"]+"),
+    re.compile(r"\b[A-Z0-9_]*API_KEY\s*=\s*['\"]?(?!change-me|CHANGE_ME|<|\$|$)[^\s'\"]+"),
 ]
 
 SECRET_PATH_PATTERNS = [
-    re.compile(r"^elasticsearch/(certs|config|tmp-config)/"),
     re.compile(r"(^|/).*\.key$"),
-    re.compile(r"(^|/)elasticsearch\.keystore$"),
 ]
 
 SKIP_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".zip", ".gz", ".sif", ".so", ".a"}

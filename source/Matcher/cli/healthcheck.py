@@ -4,10 +4,7 @@ import argparse
 import sys
 
 from Matcher.config.config_loader import load_config
-from Matcher.services.elasticsearch_service import (
-    build_elasticsearch_client,
-    ensure_elasticsearch,
-)
+from Matcher.search import LanceDBSearchBackend
 from Matcher.services.preflight import run_preflight_checks
 from Matcher.utils.logging_config import setup_logging
 
@@ -22,19 +19,15 @@ def main() -> int:
         help="Path to config.json",
     )
     parser.add_argument(
-        "--start-es",
+        "--require-tables",
         action="store_true",
-        help="Attempt to start Elasticsearch if unreachable",
-    )
-    parser.add_argument(
-        "--require-indices",
-        action="store_true",
-        help="Fail if configured Elasticsearch indices are missing",
+        help="Fail if configured LanceDB search tables are missing",
     )
     args = parser.parse_args()
 
     config = load_config(args.config)
     issues = 0
+    search_backend = LanceDBSearchBackend.from_config(config)
 
     preflight_issues = run_preflight_checks(
         config,
@@ -44,26 +37,13 @@ def main() -> int:
     )
     issues += len(preflight_issues)
 
-    es_cfg = config["elasticsearch"]
-    es_client = build_elasticsearch_client(config)
-
-    if args.start_es and es_cfg.get("auto_start") is False:
-        es_cfg["auto_start"] = True
-
-    if not ensure_elasticsearch(es_client, config):
-        logger.error("Elasticsearch healthcheck failed.")
-        issues += 1
+    backend_issues = search_backend.health(require_tables=args.require_tables)
+    if backend_issues:
+        for issue in backend_issues:
+            logger.error("Search backend healthcheck failed: %s", issue)
+        issues += len(backend_issues)
     else:
-        logger.info("Elasticsearch reachable.")
-
-    if args.require_indices:
-        issues += len(
-            run_preflight_checks(
-                config,
-                es_client=es_client,
-                require_indices=True,
-            )
-        )
+        logger.info("LanceDB search backend reachable at %s.", search_backend.db_path)
 
     return 1 if issues else 0
 if __name__ == "__main__":

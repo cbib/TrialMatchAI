@@ -5,7 +5,6 @@ accelerate==1.8.1
 tokenizers==0.22.1
 safetensors>=0.6.2,<0.7
 sentencepiece==0.2.1
-elasticsearch==8.17.2
 faiss-cpu==1.9.0.post1
 peft==0.15.2
 einops==0.8.0
@@ -30,6 +29,8 @@ orjson==3.11.9
 PyYAML==6.0.2
 python-dotenv==1.2.2
 rich==13.9.4
+lancedb>=0.25.0,<0.26
+pyarrow>=24.0.0,<25
 
 # spaCy / medspaCy (for your medical text work)
 spacy==3.7.5

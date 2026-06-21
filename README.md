@@ -2,7 +2,7 @@
 
 <img src="img/logo.png" alt="Logo" align="right" width="200" height="200">
 
-TrialMatchAI is a batch-oriented clinical trial matching pipeline. It combines Elasticsearch retrieval, biomedical NLP, embeddings, LLM reranking, and eligibility reasoning to produce ranked trial recommendations with criterion-level explanations.
+TrialMatchAI is a batch-oriented clinical trial matching pipeline. It combines local LanceDB retrieval, schema-driven biomedical entity extraction, concept linking, embeddings, LLM reranking, and eligibility reasoning to produce ranked trial recommendations with criterion-level explanations.
 
 ## Disclaimer
 
@@ -10,27 +10,23 @@ This software is for research and informational use only. It is not medical advi
 
 ## Deployment Target
 
-The supported v1 deployment path is a single Linux GPU server or VM with Docker Compose for Elasticsearch and a containerized TrialMatchAI worker. HPC/Apptainer support remains available through the scripts under `elasticsearch/`, but production runtime does not auto-start local services by default.
+The supported v1 deployment path is a single Python 3.11 GPU server or VM. Trial and criteria search use embedded LanceDB tables under `data/search`, so no separate search service, container, socket, TLS certificate, or service credential is required. Docker remains optional for packaging the worker.
 
 ## Requirements
 
 - Python 3.11
 - `uv` recommended, or `pip` with editable install
-- Docker Compose for the default Elasticsearch deployment
 - NVIDIA GPU with enough VRAM for the selected LLM backend
-- 100 GB+ disk space for datasets, models, indices, and results
+- 100 GB+ disk space for datasets, models, LanceDB tables, and results
 - A LanceDB concept table built from OMOP/legacy dictionaries for entity normalization
 
 ## Security First
 
-No real credentials, generated TLS keys, Elasticsearch keystores, Parser outputs, or local indexing state should be committed. Copy templates and rotate any previously exposed credentials before deployment:
+No real credentials, generated private keys, Parser outputs, datasets, models, local LanceDB data, or results should be committed. Copy the template and keep runtime values local:
 
 ```bash
 cp .env.example .env
-cp elasticsearch/.env.example elasticsearch/.env
 ```
-
-Set strong local values for `TRIALMATCHAI_ES_PASSWORD`, `ELASTIC_PASSWORD`, and `KIBANA_PASSWORD`.
 
 Dependency auditing currently ignores `CVE-2025-3000` because vLLM 0.23 pins Torch 2.11.0 and the advisory has no fixed Torch version listed. Revisit that exception whenever upgrading vLLM or Torch.
 
@@ -42,33 +38,28 @@ Install deployment dependencies:
 uv sync --extra gpu --extra entity
 ```
 
-For local development, tests, healthchecks, or `TRIALMATCHAI_COT_BACKEND=default`, the default dependency set is enough:
+For local development, tests, healthchecks, or `TRIALMATCHAI_COT_BACKEND=default`:
 
 ```bash
 uv sync
 ```
 
-Optional tooling is split out of the default runtime:
+Optional tooling:
 
 ```bash
 uv sync --extra llm       # OpenAI/LangChain data-generation utilities
-uv sync --extra entity    # GLiNER2/LanceDB entity extraction and normalization
+uv sync --extra entity    # GLiNER2 entity extraction
 uv sync --extra training  # fine-tuning and evaluation utilities
 ```
 
-Start Elasticsearch with the root Compose stack:
-
-```bash
-docker compose up -d elasticsearch
-```
-
-Run a healthcheck:
+Run a config and backend healthcheck:
 
 ```bash
 uv run trialmatchai-healthcheck
+uv run trialmatchai-healthcheck --require-tables
 ```
 
-Provision data, models, and indices:
+Provision data, models, concept KB, and search tables:
 
 ```bash
 uv run trialmatchai-bootstrap-data
@@ -86,16 +77,11 @@ Results are written under `results/`.
 
 ## Docker Worker
 
-Build and run the worker healthcheck through Compose:
+Docker is optional. The worker container uses mounted local folders and the same embedded LanceDB tables:
 
 ```bash
 docker compose build trialmatchai-worker
-docker compose up trialmatchai-worker
-```
-
-To run the full pipeline in the container after provisioning data/models/indices:
-
-```bash
+docker compose run --rm trialmatchai-worker trialmatchai-healthcheck
 docker compose run --rm trialmatchai-worker trialmatchai-run
 ```
 
@@ -104,17 +90,16 @@ docker compose run --rm trialmatchai-worker trialmatchai-run
 Configuration defaults live in `source/Matcher/config/config.json`. Runtime overrides use `.env` or environment variables:
 
 ```bash
-TRIALMATCHAI_ES_HOST=https://localhost:9200
-TRIALMATCHAI_ES_USERNAME=elastic
-TRIALMATCHAI_ES_PASSWORD=change-me
-TRIALMATCHAI_ES_CA_CERTS=elasticsearch/certs/ca/ca.crt
-TRIALMATCHAI_ES_AUTO_START=false
-
 TRIALMATCHAI_PATIENTS_DIR=example
 TRIALMATCHAI_OUTPUT_DIR=results
 TRIALMATCHAI_TRIALS_JSON_FOLDER=data/trials_jsons
-TRIALMATCHAI_INDEX_TRIALS=clinical_trials
-TRIALMATCHAI_INDEX_TRIALS_ELIGIBILITY=trials_eligibility
+
+TRIALMATCHAI_SEARCH_BACKEND=lancedb
+TRIALMATCHAI_SEARCH_DB_PATH=data/search
+TRIALMATCHAI_SEARCH_TRIALS_TABLE=trials
+TRIALMATCHAI_SEARCH_CRITERIA_TABLE=criteria
+TRIALMATCHAI_SEARCH_CANDIDATE_LIMIT=1000
+TRIALMATCHAI_SEARCH_MODE=hybrid
 
 TRIALMATCHAI_MODEL_TRUST_REMOTE_CODE=false
 TRIALMATCHAI_ENTITY_BACKEND=gliner2
@@ -130,10 +115,10 @@ Use `TRIALMATCHAI_MODEL_TRUST_REMOTE_CODE=true` only when a selected model expli
 
 ## CLI Commands
 
-- `trialmatchai-healthcheck`: validate config, paths, Elasticsearch reachability, and optionally indices.
+- `trialmatchai-healthcheck`: validate config, paths, and optionally LanceDB search tables.
 - `trialmatchai-bootstrap-data`: download and extract external data/model artifacts.
 - `trialmatchai-build-concepts`: build the LanceDB concept table used for entity normalization.
-- `trialmatchai-index`: index prepared data into Elasticsearch.
+- `trialmatchai-index`: build the LanceDB trial and criteria search tables.
 - `trialmatchai-run`: run the batch matching pipeline.
 
 ## Tests and Checks
@@ -145,12 +130,6 @@ uv run python scripts/scan_secrets.py
 uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
 docker compose config
 docker build .
-```
-
-Integration tests require a running Elasticsearch instance:
-
-```bash
-TRIALMATCHAI_RUN_INTEGRATION=1 uv run pytest -m integration
 ```
 
 ## Support

@@ -10,7 +10,6 @@ logs/
 .env
 .env.*
 !.env.example
-!elasticsearch/.env.example
 
 # ============================
 # Finetuning ignore rules
@@ -31,20 +30,6 @@ utils/finetuning/finetune_ner/output_eval
 utils/finetuning/finetune_ner
 
 # ============================
-# ElasticSearch artifacts
-# ============================
-elasticsearch/.env
-elasticsearch/certs/
-elasticsearch/config/
-elasticsearch/tmp-config/
-elasticsearch/sif/
-elasticsearch/data1/
-elasticsearch/data/
-elasticsearch/logs/
-elasticsearch/sif/*.sif
-*.keystore
-
-# ============================
 # Parser artifacts
 # ============================
 models/
@@ -62,6 +47,7 @@ utils/DataLoader/nct_ids.txt
 utils/Indexer/nct_ids.txt
 utils/Indexer/processed_ids.txt
 utils/Indexer/*.log
+*.lance
 
 # ============================
 # Python cache

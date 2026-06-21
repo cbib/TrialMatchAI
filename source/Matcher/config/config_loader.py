@@ -35,10 +35,6 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> Dict[str, 
     settings = TrialMatchSettings.model_validate(raw)
     cfg = settings.to_dict()
     cfg = normalize_config_paths(cfg, resolved_config)
-    if cfg.get("elasticsearch", {}).get("password") in {"", "CHANGE_ME"}:
-        logger.warning(
-            "Elasticsearch password is not set. Use TRIALMATCHAI_ES_PASSWORD to supply it."
-        )
     return cfg
 
 
@@ -82,7 +78,7 @@ def resolve_config_path(
 def normalize_config_paths(cfg: Dict[str, Any], config_path: Path) -> Dict[str, Any]:
     """Normalize known local paths while leaving remote model IDs untouched."""
     root = _repo_root(config_path)
-    for key in ("patients_dir", "output_dir", "trials_json_folder", "docker_certs"):
+    for key in ("patients_dir", "output_dir", "trials_json_folder"):
         value = cfg.get("paths", {}).get(key)
         if value:
             cfg["paths"][key] = str(_resolve_local_path(value, root))
@@ -99,9 +95,11 @@ def normalize_config_paths(cfg: Dict[str, Any], config_path: Path) -> Dict[str, 
             _resolve_local_path(concept_db_path, root)
         )
 
-    start_script = cfg.get("elasticsearch", {}).get("start_script")
-    if start_script:
-        cfg["elasticsearch"]["start_script"] = str(_resolve_local_path(start_script, root))
+    search_db_path = cfg.get("search_backend", {}).get("db_path")
+    if search_db_path:
+        cfg["search_backend"]["db_path"] = str(
+            _resolve_local_path(search_db_path, root)
+        )
 
     for key in ("cot_adapter_path", "reranker_adapter_path"):
         value = cfg.get("model", {}).get(key)

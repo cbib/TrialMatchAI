@@ -1,151 +1,69 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import json
-import os
+import sys
 from pathlib import Path
 
-from elasticsearch import Elasticsearch
-from elasticsearch.helpers import bulk
 
-try:
-    from .es_config import load_config, make_es_client
-except ImportError:  # pragma: no cover - direct script execution
-    from es_config import load_config, make_es_client
+ROOT = Path(__file__).resolve().parents[2]
+SOURCE = ROOT / "source"
+if str(SOURCE) not in sys.path:
+    sys.path.append(str(SOURCE))
 
-
-def detect_vector_dim(sample: dict) -> int:
-    for k, v in sample.items():
-        if k.endswith("_vector") and isinstance(v, list):
-            return len(v)
-    raise ValueError("No vector field found in sample")
+from Matcher.config.config_loader import load_config  # noqa: E402
+from Matcher.search import LanceDBSearchBackend  # noqa: E402
 
 
 def load_processed(folder: Path) -> list[dict]:
-    docs = []
-    for fn in os.listdir(folder):
-        if fn.endswith(".json"):
-            docs.append(json.loads((folder / fn).read_text()))
+    docs: list[dict] = []
+    for path in sorted(folder.glob("*.json")):
+        docs.append(json.loads(path.read_text(encoding="utf-8")))
     return docs
 
 
-def create_index(es: Elasticsearch, name: str, dims: int):
-    body = {
-        "settings": {
-            "analysis": {
-                "analyzer": {
-                    "standard_lowercase": {
-                        "type": "custom",
-                        "tokenizer": "standard",
-                        "filter": ["lowercase"],
-                    }
-                }
-            }
-        },
-        "mappings": {
-            "properties": {
-                "nct_id": {"type": "keyword"},
-                "brief_title": {"type": "text", "analyzer": "standard_lowercase"},
-                "brief_title_vector": {"type": "dense_vector", "dims": dims},
-                "brief_summary": {"type": "text", "analyzer": "standard_lowercase"},
-                "brief_summary_vector": {"type": "dense_vector", "dims": dims},
-                "condition": {"type": "text", "analyzer": "standard_lowercase"},
-                "condition_vector": {"type": "dense_vector", "dims": dims},
-                "overall_status": {"type": "keyword"},
-                "start_date": {"type": "date", "format": "yyyy-MM-dd"},
-                "completion_date": {"type": "date", "format": "yyyy-MM-dd"},
-                "phase": {"type": "keyword"},
-                "study_type": {"type": "keyword"},
-                "intervention": {
-                    "properties": {
-                        "intervention_type": {"type": "keyword"},
-                        "intervention_name": {"type": "text"},
-                    }
-                },
-                "gender": {"type": "keyword"},
-                "minimum_age": {"type": "float"},
-                "maximum_age": {"type": "float"},
-                "location": {
-                    "properties": {
-                        "location_name": {"type": "text"},
-                        "location_address": {"type": "text"},
-                    }
-                },
-                "reference": {
-                    "type": "nested",
-                    "properties": {
-                        "citation": {"type": "text"},
-                        "PMID": {"type": "keyword"},
-                    },
-                },
-                "eligibility_criteria": {
-                    "type": "text",
-                    "analyzer": "standard_lowercase",
-                },
-                "eligibility_criteria_vector": {"type": "dense_vector", "dims": dims},
-            }
-        },
-    }
-    es.indices.create(index=name, body=body)
-    print(f"Created index `{name}` with vector dims={dims}")
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Bulk‑index processed trial JSONs")
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Create or update the LanceDB trial search table."
+    )
+    parser.add_argument("--config", default=None, help="Path to TrialMatchAI config JSON")
     parser.add_argument(
-        "--config",
+        "--processed-folder",
         required=True,
-        help="Path to JSON config file with Elasticsearch credentials",
+        help="Folder of prepared trial JSON files",
     )
+    parser.add_argument("--db-path", default=None, help="Override search DB path")
+    parser.add_argument("--table", default=None, help="Override trials table name")
     parser.add_argument(
-        "--processed-folder", required=True, help="Folder of processed JSONs to index"
-    )
-    parser.add_argument(
-        "--index-name",
-        default="clinical_trials",
-        help="Target Elasticsearch index name",
-    )
-    parser.add_argument(
-        "--batch-size", type=int, default=100, help="Number of docs per bulk request"
+        "--recreate",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Overwrite the target table before writing.",
     )
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
-    es = make_es_client(cfg)
+    config = load_config(args.config)
+    search_cfg = config["search_backend"]
+    if args.db_path:
+        search_cfg["db_path"] = str(Path(args.db_path).expanduser().resolve())
+    if args.table:
+        search_cfg["trials_table"] = args.table
 
     processed_path = Path(args.processed_folder)
     docs = load_processed(processed_path)
     if not docs:
-        print("❌ No JSONs found to index.")
-        return
+        print(f"No prepared trial JSON files found in {processed_path}.")
+        return 1
 
-    dims = detect_vector_dim(docs[0])
-
-    # <-- FIXED: use keyword arg `index=`
-    if not es.indices.exists(index=args.index_name):
-        create_index(es, args.index_name, dims)
-    else:
-        print(f"Index `{args.index_name}` already exists; skipping creation.")
-
-    actions = [
-        {
-            "_op_type": "index",
-            "_index": args.index_name,
-            "_id": doc["nct_id"],
-            "_source": doc,
-        }
-        for doc in docs
-    ]
-
-    success, failures = bulk(
-        client=es,
-        actions=actions,
-        chunk_size=args.batch_size,
-        stats_only=True,
-        raise_on_error=False,
+    backend = LanceDBSearchBackend.from_config(config)
+    count = backend.index_trials(docs, recreate=args.recreate)
+    print(
+        f"Indexed {count} trial documents into "
+        f"{backend.db_path}/{backend.trials_table}."
     )
-    es.indices.refresh(index=args.index_name)
-    print(f"✅ Indexed {success} documents; {failures} failures.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

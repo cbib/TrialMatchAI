@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import torch
-from elasticsearch import Elasticsearch
 
 from Matcher.config.config_loader import load_config
 from Matcher.models.embedding.text_embedder import TextEmbedder, TextEmbedderConfig
@@ -22,10 +21,7 @@ from Matcher.pipeline.trial_ranker import (
 )
 from Matcher.pipeline.trial_search.first_level_search import ClinicalTrialSearch
 from Matcher.pipeline.trial_search.second_level_search import SecondStageRetriever
-from Matcher.services.elasticsearch_service import (
-    build_elasticsearch_client,
-    ensure_elasticsearch,
-)
+from Matcher.search import LanceDBSearchBackend
 from Matcher.services.preflight import run_preflight_checks
 from Matcher.utils.file_utils import (
     create_directory,
@@ -48,7 +44,7 @@ def run_first_level_search(
     entity_annotator,
     embedder: TextEmbedder,
     config: Dict,
-    es_client: Elasticsearch,
+    search_backend,
 ) -> Optional[Tuple]:
     main_conditions = keywords.get("main_conditions", [])
     other_conditions = keywords.get("other_conditions", [])
@@ -63,11 +59,9 @@ def run_first_level_search(
     sex = patient_info.get("gender", "all")
     overall_status = "All"
 
-    index_name = config["elasticsearch"]["index_trials"]
     cts = ClinicalTrialSearch(
-        es_client,
-        embedder,
-        index_name,
+        search_backend=search_backend,
+        embedder=embedder,
         entity_annotator=entity_annotator,
     )
 
@@ -227,25 +221,21 @@ def main_pipeline(config_path: str | None = None) -> int:
     paths = config["paths"]
     create_directory(paths["output_dir"])
 
-    es_client = build_elasticsearch_client(config)
+    search_backend = LanceDBSearchBackend.from_config(config)
     preflight_issues = run_preflight_checks(
         config,
-        es_client=es_client,
         require_patient_inputs=True,
         require_trials_json=True,
         require_models=True,
-        require_indices=False,
+        require_search_tables=False,
     )
     if preflight_issues:
         return 1
 
-    if not ensure_elasticsearch(es_client, config):
-        return 1
-
     index_issues = run_preflight_checks(
         config,
-        es_client=es_client,
-        require_indices=True,
+        search_backend=search_backend,
+        require_search_tables=True,
     )
     if index_issues:
         return 1
@@ -304,11 +294,11 @@ def main_pipeline(config_path: str | None = None) -> int:
         )
 
     gemma_retriever = SecondStageRetriever(
-        es_client=es_client,
+        search_backend=search_backend,
         llm_reranker=llm_reranker,
         embedder=embedder,
-        index_name=config["elasticsearch"]["index_trials_eligibility"],
         entity_annotator=entity_annotator,
+        search_mode=config["search"].get("mode", "hybrid"),
     )
 
     # Process phenopackets
@@ -357,7 +347,7 @@ def main_pipeline(config_path: str | None = None) -> int:
                         entity_annotator,
                         embedder,
                         config,
-                        es_client,
+                        search_backend,
                     )
             if not result:
                 logger.error("First-level search failed for %s", patient_id)

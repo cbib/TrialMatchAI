@@ -1,4 +1,4 @@
-.PHONY: venv sync sync-gpu test lock lint audit healthcheck bootstrap start-es index run setup
+.PHONY: venv sync sync-gpu test lock lint audit healthcheck bootstrap index run setup
 
 venv:
 	uv venv
@@ -26,9 +26,6 @@ healthcheck:
 
 bootstrap:
 	uv run trialmatchai-bootstrap-data
-
-start-es:
-	bash scripts/start_es.sh
 
 index:
 	uv run trialmatchai-index

@@ -5,11 +5,9 @@ from typing import Dict, List, Optional
 
 from Matcher.models.embedding.text_embedder import TextEmbedder
 from Matcher.models.llm.llm_reranker import LLMReranker
+from Matcher.search.lancedb_backend import TrialSearchBackend
 from Matcher.utils.file_utils import write_text_file
 from Matcher.utils.logging_config import setup_logging
-from Matcher.utils.retry import with_retries
-
-from elasticsearch import Elasticsearch
 
 logger = setup_logging(__name__)
 
@@ -17,10 +15,9 @@ logger = setup_logging(__name__)
 class SecondStageRetriever:
     def __init__(
         self,
-        es_client: Elasticsearch,
+        search_backend: TrialSearchBackend,
         llm_reranker: Optional[LLMReranker],  # Make optional
         embedder: Optional[TextEmbedder],
-        index_name: str,
         size: int = 250,
         inclusion_weight: float = 1.0,
         exclusion_weight: float = 0.25,
@@ -28,10 +25,9 @@ class SecondStageRetriever:
         entity_annotator=None,
         search_mode: str = "hybrid",
     ):
-        self.es_client = es_client
+        self.search_backend = search_backend
         self.llm_reranker = llm_reranker  # Can be None
         self.embedder = embedder
-        self.index_name = index_name
         self.size = size
         self.inclusion_weight = inclusion_weight
         self.exclusion_weight = exclusion_weight
@@ -61,162 +57,35 @@ class SecondStageRetriever:
         query_to_hits = {}
 
         def execute_query(query):
-            # Use entities.synonyms only if entity annotation is enabled.
-            fields_to_search = (
-                ["criterion", "entities.synonyms"]
-                if self.entity_annotator is not None
-                else ["criterion"]
-            )
-
-            if self.search_mode == "bm25":
-                # BM25 only query
-                es_query = {
-                    "bool": {
-                        "should": [
-                            {
-                                "multi_match": {
-                                    "query": query,
-                                    "fields": fields_to_search,
-                                    "type": "best_fields",
-                                    "operator": "and",
-                                }
-                            },
-                            {
-                                "multi_match": {
-                                    "query": query,
-                                    "fields": fields_to_search,
-                                    "type": "phrase",
-                                }
-                            },
-                            {
-                                "multi_match": {
-                                    "query": query,
-                                    "fields": fields_to_search,
-                                    "type": "best_fields",
-                                    "operator": "or",
-                                }
-                            },
-                        ],
-                        "minimum_should_match": 1,
-                        "filter": {"terms": {"nct_id": nct_ids}},
-                    }
-                }
-            elif self.search_mode == "vector":
-                # Vector only query
+            mode = self.search_mode
+            query_vector = None
+            if mode in {"vector", "hybrid"}:
                 if self.embedder is None:
                     logger.warning(
-                        "Vector mode selected but embedder is None. Falling back to BM25."
+                        "%s mode selected but embedder is None. Falling back to BM25.",
+                        mode,
                     )
-                    return execute_query_bm25(query)
-
-                vectors = self.embedder.embed_texts([query])
-                if not vectors:
-                    logger.warning(
-                        "Empty query after preprocessing. Falling back to BM25."
-                    )
-                    return execute_query_bm25(query)
-                query_vector = vectors[0]
-                es_query = {
-                    "script_score": {
-                        "query": {
-                            "bool": {
-                                "filter": {"terms": {"nct_id": nct_ids}},
-                            }
-                        },
-                        "script": {
-                            "source": """
-                                double vectorScore = (cosineSimilarity(params.query_vector, 'criterion_vector') + 1.0) / 2.0;
-                                if (vectorScore < params.vector_score_threshold) {
-                                    return 0;
-                                }
-                                return vectorScore;
-                            """,
-                            "params": {
-                                "query_vector": query_vector,
-                                "vector_score_threshold": 0.5,
-                            },
-                        },
-                    }
-                }
-            else:
-                # Hybrid mode (default)
-                if self.embedder is None:
-                    logger.warning(
-                        "Hybrid mode selected but embedder is None. Falling back to BM25."
-                    )
-                    return execute_query_bm25(query)
-
-                vectors = self.embedder.embed_texts([query])
-                if not vectors:
-                    logger.warning(
-                        "Empty query after preprocessing. Falling back to BM25."
-                    )
-                    return execute_query_bm25(query)
-                query_vector = vectors[0]
-                es_query = {
-                    "script_score": {
-                        "query": {
-                            "bool": {
-                                "should": [
-                                    {
-                                        "multi_match": {
-                                            "query": query,
-                                            "fields": fields_to_search,
-                                            "type": "best_fields",
-                                            "operator": "and",
-                                        }
-                                    },
-                                    {
-                                        "multi_match": {
-                                            "query": query,
-                                            "fields": fields_to_search,
-                                            "type": "phrase",
-                                        }
-                                    },
-                                    {
-                                        "multi_match": {
-                                            "query": query,
-                                            "fields": fields_to_search,
-                                            "type": "best_fields",
-                                            "operator": "or",
-                                        }
-                                    },
-                                ],
-                                "minimum_should_match": 1,
-                                "filter": {"terms": {"nct_id": nct_ids}},
-                            }
-                        },
-                        "script": {
-                            "source": """
-                                double alpha = 0.5;
-                                double beta = 0.5;
-                                double textScore = _score;
-                                double vectorScore = (cosineSimilarity(params.query_vector, 'criterion_vector') + 1.0) / 2.0;
-                                if (vectorScore < params.vector_score_threshold) {
-                                    return 0;
-                                }
-                                return alpha * textScore + beta * vectorScore;
-                            """,
-                            "params": {
-                                "query_vector": query_vector,
-                                "vector_score_threshold": 0.5,
-                            },
-                        },
-                    }
-                }
+                    mode = "bm25"
+                else:
+                    vectors = self.embedder.embed_texts([query])
+                    if vectors:
+                        query_vector = vectors[0]
+                    else:
+                        logger.warning("Empty query after preprocessing. Falling back to BM25.")
+                        mode = "bm25"
 
             try:
-                response = with_retries(
-                    lambda: self.es_client.search(
-                        index=self.index_name, body={"size": self.size, "query": es_query}
-                    ),
-                    logger=logger,
-                    action="ES criteria search",
+                hits = self.search_backend.search_criteria(
+                    query=query,
+                    nct_ids=nct_ids,
+                    query_vector=query_vector,
+                    size=self.size,
+                    search_mode=mode,
+                    use_entity_synonyms=self.entity_annotator is not None,
                 )
-                hits = response["hits"]["hits"]
                 logger.info(
                     "[%s] Retrieved %s documents for query: '%s'",
-                    self.search_mode,
+                    mode,
                     len(hits),
                     query,
                 )
@@ -225,60 +94,8 @@ class SecondStageRetriever:
                 logger.exception("Second-level search failed for query: %s", query)
                 return query, []
 
-        def execute_query_bm25(query):
-            # Helper function for BM25-only fallback.
-            fields_to_search = (
-                ["criterion", "entities.synonyms"]
-                if self.entity_annotator is not None
-                else ["criterion"]
-            )
-            es_query = {
-                "bool": {
-                    "should": [
-                        {
-                            "multi_match": {
-                                "query": query,
-                                "fields": fields_to_search,
-                                "type": "best_fields",
-                                "operator": "and",
-                            }
-                        },
-                        {
-                            "multi_match": {
-                                "query": query,
-                                "fields": fields_to_search,
-                                "type": "phrase",
-                            }
-                        },
-                        {
-                            "multi_match": {
-                                "query": query,
-                                "fields": fields_to_search,
-                                "type": "best_fields",
-                                "operator": "or",
-                            }
-                        },
-                    ],
-                    "minimum_should_match": 1,
-                    "filter": {"terms": {"nct_id": nct_ids}},
-                }
-            }
-            try:
-                response = with_retries(
-                    lambda: self.es_client.search(
-                        index=self.index_name, body={"size": self.size, "query": es_query}
-                    ),
-                    logger=logger,
-                    action="ES criteria bm25 search",
-                )
-                hits = response["hits"]["hits"]
-                logger.info(
-                    "[bm25] Retrieved %s documents for query: '%s'", len(hits), query
-                )
-                return query, hits
-            except Exception:
-                logger.exception("BM25 search failed for query: %s", query)
-                return query, []
+        if not queries:
+            return {}
 
         with ThreadPoolExecutor(max_workers=min(8, len(queries))) as executor:
             future_to_query = {
@@ -291,7 +108,7 @@ class SecondStageRetriever:
 
     def rerank_criteria(self, queries: List[str], criteria: List[Dict]) -> List[Dict]:
         if self.llm_reranker is None:
-            logger.warning("LLM reranker not available, using ES scores only")
+            logger.warning("LLM reranker not available, using search scores only")
             return self.score_criteria_without_llm(criteria)
 
         pairs = [
@@ -393,11 +210,11 @@ class SecondStageRetriever:
         else:
             if use_reranker and self.llm_reranker is None:
                 logger.info(
-                    "Reranking requested but LLM reranker not available; using ES scores for aggregation."
+                    "Reranking requested but LLM reranker not available; using search scores for aggregation."
                 )
             else:
                 logger.info(
-                    "Second-level reranking disabled; using ES scores for aggregation."
+                    "Second-level reranking disabled; using search scores for aggregation."
                 )
             ranked_criteria = self.score_criteria_without_llm(all_criteria)
 

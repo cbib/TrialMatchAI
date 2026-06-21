@@ -1,16 +1,11 @@
 from Matcher.pipeline.trial_search.first_level_search import ClinicalTrialSearch
+from Matcher.search import InMemorySearchBackend, build_criteria_record, build_trial_record
 
 
-class DummyES:
-    def search(self, *args, **kwargs):
-        return {"hits": {"hits": [], "max_score": 1.0}}
-
-
-def test_first_level_query_bm25():
+def test_first_level_query_describes_backend_search():
     search = ClinicalTrialSearch(
-        es_client=DummyES(),
+        search_backend=InMemorySearchBackend(),
         embedder=None,
-        index_name="index",
         bio_med_ner=None,
     )
     query = search.create_query(
@@ -22,35 +17,45 @@ def test_first_level_query_bm25():
         max_text_score=1.0,
         vector_score_threshold=0.5,
         pre_selected_nct_ids=None,
-        other_conditions=None,
+        other_conditions=["smoking"],
         search_mode="bm25",
     )
-    assert "bool" in query
-    assert "should" in query["bool"]
-    assert "filter" in query["bool"]
+
+    assert query["primary_terms"] == ["lung cancer"]
+    assert query["other_terms"] == ["smoking"]
+    assert query["overall_status"] == "Recruiting"
+    assert query["search_mode"] == "bm25"
 
 
-def test_first_level_query_vector():
-    search = ClinicalTrialSearch(
-        es_client=DummyES(),
-        embedder=None,
-        index_name="index",
-        bio_med_ner=None,
+def test_build_trial_record_flattens_search_text_and_vector():
+    record = build_trial_record(
+        {
+            "nct_id": "N1",
+            "condition": ["Lung cancer", "NSCLC"],
+            "brief_title": "Targeted therapy trial",
+            "condition_vector": [1.0, 0.0],
+            "brief_title_vector": [0.0, 1.0],
+        }
     )
-    embeddings = {"lung cancer": [0.1, 0.2], "smoking": [0.3, 0.4]}
-    query = search.create_query(
-        synonyms=["lung cancer"],
-        embeddings=embeddings,
-        age=60,
-        sex="MALE",
-        overall_status=None,
-        max_text_score=1.0,
-        vector_score_threshold=0.2,
-        pre_selected_nct_ids=None,
-        other_conditions=["smoking"],
-        search_mode="vector",
+
+    assert "Lung cancer" in record["search_text"]
+    assert record["search_vector"] == [0.5, 0.5]
+
+
+def test_build_criteria_record_flattens_entity_synonyms():
+    record = build_criteria_record(
+        {
+            "criteria_id": "C1",
+            "criterion": "Documented malignancy",
+            "entities": [
+                {
+                    "text": "malignancy",
+                    "synonyms": ["cancer", "neoplasm"],
+                    "concept_candidates": [{"concept_name": "Malignant neoplasm"}],
+                }
+            ],
+        }
     )
-    assert "script_score" in query
-    params = query["script_score"]["script"]["params"]
-    assert len(params["query_vectors"]) == 1
-    assert len(params["other_condition_vectors"]) == 1
+
+    assert "cancer" in record["entity_synonyms_text"]
+    assert "Malignant neoplasm" in record["search_text"]

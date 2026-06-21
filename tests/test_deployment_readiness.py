@@ -11,20 +11,22 @@ def test_default_config_resolution_from_repo_root():
     assert path.as_posix().endswith("source/Matcher/config/config.json")
 
 
-def test_config_env_overrides_and_standard_index_names(monkeypatch):
-    monkeypatch.setenv("TRIALMATCHAI_ES_HOST", "https://es.example.test:9200")
-    monkeypatch.setenv("TRIALMATCHAI_ES_PASSWORD", "secret-from-env")
-    monkeypatch.setenv("TRIALMATCHAI_INDEX_TRIALS_ELIGIBILITY", "trials_eligibility")
+def test_config_env_overrides_and_search_tables(monkeypatch):
+    monkeypatch.setenv("TRIALMATCHAI_SEARCH_DB_PATH", "data/search-test")
+    monkeypatch.setenv("TRIALMATCHAI_SEARCH_TRIALS_TABLE", "trials-test")
+    monkeypatch.setenv("TRIALMATCHAI_SEARCH_CRITERIA_TABLE", "criteria-test")
+    monkeypatch.setenv("TRIALMATCHAI_SEARCH_MODE", "bm25")
     monkeypatch.setenv("TRIALMATCHAI_ENTITY_BACKEND", "regex")
     monkeypatch.setenv("TRIALMATCHAI_CONCEPT_DB_PATH", "data/concepts-test")
     monkeypatch.setenv("TRIALMATCHAI_LINK_ACCEPT", "0.9")
 
     cfg = load_config()
 
-    assert cfg["elasticsearch"]["host"] == "https://es.example.test:9200"
-    assert cfg["elasticsearch"]["password"] == "secret-from-env"
-    assert cfg["elasticsearch"]["index_trials"] == "clinical_trials"
-    assert cfg["elasticsearch"]["index_trials_eligibility"] == "trials_eligibility"
+    assert cfg["search_backend"]["backend"] == "lancedb"
+    assert cfg["search_backend"]["db_path"].endswith("data/search-test")
+    assert cfg["search_backend"]["trials_table"] == "trials-test"
+    assert cfg["search_backend"]["criteria_table"] == "criteria-test"
+    assert cfg["search"]["mode"] == "bm25"
     assert cfg["entity_extraction"]["backend"] == "regex"
     assert cfg["concept_linker"]["db_path"].endswith("data/concepts-test")
     assert cfg["concept_linker"]["accept_threshold"] == 0.9

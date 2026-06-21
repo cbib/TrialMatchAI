@@ -38,7 +38,6 @@ class PathsSettings(BaseModel):
     patients_dir: str
     output_dir: str
     trials_json_folder: str
-    docker_certs: str
 
 
 class ModelQuantizationSettings(BaseModel):
@@ -68,17 +67,12 @@ class GlobalSettings(BaseModel):
     device: int | str
 
 
-class ElasticsearchSettings(BaseModel):
-    host: str
-    username: str
-    password: str
-    request_timeout: int = 600
-    retry_on_timeout: bool = True
-    index_trials: str
-    index_trials_eligibility: str
-    auto_start: bool = False
-    start_script: str = "elasticsearch/apptainer-run-es.sh"
-    start_timeout: int = Field(600, ge=1)
+class SearchBackendSettings(BaseModel):
+    backend: Literal["lancedb"] = "lancedb"
+    db_path: str = "data/search"
+    trials_table: str = "trials"
+    criteria_table: str = "criteria"
+    candidate_limit: int = Field(1000, ge=1)
 
 
 class EmbedderSettings(BaseModel):
@@ -101,6 +95,7 @@ class EmbedderSettings(BaseModel):
 
 
 class SearchSettings(BaseModel):
+    mode: Literal["bm25", "vector", "hybrid"] = "hybrid"
     vector_score_threshold: float = Field(0.5, ge=0.0, le=1.0)
     max_trials_first_level: int = Field(300, ge=1)
     max_trials_second_level: int = Field(100, ge=1)
@@ -140,7 +135,7 @@ class TrialMatchSettings(BaseModel):
     model: ModelSettings
     tokenizer: TokenizerSettings
     global_: GlobalSettings = Field(alias="global")
-    elasticsearch: ElasticsearchSettings
+    search_backend: SearchBackendSettings = Field(default_factory=SearchBackendSettings)
     embedder: EmbedderSettings
     cot: CotSettings
     LLM_reranker: LLMRerankerSettings
@@ -166,18 +161,14 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
     import os
 
     string_env_map: dict[str, Tuple[str, ...]] = {
-        "TRIALMATCHAI_ES_HOST": ("elasticsearch", "host"),
-        "TRIALMATCHAI_ES_USERNAME": ("elasticsearch", "username"),
-        "TRIALMATCHAI_ES_PASSWORD": ("elasticsearch", "password"),
-        "TRIALMATCHAI_ES_CA_CERTS": ("paths", "docker_certs"),
         "TRIALMATCHAI_PATIENTS_DIR": ("paths", "patients_dir"),
         "TRIALMATCHAI_OUTPUT_DIR": ("paths", "output_dir"),
         "TRIALMATCHAI_TRIALS_JSON_FOLDER": ("paths", "trials_json_folder"),
-        "TRIALMATCHAI_INDEX_TRIALS": ("elasticsearch", "index_trials"),
-        "TRIALMATCHAI_INDEX_TRIALS_ELIGIBILITY": (
-            "elasticsearch",
-            "index_trials_eligibility",
-        ),
+        "TRIALMATCHAI_SEARCH_BACKEND": ("search_backend", "backend"),
+        "TRIALMATCHAI_SEARCH_DB_PATH": ("search_backend", "db_path"),
+        "TRIALMATCHAI_SEARCH_TRIALS_TABLE": ("search_backend", "trials_table"),
+        "TRIALMATCHAI_SEARCH_CRITERIA_TABLE": ("search_backend", "criteria_table"),
+        "TRIALMATCHAI_SEARCH_MODE": ("search", "mode"),
         "TRIALMATCHAI_EMBEDDER_MODEL_NAME": ("embedder", "model_name"),
         "TRIALMATCHAI_EMBEDDER_REVISION": ("embedder", "revision"),
         "TRIALMATCHAI_MODEL_BASE_MODEL": ("model", "base_model"),
@@ -199,7 +190,6 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
             "reranker_adapter_path",
         ),
         "TRIALMATCHAI_COT_BACKEND": ("cot_backend",),
-        "TRIALMATCHAI_ES_START_SCRIPT": ("elasticsearch", "start_script"),
         "TRIALMATCHAI_ENTITY_BACKEND": ("entity_extraction", "backend"),
         "TRIALMATCHAI_ENTITY_MODEL_NAME": ("entity_extraction", "model_name"),
         "TRIALMATCHAI_ENTITY_FALLBACK_MODEL_NAME": (
@@ -221,8 +211,6 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
             _set_nested(raw, path, value)
 
     bool_env_map: dict[str, Tuple[str, ...]] = {
-        "TRIALMATCHAI_ES_AUTO_START": ("elasticsearch", "auto_start"),
-        "TRIALMATCHAI_ES_RETRY_ON_TIMEOUT": ("elasticsearch", "retry_on_timeout"),
         "TRIALMATCHAI_EMBEDDER_USE_GPU": ("embedder", "use_gpu"),
         "TRIALMATCHAI_EMBEDDER_USE_FP16": ("embedder", "use_fp16"),
         "TRIALMATCHAI_EMBEDDER_TRUST_REMOTE_CODE": (
@@ -242,8 +230,10 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
             _set_nested(raw, path, _parse_bool(value))
 
     int_env_map: dict[str, Tuple[str, ...]] = {
-        "TRIALMATCHAI_ES_REQUEST_TIMEOUT": ("elasticsearch", "request_timeout"),
-        "TRIALMATCHAI_ES_START_TIMEOUT": ("elasticsearch", "start_timeout"),
+        "TRIALMATCHAI_SEARCH_CANDIDATE_LIMIT": (
+            "search_backend",
+            "candidate_limit",
+        ),
         "TRIALMATCHAI_EMBEDDER_BATCH_SIZE": ("embedder", "batch_size"),
         "TRIALMATCHAI_ENTITY_BATCH_SIZE": ("entity_extraction", "batch_size"),
         "TRIALMATCHAI_CONCEPT_SEARCH_LIMIT": ("concept_linker", "search_limit"),
