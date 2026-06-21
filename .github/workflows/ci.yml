@@ -41,9 +41,3 @@ jobs:
       - name: Dependency audit
         # vLLM 0.23 pins torch 2.11.0; CVE-2025-3000 has no fixed version listed.
         run: uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
-
-      - name: Validate Compose
-        run: docker compose config
-
-      - name: Build Docker image
-        run: docker build .

@@ -147,7 +147,7 @@ Default deployment requires only the Python worker process and local mounted dir
 - `models/`
 - `results/`
 
-Docker is optional and packages only the worker. The application does not auto-start external services.
+The application runs as a Python process and does not auto-start external services.
 
 ## 7. Runtime Configuration
 

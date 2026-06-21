@@ -10,7 +10,7 @@ This software is for research and informational use only. It is not medical advi
 
 ## Deployment Target
 
-The supported v1 deployment path is a single Python 3.11 GPU server or VM. Trial and criteria search use embedded LanceDB tables under `data/search`, so no separate search service, container, socket, TLS certificate, or service credential is required. Docker remains optional for packaging the worker.
+The supported v1 deployment path is a single Python 3.11 GPU server or VM. Trial and criteria search use embedded LanceDB tables under `data/search`, so no separate search service, container, socket, TLS certificate, or service credential is required.
 
 ## Requirements
 
@@ -74,17 +74,6 @@ uv run trialmatchai-run
 ```
 
 Results are written under `results/`.
-
-## Docker Worker
-
-Docker is optional. The worker container uses mounted local folders and the same embedded LanceDB tables:
-
-```bash
-docker compose build trialmatchai-worker
-docker compose run --rm trialmatchai-worker trialmatchai-healthcheck
-docker compose run --rm trialmatchai-worker trialmatchai-update-registry --max-studies 100
-docker compose run --rm trialmatchai-worker trialmatchai-run
-```
 
 ## Configuration
 
@@ -175,8 +164,6 @@ uv run ruff check .
 uv run pytest
 uv run python scripts/scan_secrets.py
 uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
-docker compose config
-docker build .
 ```
 
 ## Support

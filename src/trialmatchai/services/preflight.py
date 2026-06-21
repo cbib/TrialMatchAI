@@ -82,7 +82,7 @@ def run_preflight_checks(
             if importlib.util.find_spec("vllm") is None:
                 issues.append(
                     "cot_backend=vllm requires the GPU extra "
-                    "(`uv sync --extra gpu`) or the Docker worker image."
+                    "(`uv sync --extra llm --extra gpu`)."
                 )
             try:
                 import torch

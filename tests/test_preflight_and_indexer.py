@@ -113,7 +113,7 @@ def test_preflight_reports_missing_vllm_extra(tmp_path, monkeypatch):
 
     assert issues == [
         "cot_backend=vllm requires the GPU extra "
-        "(`uv sync --extra gpu`) or the Docker worker image."
+        "(`uv sync --extra llm --extra gpu`)."
     ]
 
 

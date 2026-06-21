@@ -32,12 +32,3 @@ python -m venv /tmp/trialmatchai-wheel-smoke
 /tmp/trialmatchai-wheel-smoke/bin/pip install dist/trialmatchai-*.whl
 /tmp/trialmatchai-wheel-smoke/bin/python -c "import trialmatchai; print(trialmatchai.__version__)"
 ```
-
-## Container Checks
-
-```bash
-docker compose config
-docker build .
-```
-
-Docker is not required for local LanceDB operation; it is a packaging option for a worker environment.
