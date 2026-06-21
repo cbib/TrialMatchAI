@@ -16,10 +16,15 @@ services:
       TRIALMATCHAI_SEARCH_CRITERIA_TABLE: criteria
       TRIALMATCHAI_SEARCH_MODE: hybrid
       TRIALMATCHAI_ENTITY_BACKEND: gliner2
-      TRIALMATCHAI_ENTITY_SCHEMA_PATH: /app/source/Matcher/entity_schemas/trialmatchai.yaml
+      TRIALMATCHAI_ENTITY_SCHEMA_PATH: /app/src/trialmatchai/entity_schemas/trialmatchai.yaml
       TRIALMATCHAI_CONCEPT_DB_PATH: /app/data/concepts
       TRIALMATCHAI_CONCEPT_TABLE: concepts
       TRIALMATCHAI_LINK_ACCEPT: "0.80"
       TRIALMATCHAI_LINK_REJECT: "0.30"
+      TRIALMATCHAI_REGISTRY_SOURCE: clinicaltrials.gov
+      TRIALMATCHAI_REGISTRY_SINCE_DAYS: "7"
+      TRIALMATCHAI_REGISTRY_RAW_DIR: /app/data/registry/raw
+      TRIALMATCHAI_REGISTRY_MANIFEST_PATH: /app/data/registry/manifest.jsonl
+      TRIALMATCHAI_REGISTRY_REPORTS_DIR: /app/data/registry/runs
       TRIALMATCHAI_LOG_JSON: "1"
-    command: ["trialmatchai-healthcheck"]
+    command: ["trialmatchai-healthcheck", "--registry"]

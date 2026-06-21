@@ -1,6 +1,6 @@
 import json
 
-from Matcher.pipeline.trial_ranker import (
+from trialmatchai.matching.trial_ranker import (
     load_trial_data,
     rank_trials,
     save_ranked_trials,

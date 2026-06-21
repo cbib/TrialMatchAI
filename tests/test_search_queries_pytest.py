@@ -1,5 +1,5 @@
-from Matcher.pipeline.trial_search.first_level_search import ClinicalTrialSearch
-from Matcher.search import InMemorySearchBackend, build_criteria_record, build_trial_record
+from trialmatchai.matching.retrieval.trial_retrieval import ClinicalTrialSearch
+from trialmatchai.search import InMemorySearchBackend, build_criteria_record, build_trial_record
 
 
 def test_first_level_query_describes_backend_search():

@@ -3,7 +3,6 @@
 # ============================
 data/
 results/
-src/
 ablation/
 logs/
 *.log
@@ -11,43 +10,15 @@ logs/
 .env.*
 !.env.example
 
-# ============================
-# Finetuning ignore rules
-# ============================
-
-# Ignore ANY directory under finetuning/ starting with checkpoint
-**/finetuning/**/checkpoint*/
-
-# Ignore ANY directory under finetuning/ starting with finetuned
-**/finetuning/**/finetuned*/
-
-# Ignore ANY directory under finetuning/ ending with "data"
-**/finetuning/**/*data/
-
-# Ignore this explicit model folder
-utils/finetuning/finetune_ner/RoBERTa-large-PM-M3-Voc/
-utils/finetuning/finetune_ner/output_eval
-utils/finetuning/finetune_ner
-
-# ============================
-# Parser artifacts
-# ============================
 models/
-source/Parser/resources/
-source/Parser/models/
-source/Parser/input/
-source/Parser/output/
-source/Parser/logs/
-Parser/logs/
+source/
+Parser/
 
 # ============================
 # Generated indexing state
 # ============================
-utils/DataLoader/nct_ids.txt
-utils/Indexer/nct_ids.txt
-utils/Indexer/processed_ids.txt
-utils/Indexer/*.log
 *.lance
+*.lancedb
 
 # ============================
 # Python cache

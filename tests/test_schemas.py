@@ -1,6 +1,6 @@
 import unittest
 
-from Matcher.schemas.phenopacket import Keywords, Phenopacket
+from trialmatchai.schemas.phenopacket import Keywords, Phenopacket
 
 
 class TestSchemas(unittest.TestCase):

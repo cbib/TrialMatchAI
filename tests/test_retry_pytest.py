@@ -1,4 +1,4 @@
-from Matcher.utils.retry import with_retries
+from trialmatchai.utils.retry import with_retries
 
 
 def test_with_retries_succeeds_after_failures():

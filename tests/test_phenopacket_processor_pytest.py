@@ -1,6 +1,6 @@
 import json
 
-from Matcher.pipeline.phenopacket_processor import PhenopacketProcessor
+from trialmatchai.matching.phenopacket_processor import PhenopacketProcessor
 
 
 def test_phenopacket_processor_minimal(tmp_path):

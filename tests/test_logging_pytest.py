@@ -1,6 +1,6 @@
 import logging
 
-from Matcher.utils.logging_config import reset_request_id, set_request_id, setup_logging
+from trialmatchai.utils.logging_config import reset_request_id, set_request_id, setup_logging
 
 
 class _CaptureHandler(logging.Handler):

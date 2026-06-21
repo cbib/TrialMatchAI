@@ -3,12 +3,12 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from Matcher.entities.annotator import CompatibilityEntityAnnotator
-from Matcher.entities.builder import build_legacy_dictionary_rows, build_omop_concept_rows
-from Matcher.entities.linker import ConceptLinker, InMemoryConceptStore
-from Matcher.entities.recognizers import RegexSchemaRecognizer, resolve_overlaps
-from Matcher.entities.schemas import load_entity_schemas
-from Matcher.entities.types import ConceptCandidate, EntityAnnotation, NO_ENTITY_ID
+from trialmatchai.entities.annotator import CompatibilityEntityAnnotator
+from trialmatchai.entities.builder import build_legacy_dictionary_rows, build_omop_concept_rows
+from trialmatchai.entities.linker import ConceptLinker, InMemoryConceptStore
+from trialmatchai.entities.recognizers import RegexSchemaRecognizer, resolve_overlaps
+from trialmatchai.entities.schemas import load_entity_schemas
+from trialmatchai.entities.types import ConceptCandidate, EntityAnnotation, NO_ENTITY_ID
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -148,23 +148,20 @@ def test_concept_builders_import_omop_and_legacy_rows(tmp_path):
 
 
 def test_runtime_replacement_has_no_old_daemon_references():
-    runtime_files = [
-        "source/Matcher/config/config.json",
-        "source/Matcher/main.py",
-        "source/Parser/biomedner_engine.py",
-        "source/Parser/normalizer.py",
-    ]
+    assert not (ROOT / "source/Parser").exists()
+    runtime_files = sorted((ROOT / "src/trialmatchai").rglob("*.py"))
     forbidden = [
         "18888",
         "18892",
         "18894",
         "18783",
+        "BioMedNER",
         "GNormPlus",
         "disease_normalizer_21.jar",
         "java -Xmx",
         "import socket",
     ]
-    for file_name in runtime_files:
-        content = (ROOT / file_name).read_text()
+    for path in runtime_files:
+        content = path.read_text()
         for term in forbidden:
             assert term not in content

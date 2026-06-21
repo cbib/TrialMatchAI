@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 from pathlib import Path
 
-from Matcher.config.config_loader import load_config
-from Matcher.search import InMemorySearchBackend
-from Matcher.services import preflight
-from Matcher.services.preflight import run_preflight_checks
+from trialmatchai.cli.index_data import _load_nested_json_folder
+from trialmatchai.config.config_loader import load_config
+from trialmatchai.search import InMemorySearchBackend
+from trialmatchai.services import preflight
+from trialmatchai.services.preflight import run_preflight_checks
 
 
 def _base_config(tmp_path):
@@ -100,12 +100,14 @@ def test_preflight_reports_missing_search_db_path(tmp_path):
 
 
 def test_preflight_reports_missing_vllm_extra(tmp_path, monkeypatch):
+    import torch
+
     cfg = _base_config(tmp_path)
     cfg["cot_backend"] = "vllm"
     Path(cfg["model"]["cot_adapter_path"]).mkdir(parents=True)
     Path(cfg["model"]["reranker_adapter_path"]).mkdir(parents=True)
     monkeypatch.setattr(preflight.importlib.util, "find_spec", lambda name: None)
-    monkeypatch.setattr(preflight.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
 
     issues = run_preflight_checks(cfg, require_models=True)
 
@@ -180,25 +182,16 @@ def test_main_config_resolves_search_paths(tmp_path, monkeypatch):
 
 
 def test_indexer_loads_prepared_criteria_docs(tmp_path):
-    indexer_path = Path(__file__).resolve().parents[1] / "utils/Indexer/index_criteria.py"
-    spec = importlib.util.spec_from_file_location("index_criteria", indexer_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
     processed = tmp_path / "processed_criteria"
     trial_dir = processed / "N1"
     trial_dir.mkdir(parents=True)
     (trial_dir / "C1.json").write_text(
         json.dumps({"criteria_id": "C1", "nct_id": "N1", "criterion": "cancer"})
     )
+    docs = _load_nested_json_folder(processed)
     backend = InMemorySearchBackend()
-    criteria_indexer = module.CriteriaIndexer(
-        backend=backend,
-        processed_file=tmp_path / "processed_ids.txt",
-    )
-
-    docs, completed = criteria_indexer.load_docs(processed, recreate=True)
+    count = backend.replace_criteria_for_trials(["N1"], docs)
 
     assert docs[0]["criteria_id"] == "C1"
-    assert completed == {"N1"}
+    assert count == 1
+    assert backend.criteria[0]["nct_id"] == "N1"

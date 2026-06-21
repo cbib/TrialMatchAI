@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from Matcher.search import LanceDBSearchBackend
+from trialmatchai.search import LanceDBSearchBackend
 
 
 pytest.importorskip("lancedb")

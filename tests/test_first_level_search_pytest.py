@@ -1,5 +1,5 @@
-from Matcher.pipeline.trial_search.first_level_search import ClinicalTrialSearch
-from Matcher.search import InMemorySearchBackend
+from trialmatchai.matching.retrieval.trial_retrieval import ClinicalTrialSearch
+from trialmatchai.search import InMemorySearchBackend
 
 
 def test_search_trials_bm25_returns_hits():

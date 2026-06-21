@@ -3,14 +3,12 @@ set -euo pipefail
 IFS=$'\n\t'
 
 DATA_URL_1="https://zenodo.org/records/15516900/files/processed_trials.tar.gz?download=1"
-RESOURCES_URL="https://zenodo.org/records/15516900/files/resources.tar.gz?download=1"
 MODELS_URL="https://zenodo.org/records/15516900/files/models.tar.gz?download=1"
 CRITERIA_ZIP_BASE_URL="https://zenodo.org/records/15516900/files"
 CHUNK_PREFIX="criteria_part"
 CHUNK_COUNT=6
 
 ARCHIVE_1="processed_trials.tar.gz"
-RESOURCES_ARCHIVE="resources.tar.gz"
 MODELS_ARCHIVE="models.tar.gz"
 
 GREEN='\033[0;32m'
@@ -73,14 +71,6 @@ else
 fi
 verify_sha256 "$ARCHIVE_1" "${TRIALMATCHAI_PROCESSED_TRIALS_SHA256:-}"
 
-if [ ! -f "$RESOURCES_ARCHIVE" ]; then
-  info "Downloading ${RESOURCES_ARCHIVE}..."
-  curl -fsSL "$RESOURCES_URL" -o "$RESOURCES_ARCHIVE"
-else
-  info "${RESOURCES_ARCHIVE} already exists. Skipping download."
-fi
-verify_sha256 "$RESOURCES_ARCHIVE" "${TRIALMATCHAI_RESOURCES_SHA256:-}"
-
 if [ ! -f "$MODELS_ARCHIVE" ]; then
   info "Downloading ${MODELS_ARCHIVE}..."
   curl -fsSL "$MODELS_URL" -o "$MODELS_ARCHIVE"
@@ -122,16 +112,12 @@ fi
 
 cd "$ROOT_DIR"
 
-info "Extracting resources into source/Parser..."
-mkdir -p source/Parser
-extract_tar_gz "$DATA_DIR/$RESOURCES_ARCHIVE" source/Parser
-
 info "Extracting models into models/..."
 mkdir -p models
 extract_tar_gz "$DATA_DIR/$MODELS_ARCHIVE" models
 
 info "Cleaning up archives..."
-rm -f "$DATA_DIR/$ARCHIVE_1" "$DATA_DIR/$RESOURCES_ARCHIVE" "$DATA_DIR/$MODELS_ARCHIVE"
+rm -f "$DATA_DIR/$ARCHIVE_1" "$DATA_DIR/$MODELS_ARCHIVE"
 for i in $(seq 0 $((CHUNK_COUNT - 1))); do
   rm -f "$DATA_DIR/${CHUNK_PREFIX}_${i}.zip"
 done

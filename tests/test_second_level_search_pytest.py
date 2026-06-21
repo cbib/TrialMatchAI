@@ -1,5 +1,5 @@
-from Matcher.pipeline.trial_search.second_level_search import SecondStageRetriever
-from Matcher.search import InMemorySearchBackend
+from trialmatchai.matching.retrieval.criteria_retrieval import SecondStageRetriever
+from trialmatchai.search import InMemorySearchBackend
 
 
 def test_score_criteria_without_llm_weights():

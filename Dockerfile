@@ -19,11 +19,10 @@ RUN apt-get update \
     && pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock README.md LICENSE ./
-COPY source ./source
+COPY src ./src
 COPY scripts ./scripts
-COPY utils ./utils
 
-RUN uv sync --frozen --no-dev --extra gpu --extra entity
+RUN uv sync --frozen --no-dev --extra llm --extra gpu --extra entity
 
 VOLUME ["/app/data", "/app/models", "/app/results"]
 

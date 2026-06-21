@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from Matcher.config.config_loader import load_config, resolve_config_path
-from Matcher.pipeline.cot_reasoning import BatchTrialProcessor
-from Matcher.utils.json_utils import extract_json_object
+from trialmatchai.config.config_loader import load_config, resolve_config_path
+from trialmatchai.matching.eligibility_reasoning import BatchTrialProcessor
+from trialmatchai.utils.json_utils import extract_json_object
 
 
 def test_default_config_resolution_from_repo_root():
     path = resolve_config_path()
     assert path.name == "config.json"
-    assert path.as_posix().endswith("source/Matcher/config/config.json")
+    assert path.as_posix().endswith("src/trialmatchai/config/config.json")
 
 
 def test_config_env_overrides_and_search_tables(monkeypatch):
@@ -19,6 +19,8 @@ def test_config_env_overrides_and_search_tables(monkeypatch):
     monkeypatch.setenv("TRIALMATCHAI_ENTITY_BACKEND", "regex")
     monkeypatch.setenv("TRIALMATCHAI_CONCEPT_DB_PATH", "data/concepts-test")
     monkeypatch.setenv("TRIALMATCHAI_LINK_ACCEPT", "0.9")
+    monkeypatch.setenv("TRIALMATCHAI_REGISTRY_SINCE_DAYS", "14")
+    monkeypatch.setenv("TRIALMATCHAI_REGISTRY_RAW_DIR", "data/registry/raw-test")
 
     cfg = load_config()
 
@@ -30,6 +32,8 @@ def test_config_env_overrides_and_search_tables(monkeypatch):
     assert cfg["entity_extraction"]["backend"] == "regex"
     assert cfg["concept_linker"]["db_path"].endswith("data/concepts-test")
     assert cfg["concept_linker"]["accept_threshold"] == 0.9
+    assert cfg["registry"]["since_days"] == 14
+    assert cfg["registry"]["raw_dir"].endswith("data/registry/raw-test")
 
 
 def test_cot_prompt_does_not_inject_consent():
