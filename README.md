@@ -19,7 +19,7 @@ The supported v1 deployment path is a single Linux GPU server or VM with Docker 
 - Docker Compose for the default Elasticsearch deployment
 - NVIDIA GPU with enough VRAM for the selected LLM backend
 - 100 GB+ disk space for datasets, models, indices, and results
-- Java for BioMedNER/normalization components when those services are enabled
+- A LanceDB concept table built from OMOP/legacy dictionaries for entity normalization
 
 ## Security First
 
@@ -39,7 +39,7 @@ Dependency auditing currently ignores `CVE-2025-3000` because vLLM 0.23 pins Tor
 Install deployment dependencies:
 
 ```bash
-uv sync --extra gpu
+uv sync --extra gpu --extra entity
 ```
 
 For local development, tests, healthchecks, or `TRIALMATCHAI_COT_BACKEND=default`, the default dependency set is enough:
@@ -52,6 +52,7 @@ Optional tooling is split out of the default runtime:
 
 ```bash
 uv sync --extra llm       # OpenAI/LangChain data-generation utilities
+uv sync --extra entity    # GLiNER2/LanceDB entity extraction and normalization
 uv sync --extra training  # fine-tuning and evaluation utilities
 ```
 
@@ -71,6 +72,7 @@ Provision data, models, and indices:
 
 ```bash
 uv run trialmatchai-bootstrap-data
+uv run trialmatchai-build-concepts --concept-csv data/omop/CONCEPT.csv --synonym-csv data/omop/CONCEPT_SYNONYM.csv
 uv run trialmatchai-index
 ```
 
@@ -115,7 +117,12 @@ TRIALMATCHAI_INDEX_TRIALS=clinical_trials
 TRIALMATCHAI_INDEX_TRIALS_ELIGIBILITY=trials_eligibility
 
 TRIALMATCHAI_MODEL_TRUST_REMOTE_CODE=false
-TRIALMATCHAI_BIOMEDNER_AUTO_START=false
+TRIALMATCHAI_ENTITY_BACKEND=gliner2
+TRIALMATCHAI_ENTITY_SCHEMA_PATH=source/Matcher/entity_schemas/trialmatchai.yaml
+TRIALMATCHAI_CONCEPT_DB_PATH=data/concepts
+TRIALMATCHAI_CONCEPT_TABLE=concepts
+TRIALMATCHAI_LINK_ACCEPT=0.80
+TRIALMATCHAI_LINK_REJECT=0.30
 TRIALMATCHAI_LOG_JSON=1
 ```
 
@@ -125,6 +132,7 @@ Use `TRIALMATCHAI_MODEL_TRUST_REMOTE_CODE=true` only when a selected model expli
 
 - `trialmatchai-healthcheck`: validate config, paths, Elasticsearch reachability, and optionally indices.
 - `trialmatchai-bootstrap-data`: download and extract external data/model artifacts.
+- `trialmatchai-build-concepts`: build the LanceDB concept table used for entity normalization.
 - `trialmatchai-index`: index prepared data into Elasticsearch.
 - `trialmatchai-run`: run the batch matching pipeline.
 

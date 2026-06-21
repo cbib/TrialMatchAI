@@ -17,19 +17,20 @@ class ClinicalTrialSearch:
         es_client: Elasticsearch,
         embedder: Optional[TextEmbedder],
         index_name: str,
-        bio_med_ner,
+        bio_med_ner=None,
+        entity_annotator=None,
     ):
         self.es_client = es_client
         self.embedder = embedder
         self.index_name = index_name
-        self.bio_med_ner = bio_med_ner
+        self.entity_annotator = entity_annotator or bio_med_ner
 
     def get_synonyms(self, condition: str) -> List[str]:
-        if not self.bio_med_ner:
-            logger.info("BioMedNER disabled; skipping synonyms extraction.")
+        if not self.entity_annotator:
+            logger.info("Entity annotator disabled; skipping synonyms extraction.")
             return []
         try:
-            raw_result = self.bio_med_ner.annotate_texts_in_parallel(
+            raw_result = self.entity_annotator.annotate_texts_in_parallel(
                 [condition], max_workers=1
             )
             ner_results = raw_result
@@ -41,7 +42,7 @@ class ClinicalTrialSearch:
                 return list(synonyms)
             logger.warning(f"No annotations found for condition: {condition}")
         except Exception as e:
-            logger.error(f"BioMedNER synonym extraction failed for '{condition}': {e}")
+            logger.error(f"Entity synonym extraction failed for '{condition}': {e}")
         return []
 
     def parse_age_input(self, age_input: Union[int, str]) -> Optional[int]:

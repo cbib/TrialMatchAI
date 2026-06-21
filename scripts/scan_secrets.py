@@ -39,6 +39,8 @@ def main() -> int:
             continue
         try:
             text = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            continue
         except UnicodeDecodeError:
             continue
         for pattern in SECRET_PATTERNS:

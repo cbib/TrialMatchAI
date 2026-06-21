@@ -59,6 +59,21 @@ def _base_config(tmp_path):
     }
 
 
+def _entity_config(tmp_path):
+    cfg = _base_config(tmp_path)
+    schema = tmp_path / "schema.yaml"
+    schema.write_text("version: 1\nentities: []\n")
+    cfg["entity_extraction"] = {
+        "backend": "gliner2",
+        "schema_path": str(schema),
+    }
+    cfg["concept_linker"] = {
+        "enabled": True,
+        "db_path": str(tmp_path / "missing-concepts"),
+    }
+    return cfg
+
+
 def test_preflight_passes_for_required_paths_and_indices(tmp_path):
     cfg = _base_config(tmp_path)
     issues = run_preflight_checks(
@@ -106,6 +121,18 @@ def test_preflight_reports_missing_vllm_extra(tmp_path, monkeypatch):
         "cot_backend=vllm requires the GPU extra "
         "(`uv sync --extra gpu`) or the Docker worker image."
     ]
+
+
+def test_preflight_reports_missing_entity_extra(tmp_path, monkeypatch):
+    cfg = _entity_config(tmp_path)
+    monkeypatch.setattr(preflight.importlib.util, "find_spec", lambda name: None)
+
+    issues = run_preflight_checks(cfg, require_models=True)
+
+    assert (
+        "entity_extraction.backend=gliner2 requires the entity extra "
+        "(`uv sync --extra entity`)."
+    ) in issues
 
 
 def test_indexer_config_uses_env_overrides_and_resolves_certs(tmp_path, monkeypatch):

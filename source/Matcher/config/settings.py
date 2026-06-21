@@ -1,24 +1,37 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Iterable, Literal, Tuple
 
 from pydantic import BaseModel, Field, field_validator
 
 
-class BioMedNerSettings(BaseModel):
-    biomedner_port: int
-    gner_port: int
-    gene_norm_port: int
-    disease_norm_port: int
-    biomedner_home: str
-    use_neural_normalizer: bool = True
-    no_cuda: bool = False
+class EntityExtractionSettings(BaseModel):
+    backend: Literal["gliner2", "gliner", "regex", "disabled"] = "gliner2"
+    model_name: str = "fastino/gliner2-base"
+    fallback_model_name: str = "gliner-community/gliner_large-v2.5"
+    model_revision: str | None = None
+    schema_path: str = "source/Matcher/entity_schemas/trialmatchai.yaml"
+    threshold: float = Field(0.8, ge=0.0, le=1.0)
+    batch_size: int = Field(8, ge=1)
+    device: str = "auto"
+    trust_remote_code: bool = False
 
 
-class ServicesSettings(BaseModel):
-    stop_script: str
-    run_script: str
-    auto_start: bool = False
+class ConceptLinkerSettings(BaseModel):
+    enabled: bool = True
+    db_path: str = "data/concepts"
+    table: str = "concepts"
+    accept_threshold: float = Field(0.8, ge=0.0, le=1.0)
+    reject_threshold: float = Field(0.3, ge=0.0, le=1.0)
+    search_limit: int = Field(10, ge=1)
+
+    @field_validator("reject_threshold")
+    @classmethod
+    def validate_reject_threshold(cls, value: float, info):
+        accept = info.data.get("accept_threshold")
+        if accept is not None and value > accept:
+            raise ValueError("concept_linker.reject_threshold must be <= accept_threshold")
+        return value
 
 
 class PathsSettings(BaseModel):
@@ -119,8 +132,10 @@ class LLMRerankerSettings(BaseModel):
 
 
 class TrialMatchSettings(BaseModel):
-    bio_med_ner: BioMedNerSettings
-    services: ServicesSettings
+    entity_extraction: EntityExtractionSettings = Field(
+        default_factory=EntityExtractionSettings
+    )
+    concept_linker: ConceptLinkerSettings = Field(default_factory=ConceptLinkerSettings)
     paths: PathsSettings
     model: ModelSettings
     tokenizer: TokenizerSettings
@@ -185,6 +200,20 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "TRIALMATCHAI_COT_BACKEND": ("cot_backend",),
         "TRIALMATCHAI_ES_START_SCRIPT": ("elasticsearch", "start_script"),
+        "TRIALMATCHAI_ENTITY_BACKEND": ("entity_extraction", "backend"),
+        "TRIALMATCHAI_ENTITY_MODEL_NAME": ("entity_extraction", "model_name"),
+        "TRIALMATCHAI_ENTITY_FALLBACK_MODEL_NAME": (
+            "entity_extraction",
+            "fallback_model_name",
+        ),
+        "TRIALMATCHAI_ENTITY_MODEL_REVISION": (
+            "entity_extraction",
+            "model_revision",
+        ),
+        "TRIALMATCHAI_ENTITY_SCHEMA_PATH": ("entity_extraction", "schema_path"),
+        "TRIALMATCHAI_ENTITY_DEVICE": ("entity_extraction", "device"),
+        "TRIALMATCHAI_CONCEPT_DB_PATH": ("concept_linker", "db_path"),
+        "TRIALMATCHAI_CONCEPT_TABLE": ("concept_linker", "table"),
     }
     for env_key, path in string_env_map.items():
         value = os.getenv(env_key)
@@ -194,7 +223,6 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
     bool_env_map: dict[str, Tuple[str, ...]] = {
         "TRIALMATCHAI_ES_AUTO_START": ("elasticsearch", "auto_start"),
         "TRIALMATCHAI_ES_RETRY_ON_TIMEOUT": ("elasticsearch", "retry_on_timeout"),
-        "TRIALMATCHAI_BIOMEDNER_AUTO_START": ("services", "auto_start"),
         "TRIALMATCHAI_EMBEDDER_USE_GPU": ("embedder", "use_gpu"),
         "TRIALMATCHAI_EMBEDDER_USE_FP16": ("embedder", "use_fp16"),
         "TRIALMATCHAI_EMBEDDER_TRUST_REMOTE_CODE": (
@@ -202,6 +230,11 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
             "trust_remote_code",
         ),
         "TRIALMATCHAI_MODEL_TRUST_REMOTE_CODE": ("model", "trust_remote_code"),
+        "TRIALMATCHAI_ENTITY_TRUST_REMOTE_CODE": (
+            "entity_extraction",
+            "trust_remote_code",
+        ),
+        "TRIALMATCHAI_CONCEPT_LINKER_ENABLED": ("concept_linker", "enabled"),
     }
     for env_key, path in bool_env_map.items():
         value = os.getenv(env_key)
@@ -212,6 +245,8 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
         "TRIALMATCHAI_ES_REQUEST_TIMEOUT": ("elasticsearch", "request_timeout"),
         "TRIALMATCHAI_ES_START_TIMEOUT": ("elasticsearch", "start_timeout"),
         "TRIALMATCHAI_EMBEDDER_BATCH_SIZE": ("embedder", "batch_size"),
+        "TRIALMATCHAI_ENTITY_BATCH_SIZE": ("entity_extraction", "batch_size"),
+        "TRIALMATCHAI_CONCEPT_SEARCH_LIMIT": ("concept_linker", "search_limit"),
         "TRIALMATCHAI_SEARCH_MAX_TRIALS_FIRST_LEVEL": (
             "search",
             "max_trials_first_level",
@@ -229,6 +264,19 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
         if value:
             try:
                 _set_nested(raw, path, int(value))
+            except ValueError:
+                pass
+
+    float_env_map: dict[str, Tuple[str, ...]] = {
+        "TRIALMATCHAI_ENTITY_THRESHOLD": ("entity_extraction", "threshold"),
+        "TRIALMATCHAI_LINK_ACCEPT": ("concept_linker", "accept_threshold"),
+        "TRIALMATCHAI_LINK_REJECT": ("concept_linker", "reject_threshold"),
+    }
+    for env_key, path in float_env_map.items():
+        value = os.getenv(env_key)
+        if value:
+            try:
+                _set_nested(raw, path, float(value))
             except ValueError:
                 pass
 

@@ -48,6 +48,34 @@ def run_preflight_checks(
         )
 
     if require_models:
+        entity_cfg = config.get("entity_extraction")
+        if entity_cfg:
+            _require_path(
+                issues,
+                "entity_extraction.schema_path",
+                entity_cfg.get("schema_path"),
+                required=True,
+            )
+            backend = entity_cfg.get("backend", "gliner2")
+            if backend == "gliner2" and importlib.util.find_spec("gliner2") is None:
+                issues.append(
+                    "entity_extraction.backend=gliner2 requires the entity extra "
+                    "(`uv sync --extra entity`)."
+                )
+            elif backend == "gliner" and importlib.util.find_spec("gliner") is None:
+                issues.append(
+                    "entity_extraction.backend=gliner requires the GLiNER dependency."
+                )
+
+        linker_cfg = config.get("concept_linker")
+        if linker_cfg and linker_cfg.get("enabled", True):
+            _require_path(
+                issues,
+                "concept_linker.db_path",
+                linker_cfg.get("db_path"),
+                required=False,
+            )
+
         model_cfg = config.get("model", {})
         _require_path(
             issues,

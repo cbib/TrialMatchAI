@@ -11,6 +11,7 @@ from Matcher.models.embedding.text_embedder import TextEmbedder, TextEmbedderCon
 from Matcher.models.llm.llm_loader import load_model_and_tokenizer
 from Matcher.models.llm.llm_reranker import LLMReranker
 from Matcher.models.llm.vllm_loader import load_vllm_engine
+from Matcher.entities import build_entity_annotator
 from Matcher.pipeline.cot_reasoning import BatchTrialProcessor
 from Matcher.pipeline.cot_reasoning_vllm import BatchTrialProcessorVLLM
 from Matcher.pipeline.phenopacket_processor import process_phenopacket
@@ -21,7 +22,6 @@ from Matcher.pipeline.trial_ranker import (
 )
 from Matcher.pipeline.trial_search.first_level_search import ClinicalTrialSearch
 from Matcher.pipeline.trial_search.second_level_search import SecondStageRetriever
-from Matcher.services.biomedner_service import initialize_biomedner_services
 from Matcher.services.elasticsearch_service import (
     build_elasticsearch_client,
     ensure_elasticsearch,
@@ -45,7 +45,7 @@ def run_first_level_search(
     keywords: Dict,
     output_folder: str,
     patient_info: Dict,
-    bio_med_ner,
+    entity_annotator,
     embedder: TextEmbedder,
     config: Dict,
     es_client: Elasticsearch,
@@ -64,7 +64,12 @@ def run_first_level_search(
     overall_status = "All"
 
     index_name = config["elasticsearch"]["index_trials"]
-    cts = ClinicalTrialSearch(es_client, embedder, index_name, bio_med_ner)
+    cts = ClinicalTrialSearch(
+        es_client,
+        embedder,
+        index_name,
+        entity_annotator=entity_annotator,
+    )
 
     # Get synonyms and expand main conditions
     synonyms = cts.get_synonyms(condition.lower().strip())
@@ -250,9 +255,6 @@ def main_pipeline(config_path: str | None = None) -> int:
         if hasattr(torch.backends.cuda, "enable_flash_sdp"):
             torch.backends.cuda.enable_flash_sdp(True)
 
-    initialize_biomedner_services(config)
-    from Parser.biomedner_engine import BioMedNER
-
     import warnings
 
     with warnings.catch_warnings():
@@ -286,7 +288,7 @@ def main_pipeline(config_path: str | None = None) -> int:
             normalize=embedder_cfg.get("normalize", True),
         )
     )
-    bio_med_ner = BioMedNER(**config["bio_med_ner"])
+    entity_annotator = build_entity_annotator(config, embedder=embedder)
 
     with warnings.catch_warnings():
         warnings.filterwarnings(
@@ -306,7 +308,7 @@ def main_pipeline(config_path: str | None = None) -> int:
         llm_reranker=llm_reranker,
         embedder=embedder,
         index_name=config["elasticsearch"]["index_trials_eligibility"],
-        bio_med_ner=bio_med_ner,
+        entity_annotator=entity_annotator,
     )
 
     # Process phenopackets
@@ -352,7 +354,7 @@ def main_pipeline(config_path: str | None = None) -> int:
                         keywords,
                         str(output_folder),
                         patient_info,
-                        bio_med_ner,
+                        entity_annotator,
                         embedder,
                         config,
                         es_client,

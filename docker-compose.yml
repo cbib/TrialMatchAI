@@ -103,10 +103,15 @@ services:
       TRIALMATCHAI_ES_PASSWORD: ${TRIALMATCHAI_ES_PASSWORD:-}
       TRIALMATCHAI_ES_CA_CERTS: /app/elasticsearch/certs/ca/ca.crt
       TRIALMATCHAI_ES_AUTO_START: "false"
-      TRIALMATCHAI_BIOMEDNER_AUTO_START: "false"
       TRIALMATCHAI_PATIENTS_DIR: /app/example
       TRIALMATCHAI_OUTPUT_DIR: /app/results
       TRIALMATCHAI_TRIALS_JSON_FOLDER: /app/data/trials_jsons
+      TRIALMATCHAI_ENTITY_BACKEND: gliner2
+      TRIALMATCHAI_ENTITY_SCHEMA_PATH: /app/source/Matcher/entity_schemas/trialmatchai.yaml
+      TRIALMATCHAI_CONCEPT_DB_PATH: /app/data/concepts
+      TRIALMATCHAI_CONCEPT_TABLE: concepts
+      TRIALMATCHAI_LINK_ACCEPT: "0.80"
+      TRIALMATCHAI_LINK_REJECT: "0.30"
       TRIALMATCHAI_LOG_JSON: "1"
     command: ["trialmatchai-healthcheck"]
 

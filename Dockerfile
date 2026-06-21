@@ -23,7 +23,7 @@ COPY source ./source
 COPY scripts ./scripts
 COPY utils ./utils
 
-RUN uv sync --frozen --no-dev --extra gpu
+RUN uv sync --frozen --no-dev --extra gpu --extra entity
 
 VOLUME ["/app/data", "/app/models", "/app/results"]
 

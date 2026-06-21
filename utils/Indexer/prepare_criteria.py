@@ -3,7 +3,9 @@ import argparse
 import hashlib
 import json
 import logging
+import sys
 from pathlib import Path
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -14,6 +16,12 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+
+ROOT = Path(__file__).resolve().parents[2]
+SOURCE = ROOT / "source"
+if str(SOURCE) not in sys.path:
+    sys.path.append(str(SOURCE))
 
 
 class SentenceEmbedder:
@@ -66,6 +74,7 @@ def process_trial(
     source_folder: Path,
     processed_folder: Path,
     embedder: SentenceEmbedder,
+    entity_annotator: Any | None = None,
 ) -> int:
     raw_path = source_folder / f"{nct_id}.json"
     if not raw_path.exists():
@@ -98,6 +107,8 @@ def process_trial(
     if not entries:
         return 0
 
+    _annotate_missing_entities(entries, texts, entity_annotator)
+
     # embed all at once
     vectors = embedder.embed(texts)
 
@@ -111,7 +122,7 @@ def process_trial(
             "criteria_id": crit_id,
             "nct_id": entry["nct_id"],
             "criterion": entry["criterion"],
-            "entities": entry["entities"],
+            "entities": _entities_for_index(entry["entities"]),
             "eligibility_type": entry["eligibility_type"],
             "criterion_vector": vec,
         }
@@ -142,6 +153,16 @@ def main():
         "--model-name", default="BAAI/bge-m3", help="Sentence embedding model name"
     )
     p.add_argument("--use-gpu", action="store_true", help="Enable GPU iff available")
+    p.add_argument(
+        "--annotate-entities",
+        action="store_true",
+        help="Annotate criteria without existing entities before writing processed JSON.",
+    )
+    p.add_argument(
+        "--config",
+        default=None,
+        help="TrialMatchAI config path used when --annotate-entities is enabled.",
+    )
     args = p.parse_args()
 
     ids = [line.strip() for line in open(args.ids_file) if line.strip()]
@@ -150,6 +171,7 @@ def main():
     processed_folder.mkdir(parents=True, exist_ok=True)
 
     embedder = SentenceEmbedder(model_name=args.model_name, use_gpu=args.use_gpu)
+    entity_annotator = _build_entity_annotator(args.config) if args.annotate_entities else None
 
     total = 0
     skipped = 0
@@ -162,12 +184,65 @@ def main():
             skipped += 1
             continue
 
-        processed_count = process_trial(nct, source_folder, processed_folder, embedder)
+        processed_count = process_trial(
+            nct,
+            source_folder,
+            processed_folder,
+            embedder,
+            entity_annotator=entity_annotator,
+        )
         total += processed_count
 
     logger.info(
         f"✅ Finished embedding. Total criteria written: {total}. Trials skipped: {skipped}."
     )
+
+
+def _build_entity_annotator(config_path: str | None):
+    from Matcher.config.config_loader import load_config
+    from Matcher.entities import build_entity_annotator
+
+    config = load_config(config_path)
+    return build_entity_annotator(config)
+
+
+def _annotate_missing_entities(
+    entries: list[dict[str, Any]],
+    texts: list[str],
+    entity_annotator: Any | None,
+) -> None:
+    if entity_annotator is None:
+        return
+    missing_indices = [
+        index for index, entry in enumerate(entries) if not entry.get("entities")
+    ]
+    if not missing_indices:
+        return
+    missing_texts = [texts[index] for index in missing_indices]
+    annotations = entity_annotator.annotate_texts_in_parallel(
+        missing_texts,
+        max_workers=1,
+    )
+    for index, entities in zip(missing_indices, annotations):
+        entries[index]["entities"] = entities
+
+
+def _entities_for_index(entities: Any) -> list[dict[str, Any]]:
+    if not isinstance(entities, list):
+        return []
+    indexed: list[dict[str, Any]] = []
+    for entity in entities:
+        if not isinstance(entity, dict):
+            continue
+        normalized = dict(entity)
+        normalized.setdefault("entity", normalized.get("text", ""))
+        normalized.setdefault("class", normalized.get("entity_group", ""))
+        normalized.setdefault("normalized_id", ["CUI-less"])
+        normalized.setdefault("synonyms", [])
+        normalized.setdefault("concept_candidates", [])
+        normalized.setdefault("linker_status", "not_linked")
+        indexed.append(normalized)
+    return indexed
 
 
 if __name__ == "__main__":

@@ -98,6 +98,28 @@ class CriteriaIndexer:
                                 "analyzer": "standard_lowercase",
                             },
                             "class": {"type": "keyword"},
+                            "entity_group": {"type": "keyword"},
+                            "text": {
+                                "type": "text",
+                                "analyzer": "standard_lowercase",
+                            },
+                            "score": {"type": "float"},
+                            "linker_score": {"type": "float"},
+                            "linker_status": {"type": "keyword"},
+                            "concept_candidates": {
+                                "type": "nested",
+                                "properties": {
+                                    "normalized_id": {"type": "keyword"},
+                                    "vocabulary_id": {"type": "keyword"},
+                                    "concept_code": {"type": "keyword"},
+                                    "concept_name": {
+                                        "type": "text",
+                                        "analyzer": "standard_lowercase",
+                                    },
+                                    "domain_id": {"type": "keyword"},
+                                    "score": {"type": "float"},
+                                },
+                            },
                         },
                     },
                     "nct_id": {"type": "keyword"},

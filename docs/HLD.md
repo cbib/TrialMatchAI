@@ -30,8 +30,8 @@ TrialMatchAI is an AI-driven clinical trial matching system. Given a patient rec
 │  │ .gov JSONs   │    │      ▼                                     │ │
 │  │      │       │    │  ┌─────────────────────┐                  │ │
 │  │      ▼       │    │  │  Phenopacket         │                  │ │
-│  │  BioMedNER   │    │  │  Processor + LLM     │                  │ │
-│  │  annotation  │    │  │  (Phi-4 summariser)  │                  │ │
+│  │  Schema NER +│    │  │  Processor + LLM     │                  │ │
+│  │  concept link│    │  │  (Phi-4 summariser)  │                  │ │
 │  │      │       │    │  └──────────┬──────────┘                  │ │
 │  │      ▼       │    │             │ keywords.json                │ │
 │  │  BGE-M3      │    │             ▼                              │ │
@@ -74,7 +74,7 @@ Run once to prepare the Elasticsearch indices from raw ClinicalTrials.gov data.
 ```
 Raw Trial JSONs
       │
-      ├──► Parser (BioMedNER annotation)
+      ├──► Schema entity annotation + LanceDB concept linking
       │         │
       │         ▼
       │    Annotated criteria with entity synonyms
@@ -103,7 +103,7 @@ Raw Trial JSONs
 | eligibility_type | keyword | `inclusion` or `exclusion` |
 | criterion | text | BM25 searchable |
 | criterion_vector | dense_vector (1024d, HNSW) | BGE-M3 embedding |
-| entities | nested | BioMedNER annotations + synonyms |
+| entities | nested | Schema entity annotations, linked concept candidates, and synonyms |
 
 ---
 
@@ -144,7 +144,7 @@ hybrid_score = α × normalized_text_score + β × normalized_vector_score
 
 - **BM25 side:** multi-match across `condition`, `eligibility_criteria`, `brief_title`, `brief_summary` with field-specific boosts
 - **Vector side:** cosine similarity against 4 embedded fields using script-score queries
-- **Synonym expansion:** BioMedNER extracts disease synonyms from `main_conditions` to broaden recall
+- **Synonym expansion:** the schema entity annotator links disease mentions to the LanceDB concept table and expands accepted concepts with synonyms
 - **Filters:** age range, gender, `overall_status = Recruiting`
 
 **Output:** Up to 300 trial IDs with relevance scores → `nct_ids.txt`, `first_level_scores.json`
@@ -244,10 +244,11 @@ Irrelevant and unclear criteria are excluded from both numerator and denominator
 - **Memory:** 2 GB per node (6 GB total)
 - **Ports:** 9200 (API), 5601 (Kibana)
 
-### BioMedNER
-- **Purpose:** Biomedical NER and entity normalization
-- **Services:** 4 daemons on ports 18894, 18783, 18888, 18892
-- **Entities:** genes, diseases, drugs, procedures, signs/symptoms, cell types
+### Schema Entity Annotator + LanceDB Concept Linker
+- **Purpose:** Biomedical entity recognition and normalization without external Java daemons
+- **Recognizer:** GLiNER2-style schema-driven extraction, with GLiNER/biomedical fallback support behind the same interface
+- **Concept store:** LanceDB table built from OMOP vocabularies and legacy dictionaries
+- **Entities:** diseases, genes, medications, procedures, labs, radiology, signs/symptoms, cell types, and species
 - **Usage:** synonym expansion (Stage 1) and entity annotation (indexing)
 
 ---
@@ -257,7 +258,7 @@ Irrelevant and unclear criteria are excluded from both numerator and denominator
 ```
 [One-time setup]
 ClinicalTrials.gov JSONs
-    → BioMedNER annotation
+    → schema entity annotation + LanceDB concept linking
     → BGE-M3 embedding
     → Elasticsearch (clinical_trials + trials_eligibility indices)
 
@@ -527,7 +528,7 @@ startup:
     load Phi-4 (4-bit) + LoRA adapter
     load Gemma-2-2B (4-bit)
     load BGE-M3 embedder
-    load BioMedNER daemons
+    load schema entity annotator + LanceDB concept linker
     connect to Elasticsearch
 
 for each patient:
@@ -626,7 +627,7 @@ Gemma-2-2B is never asked to generate text. Instead it's used as a **scoring fun
 
 Patient data is structured using the **GA4GH Phenopacket standard** — ontology codes (HPO, MONDO, CHEBI) rather than free text. This solves the vocabulary mismatch problem: a trial saying "coronary artery disease" and a patient record saying "CAD" both resolve to `MONDO:0005066`, ensuring consistent matching regardless of phrasing.
 
-**BioMedNER** bridges the gap between ontology codes and natural language by extracting synonyms and related terms, expanding search recall.
+The schema entity annotator bridges the gap between ontology codes and natural language by extracting mentions, linking them to LanceDB concept candidates, and expanding accepted disease concepts with synonyms.
 
 ---
 

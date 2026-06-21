@@ -15,7 +15,9 @@ def test_config_env_overrides_and_standard_index_names(monkeypatch):
     monkeypatch.setenv("TRIALMATCHAI_ES_HOST", "https://es.example.test:9200")
     monkeypatch.setenv("TRIALMATCHAI_ES_PASSWORD", "secret-from-env")
     monkeypatch.setenv("TRIALMATCHAI_INDEX_TRIALS_ELIGIBILITY", "trials_eligibility")
-    monkeypatch.setenv("TRIALMATCHAI_BIOMEDNER_AUTO_START", "true")
+    monkeypatch.setenv("TRIALMATCHAI_ENTITY_BACKEND", "regex")
+    monkeypatch.setenv("TRIALMATCHAI_CONCEPT_DB_PATH", "data/concepts-test")
+    monkeypatch.setenv("TRIALMATCHAI_LINK_ACCEPT", "0.9")
 
     cfg = load_config()
 
@@ -23,7 +25,9 @@ def test_config_env_overrides_and_standard_index_names(monkeypatch):
     assert cfg["elasticsearch"]["password"] == "secret-from-env"
     assert cfg["elasticsearch"]["index_trials"] == "clinical_trials"
     assert cfg["elasticsearch"]["index_trials_eligibility"] == "trials_eligibility"
-    assert cfg["services"]["auto_start"] is True
+    assert cfg["entity_extraction"]["backend"] == "regex"
+    assert cfg["concept_linker"]["db_path"].endswith("data/concepts-test")
+    assert cfg["concept_linker"]["accept_threshold"] == 0.9
 
 
 def test_cot_prompt_does_not_inject_consent():

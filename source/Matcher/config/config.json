@@ -1,17 +1,22 @@
 {
-  "bio_med_ner": {
-    "biomedner_port": 18894,
-    "gner_port": 18783,
-    "gene_norm_port": 18888,
-    "disease_norm_port": 18892,
-    "biomedner_home": "source/Parser/",
-    "use_neural_normalizer": true,
-    "no_cuda": false
+  "entity_extraction": {
+    "backend": "gliner2",
+    "model_name": "fastino/gliner2-base",
+    "fallback_model_name": "gliner-community/gliner_large-v2.5",
+    "model_revision": null,
+    "schema_path": "source/Matcher/entity_schemas/trialmatchai.yaml",
+    "threshold": 0.8,
+    "batch_size": 8,
+    "device": "auto",
+    "trust_remote_code": false
   },
-  "services": {
-    "stop_script": "source/biomedner_services/stop_biomedner.sh",
-    "run_script": "source/biomedner_services/run_biomedner.sh",
-    "auto_start": false
+  "concept_linker": {
+    "enabled": true,
+    "db_path": "data/concepts",
+    "table": "concepts",
+    "accept_threshold": 0.8,
+    "reject_threshold": 0.3,
+    "search_limit": 10
   },
   "paths": {
     "patients_dir": "example",

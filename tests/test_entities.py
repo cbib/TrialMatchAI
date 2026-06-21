@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+import csv
+from pathlib import Path
+
+from Matcher.entities.annotator import CompatibilityEntityAnnotator
+from Matcher.entities.builder import build_legacy_dictionary_rows, build_omop_concept_rows
+from Matcher.entities.linker import ConceptLinker, InMemoryConceptStore
+from Matcher.entities.recognizers import RegexSchemaRecognizer, resolve_overlaps
+from Matcher.entities.schemas import load_entity_schemas
+from Matcher.entities.types import ConceptCandidate, EntityAnnotation, NO_ENTITY_ID
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_default_schema_validates_vocab_routing():
+    schemas = load_entity_schemas()
+    by_id = {schema.id: schema for schema in schemas}
+
+    assert by_id["disease"].target_vocabularies == ("SNOMED", "ICD10", "ICD10CM")
+    assert by_id["laboratory_test"].target_vocabularies == ("LOINC",)
+    assert by_id["medication"].target_vocabularies == ("RxNorm", "ATC")
+    assert by_id["disease"].query_expansion is True
+
+
+def test_regex_backend_returns_current_output_shape():
+    schemas = [schema for schema in load_entity_schemas() if schema.id == "disease"]
+    annotator = CompatibilityEntityAnnotator(RegexSchemaRecognizer(), schemas)
+
+    result = annotator.annotate_texts_in_parallel(["metastatic cancer"], max_workers=1)
+
+    assert result[0][0]["entity_group"] == "disease"
+    assert result[0][0]["text"] == "cancer"
+    assert result[0][0]["normalized_id"] == [NO_ENTITY_ID]
+    assert "concept_candidates" in result[0][0]
+
+
+def test_overlap_resolution_keeps_higher_confidence_span():
+    annotations = [
+        EntityAnnotation("disease", "lung cancer", 0, 11, 0.91, schema_id="disease"),
+        EntityAnnotation("disease", "cancer", 5, 11, 0.95, schema_id="disease"),
+    ]
+
+    resolved = resolve_overlaps(annotations)
+
+    assert len(resolved) == 1
+    assert resolved[0].text == "cancer"
+
+
+def test_concept_linker_accepts_rejects_and_marks_ambiguous():
+    schemas = [schema for schema in load_entity_schemas() if schema.id == "disease"]
+    store = InMemoryConceptStore(
+        [
+            ConceptCandidate(
+                concept_id="1",
+                vocabulary_id="SNOMED",
+                concept_code="363346000",
+                concept_name="Malignant neoplastic disease",
+                domain_id="Condition",
+                synonyms=("cancer", "malignancy"),
+            ),
+            ConceptCandidate(
+                concept_id="2",
+                vocabulary_id="SNOMED",
+                concept_code="73211009",
+                concept_name="Diabetes mellitus",
+                domain_id="Condition",
+            ),
+        ]
+    )
+    linker = ConceptLinker(store, schemas, accept_threshold=0.8, reject_threshold=0.3)
+
+    accepted = linker.link_annotation(
+        EntityAnnotation("disease", "cancer", 0, 6, 0.95, schema_id="disease")
+    )
+    ambiguous = linker.link_annotation(
+        EntityAnnotation(
+            "disease",
+            "neoplastic disorder",
+            0,
+            19,
+            0.95,
+            schema_id="disease",
+        )
+    )
+    rejected = linker.link_annotation(
+        EntityAnnotation("disease", "unrelated words", 0, 15, 0.95, schema_id="disease")
+    )
+
+    assert accepted.linker_status == "accepted"
+    assert accepted.normalized_id == ("SNOMED:363346000",)
+    assert "malignancy" in accepted.synonyms
+    assert ambiguous.linker_status == "ambiguous"
+    assert ambiguous.normalized_id == (NO_ENTITY_ID,)
+    assert rejected.linker_status == "rejected"
+
+
+def test_concept_builders_import_omop_and_legacy_rows(tmp_path):
+    concept_csv = tmp_path / "CONCEPT.csv"
+    synonym_csv = tmp_path / "CONCEPT_SYNONYM.csv"
+    with concept_csv.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "concept_id",
+                "concept_name",
+                "domain_id",
+                "vocabulary_id",
+                "concept_class_id",
+                "standard_concept",
+                "concept_code",
+            ],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "concept_id": "1",
+                "concept_name": "Hemoglobin measurement",
+                "domain_id": "Measurement",
+                "vocabulary_id": "LOINC",
+                "concept_class_id": "Lab Test",
+                "standard_concept": "S",
+                "concept_code": "718-7",
+            }
+        )
+    with synonym_csv.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["concept_id", "concept_synonym_name"],
+        )
+        writer.writeheader()
+        writer.writerow({"concept_id": "1", "concept_synonym_name": "Hgb"})
+
+    rows = build_omop_concept_rows(concept_csv, synonym_csv, vocabularies=("LOINC",))
+    legacy = tmp_path / "dict_Gene.txt"
+    legacy.write_text("EntrezGene:1956||EGFR|ERBB1\n")
+
+    legacy_rows = build_legacy_dictionary_rows(
+        legacy,
+        vocabulary_id="EntrezGene",
+        domain_id="Gene",
+    )
+
+    assert rows[0]["concept_code"] == "718-7"
+    assert rows[0]["synonyms"] == ["Hgb"]
+    assert legacy_rows[0]["concept_code"] == "1956"
+    assert legacy_rows[0]["synonyms"] == ["EGFR", "ERBB1"]
+
+
+def test_runtime_replacement_has_no_old_daemon_references():
+    runtime_files = [
+        "source/Matcher/config/config.json",
+        "source/Matcher/main.py",
+        "source/Parser/biomedner_engine.py",
+        "source/Parser/normalizer.py",
+    ]
+    forbidden = [
+        "18888",
+        "18892",
+        "18894",
+        "18783",
+        "GNormPlus",
+        "disease_normalizer_21.jar",
+        "java -Xmx",
+        "import socket",
+    ]
+    for file_name in runtime_files:
+        content = (ROOT / file_name).read_text()
+        for term in forbidden:
+            assert term not in content

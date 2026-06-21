@@ -25,6 +25,7 @@ class SecondStageRetriever:
         inclusion_weight: float = 1.0,
         exclusion_weight: float = 0.25,
         bio_med_ner=None,
+        entity_annotator=None,
         search_mode: str = "hybrid",
     ):
         self.es_client = es_client
@@ -34,14 +35,14 @@ class SecondStageRetriever:
         self.size = size
         self.inclusion_weight = inclusion_weight
         self.exclusion_weight = exclusion_weight
-        self.bio_med_ner = bio_med_ner
+        self.entity_annotator = entity_annotator or bio_med_ner
         self.search_mode = search_mode.lower() if search_mode else "hybrid"
 
     def get_synonyms(self, condition: str) -> List[str]:
-        if self.bio_med_ner is None:
-            logger.warning("BioMedNER not initialized; cannot extract synonyms.")
+        if self.entity_annotator is None:
+            logger.warning("Entity annotator not initialized; cannot extract synonyms.")
             return []
-        raw_result = self.bio_med_ner.annotate_texts_in_parallel(
+        raw_result = self.entity_annotator.annotate_texts_in_parallel(
             [condition], max_workers=1
         )
         ner_results = raw_result
@@ -60,10 +61,10 @@ class SecondStageRetriever:
         query_to_hits = {}
 
         def execute_query(query):
-            # Use entities.synonyms only if BioMedNER is enabled
+            # Use entities.synonyms only if entity annotation is enabled.
             fields_to_search = (
                 ["criterion", "entities.synonyms"]
-                if self.bio_med_ner is not None
+                if self.entity_annotator is not None
                 else ["criterion"]
             )
 
@@ -225,10 +226,10 @@ class SecondStageRetriever:
                 return query, []
 
         def execute_query_bm25(query):
-            # Helper function for BM25-only fallback
+            # Helper function for BM25-only fallback.
             fields_to_search = (
                 ["criterion", "entities.synonyms"]
-                if self.bio_med_ner is not None
+                if self.entity_annotator is not None
                 else ["criterion"]
             )
             es_query = {

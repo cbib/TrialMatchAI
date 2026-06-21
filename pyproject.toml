@@ -50,7 +50,7 @@ dependencies = [
   # App / infra
   "SQLAlchemy==2.0.37",
   "pydantic>=2.12.0,<3",
-  "pydantic-settings>=2.10.1,<3",
+  "pydantic-settings>=2.14.2,<3",
   "huggingface_hub>=1.5.0,<2",
   "bioregistry==0.13.62",
   "rapidfuzz==3.14.5",
@@ -69,6 +69,11 @@ llm = [
   "langchain-community==0.4.2",
   "langchain-openai==1.3.2",
 ]
+entity = [
+  "lancedb>=0.25.0,<0.26",
+  "pyarrow>=24.0.0,<25",
+  "gliner2>=1.3.1,<2",
+]
 training = [
   "datasets==2.19.0",
   "bert-score==0.3.13",
@@ -80,6 +85,7 @@ trialmatchai-healthcheck = "Matcher.cli.healthcheck:main"
 trialmatchai-run = "Matcher.cli.run:main"
 trialmatchai-bootstrap-data = "Matcher.cli.bootstrap_data:main"
 trialmatchai-index = "Matcher.cli.index_data:main"
+trialmatchai-build-concepts = "Matcher.cli.build_concepts:main"
 
 [dependency-groups]
 dev = [
@@ -96,8 +102,7 @@ include-package-data = true
 where = ["source"]
 
 [tool.setuptools.package-data]
-Matcher = ["config/*.json"]
-Parser = ["bin/*", "include/*", "lib/*", "normalizers/*.md"]
+Matcher = ["config/*.json", "entity_schemas/*.yaml"]
 
 [tool.uv]
 environments = [

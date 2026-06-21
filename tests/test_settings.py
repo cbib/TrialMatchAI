@@ -22,20 +22,28 @@ class TestConfigLoading(unittest.TestCase):
                 "password": "pass",
             },
             "embedder": {"model_name": "old"},
+            "entity_extraction": {"backend": "gliner2"},
+            "concept_linker": {"db_path": "old"},
         }
         os.environ["TRIALMATCHAI_ES_HOST"] = "http://override:9200"
         os.environ["TRIALMATCHAI_EMBEDDER_MODEL_NAME"] = "new-model"
         os.environ["TRIALMATCHAI_ES_AUTO_START"] = "true"
+        os.environ["TRIALMATCHAI_ENTITY_BACKEND"] = "regex"
+        os.environ["TRIALMATCHAI_CONCEPT_DB_PATH"] = "concepts"
         try:
             updated = apply_env_overrides(raw)
         finally:
             os.environ.pop("TRIALMATCHAI_ES_HOST", None)
             os.environ.pop("TRIALMATCHAI_EMBEDDER_MODEL_NAME", None)
             os.environ.pop("TRIALMATCHAI_ES_AUTO_START", None)
+            os.environ.pop("TRIALMATCHAI_ENTITY_BACKEND", None)
+            os.environ.pop("TRIALMATCHAI_CONCEPT_DB_PATH", None)
 
         self.assertEqual(updated["elasticsearch"]["host"], "http://override:9200")
         self.assertEqual(updated["embedder"]["model_name"], "new-model")
         self.assertTrue(updated["elasticsearch"]["auto_start"])
+        self.assertEqual(updated["entity_extraction"]["backend"], "regex")
+        self.assertEqual(updated["concept_linker"]["db_path"], "concepts")
 
 
 if __name__ == "__main__":

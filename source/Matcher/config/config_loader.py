@@ -87,15 +87,16 @@ def normalize_config_paths(cfg: Dict[str, Any], config_path: Path) -> Dict[str, 
         if value:
             cfg["paths"][key] = str(_resolve_local_path(value, root))
 
-    for key in ("stop_script", "run_script"):
-        value = cfg.get("services", {}).get(key)
-        if value:
-            cfg["services"][key] = str(_resolve_local_path(value, root))
+    schema_path = cfg.get("entity_extraction", {}).get("schema_path")
+    if schema_path:
+        cfg["entity_extraction"]["schema_path"] = str(
+            _resolve_local_path(schema_path, root)
+        )
 
-    biomedner_home = cfg.get("bio_med_ner", {}).get("biomedner_home")
-    if biomedner_home:
-        cfg["bio_med_ner"]["biomedner_home"] = str(
-            _resolve_local_path(biomedner_home, root)
+    concept_db_path = cfg.get("concept_linker", {}).get("db_path")
+    if concept_db_path:
+        cfg["concept_linker"]["db_path"] = str(
+            _resolve_local_path(concept_db_path, root)
         )
 
     start_script = cfg.get("elasticsearch", {}).get("start_script")
