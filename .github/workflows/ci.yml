@@ -35,6 +35,34 @@ jobs:
       - name: Run tests
         run: uv run pytest -v
 
+      - name: Build package
+        run: uv build
+
+      - name: Installed package smoke
+        run: |
+          WHEEL="$(ls dist/trialmatchai-*.whl | head -n 1)"
+          mkdir -p /tmp/trialmatchai-installed-smoke
+          cd /tmp/trialmatchai-installed-smoke
+          uv run --python 3.11 --isolated --with "$WHEEL" python - <<'PY'
+          from pathlib import Path
+          from trialmatchai.config.config_loader import load_config
+
+          cfg = load_config()
+          assert Path(cfg["entity_extraction"]["schema_path"]).exists()
+          assert cfg["paths"]["output_dir"].endswith("results")
+          PY
+
+      - name: CLI help smoke
+        run: |
+          WHEEL="$(ls dist/trialmatchai-*.whl | head -n 1)"
+          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai --help
+          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-healthcheck --help
+          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-index --help
+          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-build-concepts --help
+          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-update-registry --help
+          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-import-patient --help
+          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-run --help
+
       - name: Secret scan
         run: uv run python scripts/scan_secrets.py
 

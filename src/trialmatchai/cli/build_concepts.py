@@ -7,7 +7,7 @@ from pathlib import Path
 from trialmatchai.config.config_loader import load_config
 from trialmatchai.entities.builder import (
     DEFAULT_OMOP_VOCABULARIES,
-    build_legacy_dictionary_rows,
+    build_dictionary_rows,
     build_omop_concept_rows,
     concept_texts_for_embedding,
     write_lancedb_table,
@@ -30,11 +30,11 @@ def main() -> int:
         help="OMOP CONCEPT_SYNONYM.csv path",
     )
     parser.add_argument(
-        "--legacy-dictionary",
+        "--dictionary",
         action="append",
         default=[],
         metavar="VOCAB:DOMAIN:PATH",
-        help="Import a legacy dictionary file, e.g. EntrezGene:Gene:/path/dict_Gene.txt",
+        help="Import a concept dictionary file, e.g. EntrezGene:Gene:/path/dict_Gene.txt",
     )
     parser.add_argument(
         "--vocabulary",
@@ -69,10 +69,10 @@ def main() -> int:
         args.synonym_csv,
         vocabularies=vocabularies,
     )
-    for spec in args.legacy_dictionary:
-        vocab, domain, path = _parse_legacy_spec(spec)
+    for spec in args.dictionary:
+        vocab, domain, path = _parse_dictionary_spec(spec)
         rows.extend(
-            build_legacy_dictionary_rows(
+            build_dictionary_rows(
                 path,
                 vocabulary_id=vocab,
                 domain_id=domain,
@@ -108,11 +108,11 @@ def main() -> int:
     return 0
 
 
-def _parse_legacy_spec(spec: str) -> tuple[str, str, str]:
+def _parse_dictionary_spec(spec: str) -> tuple[str, str, str]:
     parts = spec.split(":", 2)
     if len(parts) != 3:
         raise ValueError(
-            "--legacy-dictionary must use VOCAB:DOMAIN:PATH, "
+            "--dictionary must use VOCAB:DOMAIN:PATH, "
             f"received: {spec}"
         )
     return parts[0], parts[1], parts[2]

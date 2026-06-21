@@ -46,7 +46,7 @@ deterministic sentences for retrieval and LLM context. This keeps source parsing
 normalization, and prompt context generation independently testable.
 
 The matching exporter writes `data/patients/summaries/<patient_id>.json` with the
-current-compatible fields:
+runtime summary fields:
 
 - `main_conditions`
 - `other_conditions`
@@ -55,9 +55,9 @@ current-compatible fields:
 - `gender`
 - `provenance`
 
-`trialmatchai-run` consumes canonical profiles first. If no profiles exist, it
-temporarily imports legacy Phenopacket JSON files from `paths.patients_dir` and
-writes profiles and summaries before matching.
+`trialmatchai-run` consumes canonical profiles from `patient_inputs.profile_dir`.
+Import source files explicitly with `trialmatchai-import-patient` before running
+matching.
 
 ## Commands
 

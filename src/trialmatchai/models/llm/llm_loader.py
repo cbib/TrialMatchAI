@@ -1,17 +1,15 @@
-from typing import Tuple
+from typing import Any, Tuple
 
-import torch
 from trialmatchai.utils.logging_config import setup_logging
-from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 logger = setup_logging(__name__)
 
 
-def load_model_and_tokenizer(
-    model_config: dict, device: int
-) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
+def load_model_and_tokenizer(model_config: dict, device: int) -> Tuple[Any, Any]:
     """Load a model and tokenizer with safe device handling and optional 4-bit."""
+    torch, peft_model, auto_model, auto_tokenizer, bits_and_bytes_config = (
+        _load_llm_dependencies()
+    )
     use_cuda = torch.cuda.is_available()
     device_str = "cuda" if use_cuda else "cpu"
     quant_config = None
@@ -55,7 +53,7 @@ def load_model_and_tokenizer(
         except Exception:
             logger.info("flash-attn not available; using SDPA.")
 
-        quant_config = BitsAndBytesConfig(
+        quant_config = bits_and_bytes_config(
             load_in_4bit=bool(model_config["quantization"]["load_in_4bit"]),
             bnb_4bit_use_double_quant=bool(
                 model_config["quantization"]["bnb_4bit_use_double_quant"]
@@ -71,11 +69,11 @@ def load_model_and_tokenizer(
             "CUDA not available; loading model on CPU without 4-bit quantization."
         )
         device_str = "cpu"
-        quant_config = BitsAndBytesConfig(load_in_4bit=False)
+        quant_config = bits_and_bytes_config(load_in_4bit=False)
 
     trust_remote_code = bool(model_config.get("trust_remote_code", False))
     revision = model_config.get("base_model_revision")
-    tokenizer = AutoTokenizer.from_pretrained(
+    tokenizer = auto_tokenizer.from_pretrained(
         model_config["base_model"],
         revision=revision,
         use_fast=True,
@@ -91,7 +89,7 @@ def load_model_and_tokenizer(
             "Using FlashAttention-2; keeping padding_side='left' for decoder-only models."
         )
 
-    model = AutoModelForCausalLM.from_pretrained(
+    model = auto_model.from_pretrained(
         model_config["base_model"],
         revision=revision,
         trust_remote_code=trust_remote_code,
@@ -107,7 +105,7 @@ def load_model_and_tokenizer(
     except Exception:
         pass
 
-    model = PeftModel.from_pretrained(
+    model = peft_model.from_pretrained(
         model, model_config["cot_adapter_path"], device_map=device_str
     )
 
@@ -125,3 +123,16 @@ def load_model_and_tokenizer(
         logger.warning("Model is not an instance of torch.nn.Module; skipping eval.")
     logger.info(f"Model loaded on {device_str}.")
     return model, tokenizer  # type: ignore[return-value]
+
+
+def _load_llm_dependencies() -> tuple[Any, Any, Any, Any, Any]:
+    try:
+        import torch
+        from peft import PeftModel
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+    except Exception as exc:  # pragma: no cover - exercised in lean installs
+        raise RuntimeError(
+            "LLM model loading requires the optional `llm` dependencies "
+            "(`uv sync --extra llm`)."
+        ) from exc
+    return torch, PeftModel, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig

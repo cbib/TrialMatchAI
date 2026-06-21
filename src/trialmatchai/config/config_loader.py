@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from importlib import resources
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict
@@ -19,10 +20,8 @@ logger = setup_logging(__name__)
 
 
 DEFAULT_CONFIG_RELATIVE_PATH = Path("src/trialmatchai/config/config.json")
-LEGACY_CONFIG_RELATIVE_PATHS = (
+CONFIG_RELATIVE_PATHS = (
     Path("trialmatchai/config/config.json"),
-    Path("trialmatchai/config/config.json"),
-    Path("source/trialmatchai/config/config.json"),
 )
 
 
@@ -45,7 +44,7 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> Dict[str, 
 def resolve_config_path(
     config_path: str | os.PathLike[str] | None = None,
 ) -> Path:
-    """Resolve explicit, repo-root, legacy, and packaged config paths."""
+    """Resolve explicit, repo-root, and packaged config paths."""
     root = _repo_root()
     candidates: list[Path] = []
     if config_path:
@@ -60,7 +59,7 @@ def resolve_config_path(
                     root / "src" / supplied,
                 ]
             )
-            if supplied in LEGACY_CONFIG_RELATIVE_PATHS:
+            if supplied in CONFIG_RELATIVE_PATHS:
                 candidates.append(root / DEFAULT_CONFIG_RELATIVE_PATH)
     else:
         candidates.extend(
@@ -82,7 +81,7 @@ def resolve_config_path(
 def normalize_config_paths(cfg: Dict[str, Any], config_path: Path) -> Dict[str, Any]:
     """Normalize known local paths while leaving remote model IDs untouched."""
     root = _repo_root(config_path)
-    for key in ("patients_dir", "output_dir", "trials_json_folder"):
+    for key in ("output_dir", "trials_json_folder"):
         value = cfg.get("paths", {}).get(key)
         if value:
             cfg["paths"][key] = str(_resolve_local_path(value, root))
@@ -96,7 +95,7 @@ def normalize_config_paths(cfg: Dict[str, Any], config_path: Path) -> Dict[str, 
     schema_path = cfg.get("entity_extraction", {}).get("schema_path")
     if schema_path:
         cfg["entity_extraction"]["schema_path"] = str(
-            _resolve_local_path(schema_path, root)
+            _resolve_trialmatchai_resource_or_local_path(schema_path, root)
         )
 
     concept_db_path = cfg.get("concept_linker", {}).get("db_path")
@@ -130,6 +129,44 @@ def _resolve_local_path(value: str, root: Path) -> Path:
     if path.is_absolute():
         return path.resolve()
     return (root / path).resolve()
+
+
+def _resolve_trialmatchai_resource_or_local_path(value: str, root: Path) -> Path:
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return path.resolve()
+
+    local_path = (root / path).resolve()
+    if local_path.exists():
+        return local_path
+
+    resource_path = _trialmatchai_resource_path(path)
+    if resource_path is not None:
+        return resource_path
+
+    return local_path
+
+
+def _trialmatchai_resource_path(path: Path) -> Path | None:
+    parts = path.parts
+    if parts[:2] == ("src", "trialmatchai"):
+        relative = Path(*parts[2:])
+    elif parts and parts[0] == "trialmatchai":
+        relative = Path(*parts[1:])
+    else:
+        relative = path
+
+    if not relative.parts or relative.parts[0] not in {
+        "config",
+        "entity_schemas",
+        "preprocessing",
+    }:
+        return None
+
+    resource = resources.files("trialmatchai").joinpath(*relative.parts)
+    if not resource.exists():
+        return None
+    return Path(str(resource)).resolve()
 
 
 def _repo_root(anchor: Path | None = None) -> Path:

@@ -13,6 +13,7 @@ from trialmatchai.cli.bootstrap_data import (
     PROCESSED_TRIALS_ARCHIVE,
     bootstrap_data,
     _safe_extract_tar_gz,
+    _safe_extract_zip,
     _verify_sha256,
 )
 
@@ -92,6 +93,17 @@ def test_tar_extraction_rejects_links(tmp_path):
 
     with pytest.raises(ValueError, match="unsafe member"):
         _safe_extract_tar_gz(archive, tmp_path / "target")
+
+
+def test_zip_extraction_rejects_symlinks(tmp_path):
+    archive = tmp_path / "unsafe-link.zip"
+    with zipfile.ZipFile(archive, "w") as zip_file:
+        info = zipfile.ZipInfo("link")
+        info.external_attr = 0o120777 << 16
+        zip_file.writestr(info, "/etc/passwd")
+
+    with pytest.raises(ValueError, match="unsafe member"):
+        _safe_extract_zip(archive, tmp_path / "target")
 
 
 def _write_tar_gz(path: Path, files: dict[str, bytes]) -> None:

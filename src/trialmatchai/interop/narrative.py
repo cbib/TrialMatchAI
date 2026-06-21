@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from trialmatchai.interop.models import ClinicalFact, PatientProfile
 
 
@@ -54,6 +56,10 @@ def render_search_terms(profile: PatientProfile) -> tuple[list[str], list[str]]:
         main_conditions = _dedupe(
             fact.label for fact in profile.phenotypes if not fact.negated
         )
+    if not main_conditions:
+        main_conditions = _dedupe(
+            _note_search_term(note.text) for note in profile.notes if note.text
+        )[:1]
     other_terms = _dedupe(
         [
             *[fact.label for fact in profile.phenotypes if not fact.negated],
@@ -99,3 +105,11 @@ def _dedupe(values) -> list[str]:
         seen.add(key)
         output.append(cleaned)
     return output
+
+
+def _note_search_term(text: str, *, max_chars: int = 500) -> str:
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    truncated = cleaned[:max_chars].rsplit(" ", 1)[0].strip()
+    return truncated or cleaned[:max_chars].strip()

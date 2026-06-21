@@ -25,10 +25,11 @@ def run_preflight_checks(
     if require_patient_inputs:
         _require_patient_inputs(issues, config)
     else:
+        patient_cfg = config.get("patient_inputs", {})
         _require_path(
             issues,
-            "paths.patients_dir",
-            paths.get("patients_dir"),
+            "patient_inputs.profile_dir",
+            patient_cfg.get("profile_dir"),
             required=False,
         )
     _require_path(
@@ -39,15 +40,17 @@ def run_preflight_checks(
     )
     _require_output_dir(issues, paths.get("output_dir"))
 
+    entity_cfg = config.get("entity_extraction")
+    if entity_cfg:
+        _require_path(
+            issues,
+            "entity_extraction.schema_path",
+            entity_cfg.get("schema_path"),
+            required=True,
+        )
+
     if require_models:
-        entity_cfg = config.get("entity_extraction")
         if entity_cfg:
-            _require_path(
-                issues,
-                "entity_extraction.schema_path",
-                entity_cfg.get("schema_path"),
-                required=True,
-            )
             backend = entity_cfg.get("backend", "gliner2")
             if backend == "gliner2" and importlib.util.find_spec("gliner2") is None:
                 issues.append(
@@ -160,15 +163,9 @@ def _require_output_dir(issues: List[str], value: str | None) -> None:
 
 
 def _require_patient_inputs(issues: List[str], config: Dict[str, Any]) -> None:
-    paths = config.get("paths", {})
     patient_cfg = config.get("patient_inputs", {})
     profile_dir = Path(patient_cfg.get("profile_dir", ""))
-    legacy_dir = Path(paths.get("patients_dir", ""))
-    has_profiles = profile_dir.exists()
-    has_legacy = legacy_dir.exists()
-    if has_profiles or has_legacy:
+    if profile_dir.exists():
         return
     if profile_dir:
         issues.append(f"patient_inputs.profile_dir does not exist: {profile_dir}")
-    if legacy_dir:
-        issues.append(f"paths.patients_dir does not exist: {legacy_dir}")

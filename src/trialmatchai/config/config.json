@@ -4,7 +4,7 @@
     "model_name": "fastino/gliner2-base",
     "fallback_model_name": "gliner-community/gliner_large-v2.5",
     "model_revision": null,
-    "schema_path": "src/trialmatchai/entity_schemas/trialmatchai.yaml",
+    "schema_path": "entity_schemas/trialmatchai.yaml",
     "threshold": 0.8,
     "batch_size": 8,
     "device": "auto",
@@ -19,7 +19,6 @@
     "search_limit": 10
   },
   "paths": {
-    "patients_dir": "example",
     "output_dir": "results",
     "trials_json_folder": "data/trials_jsons"
   },

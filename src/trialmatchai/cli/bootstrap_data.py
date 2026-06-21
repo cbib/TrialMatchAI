@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import stat
 import sys
 import tarfile
 import zipfile
@@ -170,8 +171,11 @@ def _safe_extract_tar_gz(archive: Path, target: Path) -> None:
 def _safe_extract_zip(archive: Path, target: Path) -> None:
     target.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive) as zip_file:
-        for member in zip_file.namelist():
-            _validated_target_path(target, member)
+        for member in zip_file.infolist():
+            _validated_target_path(target, member.filename)
+            mode = member.external_attr >> 16
+            if stat.S_ISLNK(mode):
+                raise ValueError(f"Archive contains an unsafe member: {member.filename}")
         zip_file.extractall(target)
 
 

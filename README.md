@@ -18,7 +18,7 @@ The supported v1 deployment path is a single Python 3.11 GPU server or VM. Trial
 - `uv` recommended, or `pip` with editable install
 - NVIDIA GPU with enough VRAM for the selected LLM backend
 - 100 GB+ disk space for datasets, models, LanceDB tables, and results
-- A LanceDB concept table built from OMOP/legacy dictionaries for entity normalization
+- A LanceDB concept table built from OMOP and curated concept dictionaries for entity normalization
 
 ## Security First
 
@@ -91,7 +91,6 @@ Results are written under `results/`.
 Configuration defaults live in `src/trialmatchai/config/config.json`. Runtime overrides use `.env` or environment variables:
 
 ```bash
-TRIALMATCHAI_PATIENTS_DIR=example
 TRIALMATCHAI_OUTPUT_DIR=results
 TRIALMATCHAI_TRIALS_JSON_FOLDER=data/trials_jsons
 TRIALMATCHAI_PATIENT_RAW_DIR=data/patients/raw
@@ -109,7 +108,7 @@ TRIALMATCHAI_SEARCH_MODE=hybrid
 
 TRIALMATCHAI_MODEL_TRUST_REMOTE_CODE=false
 TRIALMATCHAI_ENTITY_BACKEND=gliner2
-TRIALMATCHAI_ENTITY_SCHEMA_PATH=src/trialmatchai/entity_schemas/trialmatchai.yaml
+TRIALMATCHAI_ENTITY_SCHEMA_PATH=entity_schemas/trialmatchai.yaml
 TRIALMATCHAI_CONCEPT_DB_PATH=data/concepts
 TRIALMATCHAI_CONCEPT_TABLE=concepts
 TRIALMATCHAI_LINK_ACCEPT=0.80

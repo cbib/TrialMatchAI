@@ -28,6 +28,11 @@ def main() -> int:
         action="store_true",
         help="Check registry updater paths and manifest readability.",
     )
+    parser.add_argument(
+        "--models",
+        action="store_true",
+        help="Require configured model artifacts and optional model dependencies.",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -38,7 +43,7 @@ def main() -> int:
         config,
         require_patient_inputs=False,
         require_trials_json=False,
-        require_models=False,
+        require_models=args.models,
     )
     issues += len(preflight_issues)
 

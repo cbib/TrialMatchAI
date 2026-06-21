@@ -203,14 +203,13 @@ def load_vllm_engine(
                     logger.debug(f"[vLLM] Second LoRA signature failed: {e2}")
 
                     try:
-                        # Older versions might have different parameter names
-                        # Some versions might use just name and path
+                        # Some vLLM releases use just name and path.
                         lora_request = LoRARequest(name, adapter_path)  # type: ignore
                         # Manually set the ID if the object allows it
                         if hasattr(lora_request, "lora_int_id"):
                             setattr(lora_request, "lora_int_id", adapter_id)
                         logger.info(
-                            "[vLLM] Created LoRA request (legacy): name=%s path=%s",
+                            "[vLLM] Created LoRA request with fallback signature: name=%s path=%s",
                             name,
                             adapter_path,
                         )

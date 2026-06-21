@@ -34,9 +34,9 @@ def detect_patient_input_format(path: str | Path) -> PatientInputFormat:
     suffix = candidate.suffix.casefold()
     if suffix in {".txt", ".md"}:
         return "text"
-    if suffix == ".ndjson":
+    if suffix in {".ndjson", ".jsonl"}:
         return "fhir-ndjson"
-    if suffix not in {".json", ".jsonl"}:
+    if suffix != ".json":
         raise ValueError(f"Unsupported patient input file extension: {suffix}")
 
     with candidate.open("r", encoding="utf-8") as handle:

@@ -4,7 +4,11 @@ import csv
 from pathlib import Path
 
 from trialmatchai.entities.annotator import CompatibilityEntityAnnotator
-from trialmatchai.entities.builder import build_legacy_dictionary_rows, build_omop_concept_rows
+from trialmatchai.entities.builder import (
+    build_dictionary_rows,
+    build_omop_concept_rows,
+    write_lancedb_table,
+)
 from trialmatchai.entities.linker import ConceptLinker, InMemoryConceptStore
 from trialmatchai.entities.recognizers import RegexSchemaRecognizer, resolve_overlaps
 from trialmatchai.entities.schemas import load_entity_schemas
@@ -95,7 +99,7 @@ def test_concept_linker_accepts_rejects_and_marks_ambiguous():
     assert rejected.linker_status == "rejected"
 
 
-def test_concept_builders_import_omop_and_legacy_rows(tmp_path):
+def test_concept_builders_import_omop_and_dictionary_rows(tmp_path):
     concept_csv = tmp_path / "CONCEPT.csv"
     synonym_csv = tmp_path / "CONCEPT_SYNONYM.csv"
     with concept_csv.open("w", newline="") as handle:
@@ -132,23 +136,63 @@ def test_concept_builders_import_omop_and_legacy_rows(tmp_path):
         writer.writerow({"concept_id": "1", "concept_synonym_name": "Hgb"})
 
     rows = build_omop_concept_rows(concept_csv, synonym_csv, vocabularies=("LOINC",))
-    legacy = tmp_path / "dict_Gene.txt"
-    legacy.write_text("EntrezGene:1956||EGFR|ERBB1\n")
+    dictionary = tmp_path / "dict_Gene.txt"
+    dictionary.write_text("EntrezGene:1956||EGFR|ERBB1\n")
 
-    legacy_rows = build_legacy_dictionary_rows(
-        legacy,
+    dictionary_rows = build_dictionary_rows(
+        dictionary,
         vocabulary_id="EntrezGene",
         domain_id="Gene",
     )
 
     assert rows[0]["concept_code"] == "718-7"
     assert rows[0]["synonyms"] == ["Hgb"]
-    assert legacy_rows[0]["concept_code"] == "1956"
-    assert legacy_rows[0]["synonyms"] == ["EGFR", "ERBB1"]
+    assert dictionary_rows[0]["concept_code"] == "1956"
+    assert dictionary_rows[0]["synonyms"] == ["EGFR", "ERBB1"]
+
+
+def test_concept_table_no_recreate_appends_rows(tmp_path):
+    db_path = tmp_path / "concepts"
+    first = [
+        {
+            "concept_id": "SNOMED:1",
+            "vocabulary_id": "SNOMED",
+            "concept_code": "1",
+            "concept_name": "Melanoma",
+            "domain_id": "Condition",
+            "concept_class_id": "Clinical Finding",
+            "standard_concept": "S",
+            "synonyms": ["malignant melanoma"],
+            "fts_text": "Melanoma malignant melanoma",
+        }
+    ]
+    second = [
+        {
+            "concept_id": "SNOMED:2",
+            "vocabulary_id": "SNOMED",
+            "concept_code": "2",
+            "concept_name": "Sarcoma",
+            "domain_id": "Condition",
+            "concept_class_id": "Clinical Finding",
+            "standard_concept": "S",
+            "synonyms": ["soft tissue sarcoma"],
+            "fts_text": "Sarcoma soft tissue sarcoma",
+        }
+    ]
+
+    write_lancedb_table(first, db_path=db_path, table_name="concepts", recreate=True)
+    write_lancedb_table(second, db_path=db_path, table_name="concepts", recreate=False)
+
+    import lancedb
+
+    table = lancedb.connect(str(db_path)).open_table("concepts")
+    codes = {row["concept_code"] for row in table.to_arrow().to_pylist()}
+    assert codes == {"1", "2"}
 
 
 def test_runtime_replacement_has_no_old_daemon_references():
     assert not (ROOT / "source/Parser").exists()
+    assert not (ROOT / "src/Matcher").exists()
     runtime_files = sorted((ROOT / "src/trialmatchai").rglob("*.py"))
     forbidden = [
         "18888",

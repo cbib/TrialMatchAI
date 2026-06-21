@@ -26,7 +26,7 @@ def import_patient_path(
     if resolved_format == "phenopacket":
         return [import_phenopacket(path, strict=strict)]
     if resolved_format in {"fhir", "fhir-ndjson"}:
-        return [import_fhir(path, input_format=resolved_format, strict=strict)]
+        return import_fhir(path, input_format=resolved_format, strict=strict)
     if resolved_format == "omop":
         return import_omop_extract(path, strict=strict)
     raise ValueError(f"Unsupported patient input format: {resolved_format}")

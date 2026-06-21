@@ -53,12 +53,12 @@ def build_omop_concept_rows(
     return rows
 
 
-def build_legacy_dictionary_rows(
+def build_dictionary_rows(
     dictionary_path: str | Path,
     *,
     vocabulary_id: str,
     domain_id: str = "",
-    concept_class_id: str = "LegacyDictionary",
+    concept_class_id: str = "Dictionary",
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     with Path(dictionary_path).open("r", encoding="utf-8") as handle:
@@ -113,8 +113,11 @@ def write_lancedb_table(
             row["embedding"] = list(embedding)
 
     db = lancedb.connect(str(db_path))
-    mode = "overwrite" if recreate else "create"
-    table = db.create_table(table_name, data=payload, mode=mode)
+    if recreate or not _lancedb_table_exists(db, table_name):
+        table = db.create_table(table_name, data=payload, mode="overwrite")
+    else:
+        table = db.open_table(table_name)
+        table.add(payload)
     try:
         table.create_fts_index("fts_text", replace=True)
     except Exception:
@@ -130,6 +133,13 @@ def concept_texts_for_embedding(rows: Sequence[dict[str, Any]]) -> list[str]:
             synonyms = synonyms.split("|")
         texts.append(" | ".join([row.get("concept_name", ""), *synonyms]).strip())
     return texts
+
+
+def _lancedb_table_exists(db: Any, table_name: str) -> bool:
+    try:
+        return table_name in set(db.table_names())
+    except Exception:
+        return False
 
 
 def _read_omop_synonyms(path: str | Path | None) -> dict[str, list[str]]:

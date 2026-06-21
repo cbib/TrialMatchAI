@@ -21,8 +21,15 @@ def default_schema_path() -> Path:
 
 
 def load_entity_schemas(path: str | Path | None = None) -> list[EntitySchema]:
-    schema_path = Path(path).expanduser() if path else default_schema_path()
-    with schema_path.open("r", encoding="utf-8") as handle:
+    if path:
+        handle_source = Path(path).expanduser()
+        handle = handle_source.open("r", encoding="utf-8")
+    else:
+        handle = resources.files("trialmatchai").joinpath(DEFAULT_SCHEMA_RESOURCE).open(
+            "r",
+            encoding="utf-8",
+        )
+    with handle:
         raw = yaml.safe_load(handle) or {}
     return parse_entity_schemas(raw)
 

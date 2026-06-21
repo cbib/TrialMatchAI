@@ -2,14 +2,10 @@ import re
 import threading
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-import torch
-import torch.nn.functional as F
 from trialmatchai.utils.logging_config import setup_logging
-from peft import PeftModel
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 logger = setup_logging(__name__)
 
@@ -20,20 +16,28 @@ class LLMReranker:
         model_path: str,
         adapter_path: Optional[str] = None,
         device: int = 0,
-        torch_dtype=torch.float16,
+        torch_dtype: Any | None = None,
         batch_size: int = 8,
         revision: Optional[str] = None,
         trust_remote_code: bool = False,
     ):
+        (
+            self._torch,
+            self._torch_functional,
+            self._peft_model,
+            self._auto_model,
+            self._auto_tokenizer,
+            self._bits_and_bytes_config,
+        ) = _load_llm_dependencies()
         self.model_path = model_path
         self.adapter_path = adapter_path
-        self.torch_dtype = torch_dtype
+        self.torch_dtype = torch_dtype or self._torch.float16
         self.batch_size = batch_size
         self.revision = revision
         self.trust_remote_code = trust_remote_code
         # Resolve device string
-        if torch.cuda.is_available():
-            cuda_count = torch.cuda.device_count()
+        if self._torch.cuda.is_available():
+            cuda_count = self._torch.cuda.device_count()
             idx = int(device) if isinstance(device, int) else 0
             if idx < 0 or idx >= cuda_count:
                 logger.warning(
@@ -43,14 +47,14 @@ class LLMReranker:
             self.device_str = f"cuda:{idx}"
             # Ensure Accelerate/HF loaders use the selected GPU when device_map='auto'
             try:
-                torch.cuda.set_device(idx)
+                self._torch.cuda.set_device(idx)
             except Exception as e:
                 logger.warning(f"Could not set CUDA device to {idx}: {e}")
         else:
             logger.warning("LLMReranker: CUDA not available; using CPU.")
             self.device_str = "cpu"
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        self.tokenizer = self._auto_tokenizer.from_pretrained(
             self.model_path,
             revision=self.revision,
             trust_remote_code=self.trust_remote_code,
@@ -72,7 +76,7 @@ class LLMReranker:
     def load_model(self):
         use_cuda = self.device_str.startswith("cuda")
         quant_config = (
-            BitsAndBytesConfig(
+            self._bits_and_bytes_config(
                 load_in_4bit=True,
                 bnb_4bit_use_double_quant=True,
                 bnb_4bit_quant_type="nf4",
@@ -81,17 +85,17 @@ class LLMReranker:
             if use_cuda
             else None
         )
-        model = AutoModelForCausalLM.from_pretrained(
+        model = self._auto_model.from_pretrained(
             self.model_path,
             revision=self.revision,
-            torch_dtype=self.torch_dtype if use_cuda else torch.float32,
+            torch_dtype=self.torch_dtype if use_cuda else self._torch.float32,
             quantization_config=quant_config,
             device_map="auto" if use_cuda else None,
             attn_implementation="flash_attention_2" if use_cuda else None,
             trust_remote_code=self.trust_remote_code,
         )
         if self.adapter_path:
-            model = PeftModel.from_pretrained(model, self.adapter_path)
+            model = self._peft_model.from_pretrained(model, self.adapter_path)
         model.eval()
         return model
 
@@ -129,10 +133,10 @@ class LLMReranker:
         inputs = self.tokenizer(batch_prompts, return_tensors="pt", padding=True)
         inputs = {k: v.to(self.device_str) for k, v in inputs.items()}
         with self.model_lock:
-            with torch.no_grad():
+            with self._torch.no_grad():
                 outputs = self.model(**inputs)
         logits = outputs.logits[:, -1, :]
-        probabilities = F.softmax(logits, dim=-1)
+        probabilities = self._torch_functional.softmax(logits, dim=-1)
         applicable_probs = probabilities[:, self.applicable_token_id].tolist()
         return [
             {"llm_score": prob, "answer": "Yes" if prob > 0.5 else "No"}
@@ -152,3 +156,24 @@ class LLMReranker:
             ):
                 results.extend(future.result())
         return results
+
+
+def _load_llm_dependencies() -> tuple[Any, Any, Any, Any, Any, Any]:
+    try:
+        import torch
+        import torch.nn.functional as torch_functional
+        from peft import PeftModel
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+    except Exception as exc:  # pragma: no cover - exercised in lean installs
+        raise RuntimeError(
+            "LLM reranking requires the optional `llm` dependencies "
+            "(`uv sync --extra llm`)."
+        ) from exc
+    return (
+        torch,
+        torch_functional,
+        PeftModel,
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        BitsAndBytesConfig,
+    )

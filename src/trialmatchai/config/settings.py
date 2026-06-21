@@ -10,7 +10,7 @@ class EntityExtractionSettings(BaseModel):
     model_name: str = "fastino/gliner2-base"
     fallback_model_name: str = "gliner-community/gliner_large-v2.5"
     model_revision: str | None = None
-    schema_path: str = "src/trialmatchai/entity_schemas/trialmatchai.yaml"
+    schema_path: str = "entity_schemas/trialmatchai.yaml"
     threshold: float = Field(0.8, ge=0.0, le=1.0)
     batch_size: int = Field(8, ge=1)
     device: str = "auto"
@@ -35,7 +35,6 @@ class ConceptLinkerSettings(BaseModel):
 
 
 class PathsSettings(BaseModel):
-    patients_dir: str
     output_dir: str
     trials_json_folder: str
 
@@ -186,7 +185,6 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
     import os
 
     string_env_map: dict[str, Tuple[str, ...]] = {
-        "TRIALMATCHAI_PATIENTS_DIR": ("paths", "patients_dir"),
         "TRIALMATCHAI_OUTPUT_DIR": ("paths", "output_dir"),
         "TRIALMATCHAI_TRIALS_JSON_FOLDER": ("paths", "trials_json_folder"),
         "TRIALMATCHAI_PATIENT_RAW_DIR": ("patient_inputs", "raw_dir"),

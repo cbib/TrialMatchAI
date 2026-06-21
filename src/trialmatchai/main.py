@@ -16,7 +16,6 @@ from trialmatchai.matching.retrieval.criteria_retrieval import SecondStageRetrie
 from trialmatchai.search import LanceDBSearchBackend
 from trialmatchai.services.preflight import run_preflight_checks
 from trialmatchai.interop.exporters import profile_to_matching_summary
-from trialmatchai.interop.importers import import_patient_path
 from trialmatchai.interop.models import PatientProfile
 from trialmatchai.utils.file_utils import (
     create_directory,
@@ -412,58 +411,27 @@ def _load_patient_inputs(config: Dict) -> list[tuple[PatientProfile, Dict]]:
     profile_dir = Path(patient_cfg.get("profile_dir", "data/patients/profiles"))
     summary_dir = Path(patient_cfg.get("summary_dir", "data/patients/summaries"))
     profile_files = sorted(profile_dir.glob("*.json")) if profile_dir.exists() else []
-    if profile_files:
-        loaded: list[tuple[PatientProfile, Dict]] = []
-        for profile_file in profile_files:
-            try:
-                profile = PatientProfile.model_validate(read_json_file(str(profile_file)))
-                summary_path = summary_dir / profile_file.name
-                if summary_path.exists():
-                    summary = read_json_file(str(summary_path))
-                else:
-                    summary = profile_to_matching_summary(profile)
-                loaded.append((profile, summary))
-            except Exception:
-                logger.exception("Failed to load patient profile: %s", profile_file)
-        return loaded
-
-    patient_folder = Path(config.get("paths", {}).get("patients_dir", ""))
-    if not patient_folder.exists():
-        logger.error("Patient profile directory and legacy patients_dir are missing.")
+    if not profile_files:
+        logger.error(
+            "No canonical patient profiles found in %s. Run "
+            "`trialmatchai-import-patient` first.",
+            profile_dir,
+        )
         return []
 
-    legacy_files = sorted(path for path in patient_folder.glob("*.json") if path.is_file())
-    if not legacy_files:
-        logger.warning("No patient profile or legacy phenopacket files found.")
-        return []
-
-    logger.warning(
-        "No canonical patient profiles found in %s. Importing legacy Phenopacket "
-        "JSON files from %s for this run.",
-        profile_dir,
-        patient_folder,
-    )
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    summary_dir.mkdir(parents=True, exist_ok=True)
-    imported: list[tuple[PatientProfile, Dict]] = []
-    for legacy_file in legacy_files:
+    loaded: list[tuple[PatientProfile, Dict]] = []
+    for profile_file in profile_files:
         try:
-            profiles = import_patient_path(
-                legacy_file,
-                input_format="phenopacket",
-                strict=bool(patient_cfg.get("strict_validation", False)),
-            )
-            for profile in profiles:
+            profile = PatientProfile.model_validate(read_json_file(str(profile_file)))
+            summary_path = summary_dir / profile_file.name
+            if summary_path.exists():
+                summary = read_json_file(str(summary_path))
+            else:
                 summary = profile_to_matching_summary(profile)
-                write_json_file(
-                    profile.model_dump(mode="json", exclude_none=True),
-                    str(profile_dir / f"{profile.patient_id}.json"),
-                )
-                write_json_file(summary, str(summary_dir / f"{profile.patient_id}.json"))
-                imported.append((profile, summary))
+            loaded.append((profile, summary))
         except Exception:
-            logger.exception("Failed to import legacy patient file: %s", legacy_file)
-    return imported
+            logger.exception("Failed to load patient profile: %s", profile_file)
+    return loaded
 
 
 if __name__ == "__main__":

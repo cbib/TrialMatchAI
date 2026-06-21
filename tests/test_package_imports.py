@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import warnings
+import importlib.util
+import pkgutil
 
 import pytest
 
@@ -11,13 +12,22 @@ def test_trialmatchai_imports_with_version():
     assert trialmatchai.__version__ == "0.2.0"
 
 
-def test_matcher_config_compatibility_shim():
-    with warnings.catch_warnings(record=True) as captured:
-        warnings.simplefilter("always")
-        from Matcher.config.config_loader import resolve_config_path
+def test_matcher_namespace_is_removed():
+    assert importlib.util.find_spec("Matcher") is None
 
-    assert resolve_config_path().name == "config.json"
-    assert any("Matcher" in str(warning.message) for warning in captured)
+
+def test_trialmatchai_modules_import_with_core_dependencies():
+    failures = []
+    for module in pkgutil.walk_packages(
+        trialmatchai.__path__,
+        prefix=f"{trialmatchai.__name__}.",
+    ):
+        try:
+            __import__(module.name)
+        except Exception as exc:  # pragma: no cover - assertion path
+            failures.append(f"{module.name}: {type(exc).__name__}: {exc}")
+
+    assert failures == []
 
 
 def test_command_group_includes_bootstrap_data(monkeypatch, capsys):

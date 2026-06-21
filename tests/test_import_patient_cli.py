@@ -33,4 +33,5 @@ def test_import_patient_cli_writes_profile_and_summary(tmp_path, monkeypatch):
     summary = json.loads((summary_dir / "patient.json").read_text(encoding="utf-8"))
     assert profile["patient_id"] == "patient"
     assert summary["patient_id"] == "patient"
+    assert summary["main_conditions"] == ["Patient has breast cancer."]
     assert summary["expanded_sentences"]

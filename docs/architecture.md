@@ -1,6 +1,6 @@
 # TrialMatchAI Architecture
 
-TrialMatchAI is an installable Python package exposed as `trialmatchai`. The supported runtime code lives under `src/trialmatchai`; `src/Matcher` is a temporary deprecated import shim for one release cycle.
+TrialMatchAI is an installable Python package exposed as `trialmatchai`. The supported runtime code lives under `src/trialmatchai`.
 
 ## Runtime Subsystems
 
@@ -26,16 +26,12 @@ LanceDB is the only search database. It is embedded, file-backed, and stored und
 
 The registry manifest is append-only JSONL at `data/registry/manifest.jsonl`. The latest record per `nct_id` determines idempotency.
 
-## Compatibility
+## Public API
 
-`Matcher` import shims are kept temporarily for downstream callers:
-
-```python
-from Matcher.config.config_loader import load_config
-```
-
-New code must import:
+New code imports from the canonical package namespace:
 
 ```python
 from trialmatchai.config.config_loader import load_config
 ```
+
+The old `Matcher` namespace is not shipped.

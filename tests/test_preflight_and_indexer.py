@@ -11,17 +11,20 @@ from trialmatchai.services.preflight import run_preflight_checks
 
 
 def _base_config(tmp_path):
-    patients = tmp_path / "patients"
-    patients.mkdir()
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
     trials = tmp_path / "trials"
     trials.mkdir()
     search_db = tmp_path / "search"
     search_db.mkdir()
     return {
         "paths": {
-            "patients_dir": str(patients),
             "trials_json_folder": str(trials),
             "output_dir": str(tmp_path / "results"),
+        },
+        "patient_inputs": {
+            "profile_dir": str(profiles),
+            "summary_dir": str(tmp_path / "summaries"),
         },
         "search_backend": {
             "backend": "lancedb",
@@ -134,9 +137,12 @@ def test_main_config_resolves_search_paths(tmp_path, monkeypatch):
         json.dumps(
             {
                 "paths": {
-                    "patients_dir": "patients",
                     "output_dir": "results",
                     "trials_json_folder": "trials",
+                },
+                "patient_inputs": {
+                    "profile_dir": "patients/profiles",
+                    "summary_dir": "patients/summaries",
                 },
                 "search_backend": {
                     "backend": "lancedb",

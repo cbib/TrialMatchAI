@@ -23,34 +23,45 @@ def import_fhir(
     *,
     input_format: str = "fhir",
     strict: bool = False,
-) -> PatientProfile:
+) -> list[PatientProfile]:
     source_path = Path(path)
     resources = (
         _load_ndjson(source_path)
         if input_format == "fhir-ndjson"
         else _load_json_resources(source_path)
     )
-    patient = next((res for res in resources if res.get("resourceType") == "Patient"), {})
-    patient_id = safe_patient_id(patient.get("id"), source_path.stem)
-    provenance = Provenance(
-        source_format=input_format,
-        source_id=patient_id,
-        source_path=source_path_string(source_path),
-    )
-    birth_date = parse_date(patient.get("birthDate"))
-    profile = PatientProfile(
-        patient_id=patient_id,
-        demographics=Demographics(
-            sex=normalize_gender(patient.get("gender")),
-            gender=normalize_gender(patient.get("gender")),
-            birth_date=birth_date,
-            age_years=age_years_from_birth_date(birth_date),
-        ),
-        provenance=[provenance],
-    )
+    patients = [res for res in resources if res.get("resourceType") == "Patient"]
+    if not patients:
+        patients = [{}]
+
+    profiles = [
+        _profile_from_patient(patient, source_path=source_path, input_format=input_format)
+        for patient in patients
+    ]
+    profiles_by_reference = _profiles_by_reference(patients, profiles)
+
     for resource in resources:
+        if resource.get("resourceType") == "Patient":
+            continue
+        profile = _profile_for_resource(resource, profiles, profiles_by_reference)
+        if profile is None:
+            message = "FHIR resource has no resolvable patient reference"
+            if strict:
+                raise ValueError(
+                    f"{message}: {resource.get('resourceType')}/{resource.get('id')}"
+                )
+            for candidate in profiles:
+                candidate.unsupported.append(
+                    {
+                        "resourceType": resource.get("resourceType"),
+                        "id": resource.get("id"),
+                        "reason": message,
+                    }
+                )
+            continue
         try:
-            _add_resource(profile, resource, provenance)
+            base_provenance = profile.provenance[0]
+            _add_resource(profile, resource, base_provenance)
         except Exception:
             if strict:
                 raise
@@ -61,7 +72,32 @@ def import_fhir(
                     "reason": "resource mapping failed",
                 }
             )
-    return profile
+    return profiles
+
+
+def _profile_from_patient(
+    patient: Mapping[str, Any],
+    *,
+    source_path: Path,
+    input_format: str,
+) -> PatientProfile:
+    patient_id = safe_patient_id(patient.get("id"), source_path.stem)
+    provenance = Provenance(
+        source_format=input_format,
+        source_id=patient_id,
+        source_path=source_path_string(source_path),
+    )
+    birth_date = parse_date(patient.get("birthDate"))
+    return PatientProfile(
+        patient_id=patient_id,
+        demographics=Demographics(
+            sex=normalize_gender(patient.get("gender")),
+            gender=normalize_gender(patient.get("gender")),
+            birth_date=birth_date,
+            age_years=age_years_from_birth_date(birth_date),
+        ),
+        provenance=[provenance],
+    )
 
 
 def _load_json_resources(path: Path) -> list[dict[str, Any]]:
@@ -71,11 +107,15 @@ def _load_json_resources(path: Path) -> list[dict[str, Any]]:
     if not isinstance(data, dict):
         return []
     if data.get("resourceType") == "Bundle":
-        return [
-            entry["resource"]
-            for entry in data.get("entry") or []
-            if isinstance(entry, dict) and isinstance(entry.get("resource"), dict)
-        ]
+        resources = []
+        for entry in data.get("entry") or []:
+            if not isinstance(entry, dict) or not isinstance(entry.get("resource"), dict):
+                continue
+            resource = dict(entry["resource"])
+            if entry.get("fullUrl"):
+                resource["_bundle_full_url"] = entry["fullUrl"]
+            resources.append(resource)
+        return resources
     return [data]
 
 
@@ -86,6 +126,51 @@ def _load_ndjson(path: Path) -> list[dict[str, Any]]:
             if line.strip():
                 resources.append(json.loads(line))
     return resources
+
+
+def _profiles_by_reference(
+    patients: list[Mapping[str, Any]],
+    profiles: list[PatientProfile],
+) -> dict[str, PatientProfile]:
+    mapping: dict[str, PatientProfile] = {}
+    for patient, profile in zip(patients, profiles):
+        patient_id = str(patient.get("id") or "").strip()
+        if patient_id:
+            mapping[patient_id] = profile
+            mapping[f"Patient/{patient_id}"] = profile
+        full_url = str(patient.get("_bundle_full_url") or "").strip()
+        if full_url:
+            mapping[full_url] = profile
+    return mapping
+
+
+def _profile_for_resource(
+    resource: Mapping[str, Any],
+    profiles: list[PatientProfile],
+    profiles_by_reference: Mapping[str, PatientProfile],
+) -> PatientProfile | None:
+    reference = _patient_reference(resource)
+    if reference:
+        return profiles_by_reference.get(reference)
+    if len(profiles) == 1:
+        return profiles[0]
+    return None
+
+
+def _patient_reference(resource: Mapping[str, Any]) -> str | None:
+    for key in ("subject", "patient", "beneficiary"):
+        reference = _reference_value(resource.get(key))
+        if reference:
+            return reference
+    return None
+
+
+def _reference_value(value: Any) -> str | None:
+    if isinstance(value, Mapping):
+        reference = value.get("reference")
+        if isinstance(reference, str) and reference.strip():
+            return reference.strip()
+    return None
 
 
 def _add_resource(

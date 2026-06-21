@@ -142,6 +142,45 @@ def test_fhir_bundle_importer_and_exporter(tmp_path):
     assert exported["resourceType"] == "Bundle"
 
 
+def test_fhir_bundle_groups_resources_by_patient_reference(tmp_path):
+    bundle = {
+        "resourceType": "Bundle",
+        "type": "collection",
+        "entry": [
+            {
+                "fullUrl": "urn:uuid:patient-1",
+                "resource": {"resourceType": "Patient", "id": "p1"},
+            },
+            {"resource": {"resourceType": "Patient", "id": "p2"}},
+            {
+                "resource": {
+                    "resourceType": "Condition",
+                    "id": "c1",
+                    "subject": {"reference": "urn:uuid:patient-1"},
+                    "code": {"text": "melanoma"},
+                }
+            },
+            {
+                "resource": {
+                    "resourceType": "Condition",
+                    "id": "c2",
+                    "subject": {"reference": "Patient/p2"},
+                    "code": {"text": "sarcoma"},
+                }
+            },
+        ],
+    }
+    path = tmp_path / "bundle.json"
+    path.write_text(json.dumps(bundle), encoding="utf-8")
+
+    profiles = import_patient_path(path)
+
+    by_id = {profile.patient_id: profile for profile in profiles}
+    assert sorted(by_id) == ["p1", "p2"]
+    assert by_id["p1"].conditions[0].label == "melanoma"
+    assert by_id["p2"].conditions[0].label == "sarcoma"
+
+
 def test_fhir_ndjson_detection_and_import(tmp_path):
     path = tmp_path / "patient.ndjson"
     path.write_text(
@@ -164,6 +203,31 @@ def test_fhir_ndjson_detection_and_import(tmp_path):
 
     assert detect_patient_input_format(path) == "fhir-ndjson"
     assert profile.procedures[0].label == "bone marrow biopsy"
+
+
+def test_fhir_jsonl_detection_and_import(tmp_path):
+    path = tmp_path / "patient.jsonl"
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps({"resourceType": "Patient", "id": "jsonl-p1"}),
+                json.dumps(
+                    {
+                        "resourceType": "Condition",
+                        "id": "c1",
+                        "subject": {"reference": "Patient/jsonl-p1"},
+                        "code": {"text": "glioma"},
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    profile = import_patient_path(path)[0]
+
+    assert detect_patient_input_format(path) == "fhir-ndjson"
+    assert profile.conditions[0].label == "glioma"
 
 
 def test_omop_importer_from_csv_extract(tmp_path):

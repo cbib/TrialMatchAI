@@ -10,9 +10,9 @@ logs/
 .env.*
 !.env.example
 
-models/
-source/
-Parser/
+/models/
+/source/
+/Parser/
 
 # ============================
 # Generated indexing state
