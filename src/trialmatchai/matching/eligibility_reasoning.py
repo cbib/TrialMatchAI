@@ -1,12 +1,8 @@
-import json
-import os
 import time
 from typing import Dict, List
 
-from trialmatchai.utils.file_utils import read_json_file, write_json_file, write_text_file
-from trialmatchai.utils.json_utils import extract_json_object
+from trialmatchai.matching.eligibility_base import BaseTrialProcessor
 from trialmatchai.utils.logging_config import setup_logging
-from tqdm import tqdm
 
 logger = setup_logging(__name__)
 
@@ -25,7 +21,7 @@ def _require_torch():
     return torch
 
 
-class BatchTrialProcessor:
+class BatchTrialProcessor(BaseTrialProcessor):
     def __init__(
         self,
         model,
@@ -94,117 +90,8 @@ class BatchTrialProcessor:
         except Exception:
             pass
 
-    # ---------------------- I/O helpers ----------------------
-
-    def _load_trial_data(self, nct_id: str, json_folder: str) -> str:
-        try:
-            path = f"{json_folder}/{nct_id}.json"
-            trial_data = read_json_file(path)
-            return trial_data.get("eligibility_criteria", "")
-        except Exception as e:
-            logger.error(f"Error loading {nct_id}: {str(e)}")
-            return ""
-
-    # ---------------------- Prompting ----------------------
-
-    def _format_prompt(self, criteria_text: str, patient_profile: str) -> str:
-        criteria_text_formatted = (
-            f"Eligibility Criteria:\n{criteria_text}"
-            if criteria_text
-            else "No eligibility criteria provided."
-        )
-
-        if self.use_cot:
-            system_msg = (
-                "You are a medical expert with advanced knowledge in clinical reasoning, diagnostics, and treatment planning. "
-                "Answer the following question. Before answering, create a concise chain of thoughts reasoning to ensure a logical and accurate response.\n"
-            )
-            chat = [
-                {"role": "system", "content": system_msg},
-                {
-                    "role": "user",
-                    "content": (
-                        "Assess the given patient's eligibility for a clinical trial by evaluating each and every criterion individually.\n\n"
-                        "### INCLUSION CRITERIA ASSESSMENT\n"
-                        "For each inclusion criterion, classify it as one of:\n"
-                        "- **Met:** The patient's data explicitly and unequivocally satisfies the criterion.\n"
-                        "- **Not Met:** The patient's data explicitly and unequivocally contradicts or fails to satisfy the criterion.\n"
-                        "- **Unclear:** Insufficient or missing patient data to verify.\n"
-                        "- **Irrelevant:** The criterion does not apply to the patient's context.\n\n"
-                        "### EXCLUSION CRITERIA ASSESSMENT\n"
-                        "For each exclusion criterion, classify it as one of:\n"
-                        "- **Violated:** The patient's data explicitly and unequivocally violates the criterion.\n"
-                        "- **Not Violated:** The patient's data confirms compliance with the criterion.\n"
-                        "- **Unclear:** Insufficient or missing patient data to verify.\n"
-                        "- **Irrelevant:** The criterion does not apply to the patient's context.\n\n"
-                        "### IMPORTANT INSTRUCTIONS\n"
-                        "- Ensure all criteria are assessed one-by-one.\n"
-                        "- Use **only** the provided patient data; **do not infer, assume, or extrapolate beyond the given information.**\n"
-                        "- Justifications must be strictly based on direct evidence from the patient profile.\n"
-                        "### RESPONSE FORMAT (STRICTLY FOLLOW)\n"
-                        "{\n"
-                        '  "Inclusion_Criteria_Evaluation": [\n'
-                        '    {"Criterion": "Exact inclusion criterion text", "Classification": "Met | Not Met | Unclear | Irrelevant", "Justification": "Clear, evidence-based rationale using ONLY provided data"}\n'
-                        "  ],\n"
-                        '  "Exclusion_Criteria_Evaluation": [\n'
-                        '    {"Criterion": "Exact exclusion criterion text", "Classification": "Violated | Not Violated | Unclear | Irrelevant", "Justification": "Clear, evidence-based rationale using ONLY provided data"}\n'
-                        "  ],\n"
-                        '  "Recap": "Concise summary of key qualifying/disqualifying factors",\n'
-                        '  "Final Decision": "Eligible | Likely Eligible (leaning toward inclusion) | Likely Ineligible (leaning toward exclusion) | Ineligible"\n'
-                        "}\n\n"
-                        "### INPUT\n"
-                        "---Start of Clinical Trial Criteria---\n"
-                        f"{criteria_text_formatted}\n"
-                        "---End of Clinical Trial Criteria---\n\n"
-                        "----\n"
-                        "---Start of Patient Description---\n"
-                        f"{patient_profile}\n"
-                        "---End of Patient Description---\n"
-                        "## IMPORTANT REMINDER:\n"
-                        "NEVER make assumptions, inferences, or extrapolations beyond the explicitly stated patient information."
-                    ),
-                },
-            ]
-        else:
-            chat = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a clinical assistant tasked with assessing the eligibility of a patient for a clinical trial. "
-                        "Output only a JSON object evaluating trial eligibility for the patient based only on the provided criteria and patient profile.\n"
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "For each criterion, classify:\n"
-                        '- If Inclusion Criterion: "Met" | "Not Met" | "Unclear" | "Irrelevant"\n'
-                        '- If Exclusion Criterion: "Violated" | "Not Violated" | "Unclear" | "Irrelevant"\n\n'
-                        "Provide a justification for each classification based strictly on the provided data. "
-                        "Output this JSON schema:\n"
-                        "{\n"
-                        '  "Inclusion_Criteria_Evaluation": [ {"Criterion": "...", "Classification": "...", "Justification": "..."} ],\n'
-                        '  "Exclusion_Criteria_Evaluation": [ {"Criterion": "...", "Classification": "...", "Justification": "..."} ],\n'
-                        '  "Final Decision": "Eligible | Likely Eligible | Likely Ineligible | Ineligible"\n'
-                        "}\n\n"
-                        "---Start of Clinical Trial Criteria---\n"
-                        f"{criteria_text_formatted}\n"
-                        "---End of Clinical Trial Criteria---\n\n"
-                        "---Start of Patient Description---\n"
-                        f"{patient_profile}\n"
-                        "---End of Patient Description---\n"
-                    ),
-                },
-            ]
-
-        if hasattr(self.tokenizer, "apply_chat_template"):
-            return self.tokenizer.apply_chat_template(
-                chat, tokenize=False, add_generation_prompt=True
-            )
-        # Fallback: simple concatenation
-        system_part = f"{chat[0]['content']}\n\n"
-        user_part = f"{chat[1]['content']}\n\n"
-        return system_part + user_part + "Answer: "
+    def _progress_desc(self) -> str:
+        return f"GPU {self.device} Processing Trials"
 
     # ---------------------- Core batch path ----------------------
 
@@ -273,75 +160,3 @@ class BatchTrialProcessor:
             logger.error(f"Batch processing failed: {str(e)}")
             for item in batch:
                 logger.error(f"Failed trial: {item['nct_id']}")
-
-    # ---------------------- Persistence ----------------------
-
-    def _save_outputs(self, nct_id: str, response: str, output_folder: str):
-        try:
-            os.makedirs(output_folder, exist_ok=True)
-            txt_path = f"{output_folder}/{nct_id}.txt"
-            write_text_file([response], txt_path)
-            try:
-                json_data = extract_json_object(response)
-                write_json_file(json_data, f"{output_folder}/{nct_id}.json")
-                logger.info(f"Processed {nct_id} successfully")
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.error(f"Invalid JSON response for {nct_id}: {str(e)}")
-                write_json_file(
-                    {"error": "invalid_json_response", "raw_output": response},
-                    f"{output_folder}/{nct_id}.json",
-                )
-        except Exception as e:
-            logger.error(f"Failed to save {nct_id}: {str(e)}")
-
-    # ---------------------- Public API ----------------------
-
-    def process_trials(
-        self,
-        nct_ids: List[str],
-        json_folder: str,
-        output_folder: str,
-        patient_profile: List[str],
-    ):
-        """
-        Length-buckets all prompts to reduce padding overhead, then processes in batches.
-        Keeps existing outputs (idempotent resume).
-        """
-        patient_text = " ".join(
-            str(line).strip() for line in patient_profile if str(line).strip()
-        )
-
-        # Build worklist, skipping already-processed trials
-        items: List[Dict] = []
-        for nct_id in nct_ids:
-            output_path = f"{output_folder}/{nct_id}.json"
-            if os.path.exists(output_path):
-                logger.info(f"Skipping existing: {nct_id}")
-                continue
-            criteria_text = self._load_trial_data(nct_id, json_folder)
-            prompt = self._format_prompt(criteria_text, patient_text)
-
-            # Measure token length once for bucketing (no truncation here)
-            try:
-                tok = self.tokenizer(prompt, add_special_tokens=False)
-                tok_len = len(tok["input_ids"])
-            except Exception:
-                # Fallback: rough char-based estimate if tokenizer hiccups
-                tok_len = max(1, len(prompt) // 4)
-
-            items.append({"nct_id": nct_id, "prompt": prompt, "tok_len": tok_len})
-
-        if not items:
-            logger.info("No work to do.")
-            return
-
-        # Sort by length (ascending) => minimal padding inside batches
-        items.sort(key=lambda x: x["tok_len"])
-
-        # Process in batches
-        for i in tqdm(
-            range(0, len(items), self.batch_size),
-            desc=f"GPU {self.device} Processing Trials",
-        ):
-            batch = items[i : i + self.batch_size]
-            self._process_batch(batch, output_folder)
