@@ -76,14 +76,20 @@ def build_parser() -> argparse.ArgumentParser:
     reranker = sub.add_parser("reranker", help="LoRA SFT for the reranker (Yes/No)")
     _add_common_lora_args(reranker)
 
-    ner = sub.add_parser("ner", help="Fine-tune the GLiNER NER model")
-    ner.add_argument("--base-model", required=True)
+    ner = sub.add_parser("ner", help="Fine-tune the GLiNER2 NER model")
+    ner.add_argument("--base-model", default="fastino/gliner2-base-v1")
     ner.add_argument("--train-data", required=True)
     ner.add_argument("--output-dir", required=True)
     ner.add_argument("--eval-data", default=None)
-    ner.add_argument("--epochs", type=float, default=3.0)
-    ner.add_argument("--learning-rate", type=float, default=5e-6)
+    ner.add_argument("--epochs", type=float, default=10.0)
     ner.add_argument("--batch-size", type=int, default=8)
+    ner.add_argument("--encoder-lr", type=float, default=1e-5)
+    ner.add_argument("--task-lr", type=float, default=5e-4)
+    ner.add_argument("--lora-r", type=int, default=8)
+    ner.add_argument("--lora-alpha", type=float, default=16.0)
+    ner.add_argument("--no-lora", action="store_true", help="Full fine-tune instead of LoRA")
+    ner.add_argument("--fp32", action="store_true", help="Disable fp16 mixed precision")
+    ner.add_argument("--schema-path", default=None, help="Entity schema for label descriptions")
     ner.add_argument("--max-examples", type=int, default=None)
     return parser
 
@@ -104,13 +110,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
         finetune_ner(
             NERFinetuneConfig(
-                base_model=args.base_model,
                 train_data=args.train_data,
                 output_dir=args.output_dir,
+                base_model=args.base_model,
                 eval_data=args.eval_data,
                 epochs=args.epochs,
-                learning_rate=args.learning_rate,
                 batch_size=args.batch_size,
+                encoder_lr=args.encoder_lr,
+                task_lr=args.task_lr,
+                use_lora=not args.no_lora,
+                lora_r=args.lora_r,
+                lora_alpha=args.lora_alpha,
+                fp16=not args.fp32,
+                schema_path=args.schema_path,
                 max_examples=args.max_examples,
             )
         )

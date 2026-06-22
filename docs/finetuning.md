@@ -72,23 +72,33 @@ trialmatchai-finetune reranker \
 
 Then set `model.reranker_adapter_path: models/reranker-adapter`.
 
-### NER (GLiNER)
+### NER (GLiNER2)
 
-Data — JSONL, character spans (auto-converted to GLiNER token spans) or native:
+Uses the native GLiNER2 training stack (`GLiNER2Trainer`). GLiNER2 NER data maps
+entity-type labels to **surface forms**. Three input shapes are accepted:
 
 ```json
-{"text": "EGFR exon 19 deletion positive", "ner": [[0, 4, "gene"], [5, 21, "sign_symptom"]]}
-{"tokenized_text": ["EGFR", "positive"], "ner": [[0, 0, "gene"]]}
+{"text": "EGFR exon 19 deletion in NSCLC", "entities": {"gene": ["EGFR"], "disease": ["NSCLC"]}}
+{"text": "EGFR positive", "ner": [[0, 4, "gene"]]}
+{"input": "EGFR positive", "output": {"entities": {"gene": ["EGFR"]}}}
 ```
+
+`entity_descriptions` are back-filled from your entity schema (`--schema-path`)
+so the fine-tuned model shares the runtime label semantics.
 
 ```bash
 trialmatchai-finetune ner \
-  --base-model fastino/gliner2-base \
+  --base-model fastino/gliner2-base-v1 \
   --train-data data/finetune/ner.jsonl \
-  --output-dir models/ner --epochs 3
+  --output-dir models/ner \
+  --schema-path src/trialmatchai/entity_schemas/trialmatchai.yaml \
+  --epochs 10            # LoRA by default; add --no-lora for a full fine-tune
 ```
 
-Then set `entity_extraction.model_name: models/ner`.
+- LoRA run saves the adapter to `models/ner/final`; a full run saves
+  `models/ner/best`. Set `entity_extraction.model_name` to that path.
+- Encoder vs. task-head learning rates are tuned separately
+  (`--encoder-lr 1e-5 --task-lr 5e-4`, GLiNER2 defaults).
 
 ## Notes
 

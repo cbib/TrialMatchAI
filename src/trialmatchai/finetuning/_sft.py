@@ -19,7 +19,12 @@ def _load_train_deps():
     try:
         import torch
         from datasets import Dataset
-        from peft import LoraConfig, TaskType, get_peft_model
+        from peft import (
+            LoraConfig,
+            TaskType,
+            get_peft_model,
+            prepare_model_for_kbit_training,
+        )
         from transformers import (
             AutoModelForCausalLM,
             AutoTokenizer,
@@ -43,6 +48,7 @@ def _load_train_deps():
         "BitsAndBytesConfig": BitsAndBytesConfig,
         "DataCollatorForSeq2Seq": DataCollatorForSeq2Seq,
         "Trainer": Trainer,
+        "prepare_model_for_kbit_training": prepare_model_for_kbit_training,
     }
 
 
@@ -102,7 +108,14 @@ def run_sft(config: FinetuneConfig, message_lists: List[List[Dict[str, str]]]) -
         trust_remote_code=config.trust_remote_code,
         token=config.hf_token,
     )
-    model.config.use_cache = False
+    model.config.use_cache = False  # required with gradient checkpointing
+
+    if config.load_in_4bit:
+        # Freeze base weights, cast layer norms to fp32, enable gradient
+        # checkpointing — required for stable 4-bit (QLoRA) training.
+        model = deps["prepare_model_for_kbit_training"](
+            model, use_gradient_checkpointing=True
+        )
 
     peft_config = deps["LoraConfig"](
         task_type=deps["TaskType"].CAUSAL_LM,

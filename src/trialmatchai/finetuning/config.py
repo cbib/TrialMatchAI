@@ -74,4 +74,10 @@ class FinetuneConfig:
             seed=self.seed,
             report_to=[],
             ddp_find_unused_parameters=False,
+            # QLoRA memory/throughput best practices: gradient checkpointing and
+            # a paged optimizer keep large models on a single GPU.
+            gradient_checkpointing=True,
+            gradient_checkpointing_kwargs={"use_reentrant": False},
+            optim="paged_adamw_8bit" if self.load_in_4bit else "adamw_torch",
+            lr_scheduler_type="cosine",
         )

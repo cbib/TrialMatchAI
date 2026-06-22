@@ -7,15 +7,15 @@ Input formats (JSONL, one object per line):
 - CoT:      {"messages": [{"role","content"}, ...]}
             or {"instruction": str, "input": str, "output": str}
 - Reranker: {"patient_text": str, "criterion": str, "label": "Yes"|"No"}
-- NER:      {"text": str, "ner": [[start_char, end_char, "label"], ...]}
-            or GLiNER-native {"tokenized_text": [...], "ner": [[s_tok, e_tok, label]]}
+- NER (GLiNER2): {"text": str, "entities": {"label": ["surface form", ...]}}
+            or char-span {"text": str, "ner": [[start_char, end_char, "label"], ...]}
+            or native {"input": str, "output": {"entities": {...}, "entity_descriptions": {...}}}
 """
 
 from __future__ import annotations
 
 import json
-import re
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 def read_jsonl(path: str, max_examples: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -67,50 +67,44 @@ def reranker_row_to_messages(row: Dict[str, Any]) -> tuple[List[Dict[str, str]],
 
 # --------------------------------------------------------------------------- NER
 
-_WORD_RE = re.compile(r"\w+|[^\w\s]")
 
+def ner_row_to_entities(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize an NER row to GLiNER2's surface-form schema.
 
-def _tokenize_with_spans(text: str) -> tuple[List[str], List[tuple[int, int]]]:
-    tokens: List[str] = []
-    spans: List[tuple[int, int]] = []
-    for match in _WORD_RE.finditer(text):
-        tokens.append(match.group())
-        spans.append((match.start(), match.end()))
-    return tokens, spans
-
-
-def ner_row_to_gliner(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize an NER row to GLiNER's training format.
-
-    Accepts GLiNER-native rows unchanged; converts char-span rows by mapping
-    character offsets onto whitespace/punctuation tokens.
+    Returns ``{"text", "entities": {label: [surface forms]}, "entity_descriptions"}``.
+    Accepts the native GLiNER2 form, a simple ``entities`` mapping, or character
+    spans (which are sliced from the text into surface forms).
     """
-    if "tokenized_text" in row:
-        return {"tokenized_text": row["tokenized_text"], "ner": row.get("ner", [])}
+    # Native GLiNER2 JSONL: {"input": ..., "output": {"entities": ..., ...}}
+    if "input" in row and "output" in row:
+        output = row.get("output") or {}
+        return {
+            "text": str(row["input"]),
+            "entities": dict(output.get("entities") or {}),
+            "entity_descriptions": output.get("entity_descriptions"),
+        }
 
     text = str(row.get("text", ""))
-    raw_spans = row.get("ner")
-    if raw_spans is None:
-        raw_spans = [
-            [ent["start"], ent["end"], ent["label"]] for ent in row.get("entities", [])
-        ]
 
-    tokens, spans = _tokenize_with_spans(text)
-    ner: List[List[Any]] = []
-    for start_char, end_char, label in raw_spans:
-        start_tok = next(
-            (i for i, (s, e) in enumerate(spans) if s <= start_char < e), None
-        )
-        end_tok = next(
-            (i for i, (s, e) in enumerate(spans) if s < end_char <= e), None
-        )
-        if start_tok is not None and end_tok is not None and end_tok >= start_tok:
-            ner.append([start_tok, end_tok, label])
-    return {"tokenized_text": tokens, "ner": ner}
+    # Already a {label: [forms]} mapping.
+    if isinstance(row.get("entities"), dict):
+        return {
+            "text": text,
+            "entities": {k: list(v) for k, v in row["entities"].items()},
+            "entity_descriptions": row.get("entity_descriptions"),
+        }
 
-
-def iter_gliner_examples(
-    path: str, max_examples: Optional[int] = None
-) -> Iterator[Dict[str, Any]]:
-    for row in read_jsonl(path, max_examples):
-        yield ner_row_to_gliner(row)
+    # Character spans -> surface forms grouped by label.
+    entities: Dict[str, List[str]] = {}
+    for span in row.get("ner") or []:
+        start_char, end_char, label = span[0], span[1], span[2]
+        surface = text[start_char:end_char].strip()
+        if surface:
+            entities.setdefault(label, [])
+            if surface not in entities[label]:
+                entities[label].append(surface)
+    return {
+        "text": text,
+        "entities": entities,
+        "entity_descriptions": row.get("entity_descriptions"),
+    }

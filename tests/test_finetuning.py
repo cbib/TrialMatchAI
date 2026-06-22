@@ -10,7 +10,7 @@ from trialmatchai.finetuning.cli import build_parser
 from trialmatchai.finetuning.config import FinetuneConfig
 from trialmatchai.finetuning.data import (
     cot_row_to_messages,
-    ner_row_to_gliner,
+    ner_row_to_entities,
     read_jsonl,
     reranker_row_to_messages,
 )
@@ -37,17 +37,27 @@ def test_reranker_row_messages_and_label():
     assert any("Statement B: C" in m["content"] for m in messages)
 
 
-def test_ner_char_spans_convert_to_token_indices():
-    gliner = ner_row_to_gliner(
-        {"text": "EGFR mutation positive", "ner": [[0, 4, "gene"]]}
+def test_ner_char_spans_convert_to_surface_forms():
+    out = ner_row_to_entities(
+        {"text": "EGFR mutation in NSCLC", "ner": [[0, 4, "gene"], [17, 22, "disease"]]}
     )
-    assert gliner["tokenized_text"][0] == "EGFR"
-    assert gliner["ner"] == [[0, 0, "gene"]]
+    assert out["text"] == "EGFR mutation in NSCLC"
+    assert out["entities"] == {"gene": ["EGFR"], "disease": ["NSCLC"]}
 
 
-def test_ner_native_format_passthrough():
-    row = {"tokenized_text": ["A", "B"], "ner": [[0, 1, "x"]]}
-    assert ner_row_to_gliner(row) == row
+def test_ner_entities_mapping_passthrough():
+    out = ner_row_to_entities(
+        {"text": "EGFR positive", "entities": {"gene": ["EGFR"]}}
+    )
+    assert out["entities"] == {"gene": ["EGFR"]}
+
+
+def test_ner_native_gliner2_format():
+    out = ner_row_to_entities(
+        {"input": "EGFR positive", "output": {"entities": {"gene": ["EGFR"]}}}
+    )
+    assert out["text"] == "EGFR positive"
+    assert out["entities"] == {"gene": ["EGFR"]}
 
 
 def test_read_jsonl_respects_max(tmp_path):

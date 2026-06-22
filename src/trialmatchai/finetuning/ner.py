@@ -1,15 +1,23 @@
-"""Fine-tune the biomedical NER model (GLiNER).
+"""Fine-tune the biomedical NER model (GLiNER2).
 
-Produces a GLiNER checkpoint that plugs into the pipeline via
-``entity_extraction.model_name`` (and backend "gliner"/"gliner2").
+Uses the native GLiNER2 training stack (GLiNER2Trainer / TrainingConfig /
+InputExample). Produces either a full checkpoint (``<output_dir>/best``) or a
+LoRA adapter (``<output_dir>/final``) that plugs into the pipeline via
+``entity_extraction.model_name`` with backend "gliner2".
+
+GLiNER2 NER data maps entity-type labels to surface forms, e.g.
+``{"text": "...", "entities": {"gene": ["EGFR"], "disease": ["NSCLC"]}}``.
+Character-span rows (``{"text", "ner": [[start, end, "label"]]}``) are converted
+automatically. ``entity_descriptions`` is back-filled from the entity schema so
+the fine-tuned model uses the same label semantics as inference.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import Dict, Optional
 
-from trialmatchai.finetuning.data import iter_gliner_examples
+from trialmatchai.finetuning.data import ner_row_to_entities, read_jsonl
 from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
@@ -17,74 +25,131 @@ logger = setup_logging(__name__)
 
 @dataclass
 class NERFinetuneConfig:
-    base_model: str
     train_data: str
     output_dir: str
+    base_model: str = "fastino/gliner2-base-v1"
     eval_data: Optional[str] = None
-    epochs: float = 3.0
-    learning_rate: float = 5e-6
+    epochs: float = 10.0
     batch_size: int = 8
-    weight_decay: float = 0.01
+    encoder_lr: float = 1e-5
+    task_lr: float = 5e-4
     warmup_ratio: float = 0.1
+    use_lora: bool = True
+    lora_r: int = 8
+    lora_alpha: float = 16.0
+    fp16: bool = True
     max_examples: Optional[int] = None
-    labels: List[str] = field(default_factory=list)
+    schema_path: Optional[str] = None
     seed: int = 42
 
 
-def finetune_ner(config: NERFinetuneConfig) -> str:
-    """Fine-tune a GLiNER model on span-annotated data and save it."""
+def _schema_descriptions(schema_path: Optional[str]) -> Dict[str, str]:
+    """Map entity-group label -> description from the entity schema, if available."""
     try:
-        from gliner import GLiNER
-        from gliner.data_processing.collator import DataCollator
-        from gliner.training import Trainer, TrainingArguments
+        from trialmatchai.entities.schemas import load_entity_schemas
+
+        schemas = load_entity_schemas(schema_path)
+    except Exception:  # pragma: no cover - schema optional during training
+        return {}
+    descriptions: Dict[str, str] = {}
+    for schema in schemas:
+        if schema.description:
+            descriptions[schema.entity_group] = schema.description
+            descriptions[schema.label] = schema.description
+    return descriptions
+
+
+def _build_examples(config: "NERFinetuneConfig", path: str, descriptions: Dict[str, str]):
+    from gliner2.training.data import InputExample
+
+    examples = []
+    for row in read_jsonl(path, config.max_examples):
+        normalized = ner_row_to_entities(row)
+        entities = normalized["entities"]
+        if not entities:
+            continue
+        descs = dict(normalized.get("entity_descriptions") or {})
+        for label in entities:
+            if label not in descs and label in descriptions:
+                descs[label] = descriptions[label]
+        examples.append(
+            InputExample(
+                text=normalized["text"],
+                entities=entities,
+                entity_descriptions=descs or None,
+            )
+        )
+    return examples
+
+
+def finetune_ner(config: NERFinetuneConfig) -> str:
+    try:
+        from gliner2 import GLiNER2
+        from gliner2.training.data import TrainingDataset
+        from gliner2.training.trainer import GLiNER2Trainer, TrainingConfig
     except Exception as exc:  # pragma: no cover - exercised only without the extra
         raise RuntimeError(
-            "GLiNER fine-tuning requires the optional `finetune` dependencies "
-            "(`uv sync --extra finetune`). If your installed gliner exposes a "
-            "different training API, adapt finetuning/ner.py to it."
+            "GLiNER2 fine-tuning requires the optional `finetune` dependencies "
+            "(`uv sync --extra finetune`)."
         ) from exc
 
-    data = list(iter_gliner_examples(config.train_data, config.max_examples))
-    if not data:
+    descriptions = _schema_descriptions(config.schema_path)
+    train_examples = _build_examples(config, config.train_data, descriptions)
+    if not train_examples:
         raise ValueError("No training examples provided.")
-    eval_data = (
-        list(iter_gliner_examples(config.eval_data)) if config.eval_data else None
-    )
 
-    model = GLiNER.from_pretrained(config.base_model)
-    model.set_sampling_params(
-        max_types=25, shuffle_types=True, random_drop=True, max_neg_type_ratio=1
-    )
+    train_dataset = TrainingDataset(train_examples)
+    train_dataset.validate(strict=False, raise_on_error=False)
+    train_dataset.print_stats()
 
-    collator = DataCollator(
-        model.config, data_processor=model.data_processor, prepare_labels=True
-    )
+    if config.eval_data:
+        train_data: object = train_dataset
+        val_data: object = TrainingDataset(
+            _build_examples(config, config.eval_data, descriptions)
+        )
+    else:
+        train_data, val_data, _ = train_dataset.split(
+            train_ratio=0.9, val_ratio=0.1, test_ratio=0.0, shuffle=True, seed=config.seed
+        )
 
-    args = TrainingArguments(
+    training_config = TrainingConfig(
         output_dir=config.output_dir,
-        num_train_epochs=config.epochs,
-        learning_rate=config.learning_rate,
-        per_device_train_batch_size=config.batch_size,
-        per_device_eval_batch_size=config.batch_size,
-        weight_decay=config.weight_decay,
+        experiment_name="trialmatchai_ner",
+        num_epochs=config.epochs,
+        batch_size=config.batch_size,
+        encoder_lr=config.encoder_lr,
+        task_lr=config.task_lr,
         warmup_ratio=config.warmup_ratio,
-        seed=config.seed,
-        report_to=[],
-        evaluation_strategy="epoch" if eval_data else "no",
-        save_strategy="epoch",
+        scheduler_type="cosine",
+        fp16=config.fp16,
+        eval_strategy="epoch",
+        save_best=True,
+        early_stopping=True,
+        early_stopping_patience=3,
+        use_lora=config.use_lora,
+        lora_r=config.lora_r,
+        lora_alpha=config.lora_alpha,
+        lora_target_modules=["encoder"],
+        save_adapter_only=config.use_lora,
     )
 
-    trainer = Trainer(
-        model=model,
-        args=args,
-        train_dataset=data,
-        eval_dataset=eval_data,
-        data_collator=collator,
-        tokenizer=model.data_processor.transformer_tokenizer,
-    )
+    model = GLiNER2.from_pretrained(config.base_model)
+    trainer = GLiNER2Trainer(model, training_config)
+    logger.info("Starting GLiNER2 fine-tuning on %d examples...", len(train_examples))
+    trainer.train(train_data=train_data, val_data=val_data)
 
-    logger.info("Starting GLiNER fine-tuning on %d examples...", len(data))
-    trainer.train()
-    model.save_pretrained(config.output_dir)
-    logger.info("Saved fine-tuned GLiNER model to %s", config.output_dir)
-    return config.output_dir
+    result_dir = (
+        f"{config.output_dir.rstrip('/')}/final"
+        if config.use_lora
+        else f"{config.output_dir.rstrip('/')}/best"
+    )
+    logger.info(
+        "Saved %s to %s. Set entity_extraction.model_name to this path "
+        "(LoRA adapters load via GLiNER2.load_adapter).",
+        "LoRA adapter" if config.use_lora else "fine-tuned model",
+        result_dir,
+    )
+    return result_dir
+
+
+__all__ = ["NERFinetuneConfig", "finetune_ner"]
