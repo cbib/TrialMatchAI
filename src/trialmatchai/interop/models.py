@@ -50,6 +50,16 @@ class Demographics(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class Location(BaseModel):
+    """A patient's geographic location, used for optional site-based filtering."""
+
+    country: str | None = None
+    state: str | None = None
+    city: str | None = None
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ClinicalFact(BaseModel):
     fact_id: str
     category: str
@@ -103,6 +113,7 @@ class SourceDocument(BaseModel):
 class PatientProfile(BaseModel):
     patient_id: str
     demographics: Demographics = Field(default_factory=Demographics)
+    location: Location | None = None
     conditions: list[ClinicalFact] = Field(default_factory=list)
     phenotypes: list[ClinicalFact] = Field(default_factory=list)
     observations: list[ClinicalFact] = Field(default_factory=list)

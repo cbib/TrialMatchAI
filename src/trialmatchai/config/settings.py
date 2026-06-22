@@ -128,7 +128,8 @@ class FirstLevelSearchSettings(BaseModel):
     llm_expansion_enabled: bool = False
     llm_max_terms: int = Field(12, ge=0)
     write_reports: bool = True
-    hard_filters: list[Literal["age", "sex", "overall_status"]] = Field(
+    # "location" is opt-in (country-level, site-aware); not in the default set.
+    hard_filters: list[Literal["age", "sex", "overall_status", "location"]] = Field(
         default_factory=lambda: ["age", "sex", "overall_status"]
     )
 

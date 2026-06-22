@@ -16,6 +16,10 @@ from trialmatchai.matching.trial_ranker import (
 )
 from trialmatchai.matching.retrieval.trial_retrieval import ClinicalTrialSearch
 from trialmatchai.matching.retrieval.criteria_retrieval import SecondStageRetriever
+from trialmatchai.matching.retrieval.location import (
+    filter_trials_by_country,
+    patient_country,
+)
 from trialmatchai.search import LanceDBSearchBackend
 from trialmatchai.services.preflight import run_preflight_checks
 from trialmatchai.interop.exporters import profile_to_matching_summary
@@ -136,6 +140,22 @@ def run_first_level_search(
             vector_score_threshold=search_cfg["vector_score_threshold"],
             search_mode=search_cfg.get("mode", "hybrid"),
         )
+
+    # Optional geographic hard filter (country-level, site-aware, opt-in via
+    # search.first_level.hard_filters). Recall-safe: only drops trials whose
+    # known sites exclude the patient's country.
+    hard_filters = first_level_cfg.get("hard_filters") or ["age", "sex", "overall_status"]
+    if "location" in hard_filters and patient_profile is not None:
+        country = patient_country(patient_profile)
+        if country:
+            before = len(trials)
+            trials, scores = filter_trials_by_country(trials, scores, country)
+            logger.info(
+                "Location filter (country=%s): %d -> %d trials.",
+                country,
+                before,
+                len(trials),
+            )
 
     nct_ids = [trial.get("nct_id") for trial in trials if trial.get("nct_id")]
     first_level_scores = {

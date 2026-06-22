@@ -226,9 +226,13 @@ terms, patient narrative text, biomarkers, prior therapy or procedures, and
 optional LLM-generated expansions. LLM expansion is off by default; deterministic
 concept and patient-profile expansion are the default path.
 
-The first level only hard-filters by age, sex/gender, and recruitment status.
-Location, biomarkers, phase, prior therapy, and eligibility constraints remain
-soft signals for later retrieval and reasoning stages.
+By default the first level hard-filters by age, sex/gender, and recruitment
+status (`search.first_level.hard_filters`). Geographic **location** is an opt-in
+hard filter: add `"location"` to `hard_filters` to keep only trials with a
+recruiting site in the patient's country (country-level, site-aware, and
+recall-safe — trials with unknown site countries are never dropped; patient
+location is populated by the FHIR importer). Biomarkers, phase, prior therapy,
+and eligibility constraints remain soft signals for later stages.
 
 When enabled, first-level artifacts are written under `results/<patient_id>/`:
 

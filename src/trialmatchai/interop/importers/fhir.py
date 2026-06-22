@@ -4,7 +4,13 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from trialmatchai.interop.models import Demographics, PatientProfile, Provenance, SourceDocument
+from trialmatchai.interop.models import (
+    Demographics,
+    Location,
+    PatientProfile,
+    Provenance,
+    SourceDocument,
+)
 from trialmatchai.interop.utils import (
     age_years_from_birth_date,
     clean_text,
@@ -96,8 +102,26 @@ def _profile_from_patient(
             birth_date=birth_date,
             age_years=age_years_from_birth_date(birth_date),
         ),
+        location=_patient_location(patient.get("address")),
         provenance=[provenance],
     )
+
+
+def _patient_location(address: Any) -> Location | None:
+    """Extract a coarse location from a FHIR Patient.address list (first entry)."""
+    if isinstance(address, dict):
+        address = [address]
+    if not isinstance(address, list):
+        return None
+    for entry in address:
+        if not isinstance(entry, dict):
+            continue
+        country = (entry.get("country") or "").strip() or None
+        state = (entry.get("state") or "").strip() or None
+        city = (entry.get("city") or "").strip() or None
+        if country or state or city:
+            return Location(country=country, state=state, city=city)
+    return None
 
 
 def _load_json_resources(path: Path) -> list[dict[str, Any]]:
