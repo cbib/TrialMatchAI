@@ -96,7 +96,6 @@
     "max_trials_second_level": 100
   },
   "use_cot_reasoning": true,
-  "cot_backend": "vllm",
   "rag": {
     "batch_size": 4,
     "max_trials_rag": 20

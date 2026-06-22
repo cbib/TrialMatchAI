@@ -111,9 +111,8 @@ jobs:
           modules = [
               "trialmatchai.entities.recognizers",
               "trialmatchai.models.embedding.text_embedder",
-              "trialmatchai.models.llm.llm_loader",
               "trialmatchai.models.llm.llm_reranker",
-              "trialmatchai.matching.eligibility_reasoning",
+              "trialmatchai.models.llm.vllm_loader",
               "trialmatchai.matching.eligibility_reasoning_vllm",
               "trialmatchai.finetuning.cot",
               "trialmatchai.finetuning.reranker",

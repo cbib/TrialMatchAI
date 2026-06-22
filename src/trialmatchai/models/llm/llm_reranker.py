@@ -1,15 +1,8 @@
+import math
 import re
 import unicodedata
 from typing import Any, Dict, List, Optional
 
-from trialmatchai.models.llm._common import (
-    build_4bit_quant_config,
-    configure_decoder_tokenizer,
-    load_llm_dependencies,
-    resolve_cuda_device,
-    select_attn_impl,
-    select_compute_dtype,
-)
 from trialmatchai.utils.logging_config import setup_logging
 from tqdm import tqdm
 
@@ -17,87 +10,71 @@ logger = setup_logging(__name__)
 
 
 class LLMReranker:
+    """vLLM-backed pointwise reranker.
+
+    Scores each (patient, criterion) pair by the model's probability of emitting
+    "Yes" vs "No" as the next token. Generation is constrained to those two
+    tokens and their logprobs are read back, so the score is a calibrated
+    relevance probability. A fine-tuned LoRA adapter is served via vLLM's
+    LoRARequest (the only LLM backend in TrialMatchAI).
+    """
+
     def __init__(
         self,
         model_path: str,
         adapter_path: Optional[str] = None,
-        device: Any = 0,
+        device: Any = 0,  # accepted for API compatibility; vLLM manages devices
         torch_dtype: Any | None = None,
         batch_size: int = 8,
         revision: Optional[str] = None,
         trust_remote_code: bool = False,
+        gpu_memory_utilization: float = 0.4,
+        max_model_len: int = 4096,
+        max_lora_rank: int = 32,
+        dtype: str = "auto",
     ):
-        self._deps = load_llm_dependencies()
-        self._torch = self._deps.torch
-        self._torch_functional = self._deps.torch_functional
-        self.model_path = model_path
-        self.adapter_path = adapter_path
+        from vllm import LLM, SamplingParams  # type: ignore
+
+        try:
+            from vllm.lora.request import LoRARequest  # type: ignore
+        except ImportError:  # pragma: no cover - older vLLM
+            LoRARequest = None  # type: ignore
+
         self.batch_size = batch_size
-        self.revision = revision
-        self.trust_remote_code = trust_remote_code
-
-        # Validate/select the GPU once (handles int or "auto"); pins the device so
-        # device_map below is consistent with where inputs are moved.
-        self.device_str, self._cuda_index = resolve_cuda_device(
-            self._torch, device, label="LLMReranker"
-        )
-        use_cuda = self._cuda_index is not None
-        self.torch_dtype = torch_dtype or select_compute_dtype(self._torch, use_cuda)
-
-        self.tokenizer = self._deps.auto_tokenizer.from_pretrained(
-            self.model_path,
-            revision=self.revision,
-            trust_remote_code=self.trust_remote_code,
-        )
-        # Left padding is required: process_batch reads logits[:, -1, :], which
-        # must be the last real token, not a right-pad position.
-        configure_decoder_tokenizer(self.tokenizer)
-        self._initialize_token_ids()
-        self.model = self.load_model()
-
-    def _initialize_token_ids(self):
-        responses = ["Yes", "No"]
-        token_ids = [
-            self.tokenizer(response, add_special_tokens=False)["input_ids"]
-            for response in responses
-        ]
-        self.applicable_token_id, self.not_applicable_token_id = [
-            ids[0] for ids in token_ids
-        ]
-
-    def load_model(self):
-        use_cuda = self._cuda_index is not None
-        quant_config = (
-            build_4bit_quant_config(
-                self._deps.bnb_config,
-                load_in_4bit=True,
-                double_quant=True,
-                quant_type="nf4",
-                compute_dtype=self.torch_dtype,
+        enable_lora = bool(adapter_path) and LoRARequest is not None
+        if adapter_path and not enable_lora:
+            logger.warning(
+                "Reranker adapter requested but LoRA is unavailable in this vLLM "
+                "build; using the base model."
             )
-            if use_cuda
-            else None
-        )
-        model = self._deps.auto_model.from_pretrained(
-            self.model_path,
-            revision=self.revision,
-            torch_dtype=self.torch_dtype if use_cuda else self._torch.float32,
-            quantization_config=quant_config,
-            # Pin to the selected GPU (not "auto"): inputs are moved to
-            # self.device_str, so the model's first layer must live there too.
-            device_map=self.device_str if use_cuda else None,
-            attn_implementation=select_attn_impl(self._torch, self._cuda_index),
-            trust_remote_code=self.trust_remote_code,
-        )
-        if self.adapter_path:
-            model = self._deps.peft_model.from_pretrained(model, self.adapter_path)
-        model.eval()
-        return model
 
-    def preprocess_text(self, text: str) -> str:
-        text = unicodedata.normalize("NFKD", text)
-        text = re.sub(r"\s+", " ", text)
-        return text.strip()
+        self.llm = LLM(
+            model=str(model_path),
+            revision=revision,
+            trust_remote_code=trust_remote_code,
+            enable_lora=enable_lora,
+            max_lora_rank=max_lora_rank if enable_lora else 16,
+            gpu_memory_utilization=gpu_memory_utilization,
+            max_model_len=max_model_len,
+            dtype=dtype,
+        )
+        self.tokenizer = self.llm.get_tokenizer()
+        self.lora_request = (
+            LoRARequest("reranker_adapter", 1, str(adapter_path)) if enable_lora else None
+        )
+
+        self.applicable_token_id, self.not_applicable_token_id = self._yes_no_token_ids()
+        self.sampling_params = SamplingParams(
+            temperature=0.0,
+            max_tokens=1,
+            logprobs=20,
+            allowed_token_ids=[self.applicable_token_id, self.not_applicable_token_id],
+        )
+
+    def _yes_no_token_ids(self) -> tuple[int, int]:
+        yes = self.tokenizer("Yes", add_special_tokens=False)["input_ids"]
+        no = self.tokenizer("No", add_special_tokens=False)["input_ids"]
+        return yes[0], no[0]
 
     @staticmethod
     def create_messages(patient_text: str, trial_text: str) -> List[Dict]:
@@ -116,36 +93,49 @@ class LLMReranker:
             },
         ]
 
-    def process_batch(self, batch: List[tuple]) -> List[Dict]:
-        batch_prompts = []
-        for patient_text, trial_text in batch:
-            messages = self.create_messages(
-                self.preprocess_text(patient_text), self.preprocess_text(trial_text)
-            )
-            prompt = self.tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
-            batch_prompts.append(prompt)
-        inputs = self.tokenizer(batch_prompts, return_tensors="pt", padding=True)
-        inputs = {k: v.to(self.device_str) for k, v in inputs.items()}
-        with self._torch.no_grad():
-            outputs = self.model(**inputs)
-        logits = outputs.logits[:, -1, :]
-        probabilities = self._torch_functional.softmax(logits, dim=-1)
-        applicable_probs = probabilities[:, self.applicable_token_id].tolist()
-        return [
-            {"llm_score": prob, "answer": "Yes" if prob > 0.5 else "No"}
-            for prob in applicable_probs
-        ]
+    def preprocess_text(self, text: str) -> str:
+        text = unicodedata.normalize("NFKD", text)
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
+
+    def _build_prompt(self, patient_text: str, trial_text: str) -> str:
+        messages = self.create_messages(
+            self.preprocess_text(patient_text), self.preprocess_text(trial_text)
+        )
+        return self.tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+
+    def _yes_probability(self, output: Any) -> float:
+        try:
+            token_logprobs = output.outputs[0].logprobs[0]
+        except (AttributeError, IndexError, TypeError):
+            return 0.0
+        yes = token_logprobs.get(self.applicable_token_id)
+        no = token_logprobs.get(self.not_applicable_token_id)
+        yes_lp = yes.logprob if yes is not None else float("-inf")
+        no_lp = no.logprob if no is not None else float("-inf")
+        highest = max(yes_lp, no_lp)
+        if highest == float("-inf"):
+            return 0.0
+        ey = math.exp(yes_lp - highest)
+        en = math.exp(no_lp - highest)
+        return ey / (ey + en)
 
     def rank_pairs(self, patient_trial_pairs: List[tuple]) -> List[Dict]:
-        # Inference on a single device is serial regardless; iterate batches
-        # directly rather than behind a thread pool + lock that serialized anyway.
-        batches = [
-            patient_trial_pairs[i : i + self.batch_size]
-            for i in range(0, len(patient_trial_pairs), self.batch_size)
-        ]
         results: List[Dict] = []
-        for batch in tqdm(batches, desc="Reranking batches"):
-            results.extend(self.process_batch(batch))
+        for start in tqdm(
+            range(0, len(patient_trial_pairs), self.batch_size),
+            desc="Reranking batches",
+        ):
+            batch = patient_trial_pairs[start : start + self.batch_size]
+            prompts = [self._build_prompt(p, t) for p, t in batch]
+            outputs = self.llm.generate(
+                prompts, self.sampling_params, lora_request=self.lora_request
+            )
+            for output in outputs:
+                prob = self._yes_probability(output)
+                results.append(
+                    {"llm_score": prob, "answer": "Yes" if prob > 0.5 else "No"}
+                )
         return results

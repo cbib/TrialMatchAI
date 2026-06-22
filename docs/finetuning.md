@@ -22,11 +22,24 @@ uv sync --extra finetune
 Already have a checkpoint or adapter? Just point the config at it — no code
 changes needed.
 
-- **NER:** set `entity_extraction.model_name` to your GLiNER checkpoint (local
-  path or Hub id) and keep `backend: gliner2` (or `gliner`).
+- **NER:** set `entity_extraction.model_name` to your GLiNER2 checkpoint (local
+  path or Hub id), backend `gliner2`. LoRA NER adapters load via `GLiNER2.load_adapter`.
 - **Reranker:** set `model.reranker_adapter_path` to your LoRA adapter directory.
-- **CoT:** set `model.cot_adapter_path` to your LoRA adapter directory. The vLLM
-  backend loads it as a `LoRARequest`; the HuggingFace backend loads it with PEFT.
+- **CoT:** set `model.cot_adapter_path` to your LoRA adapter directory.
+
+The reranker and CoT both run on **vLLM (the only LLM backend)**, which serves
+the LoRA adapter natively via `LoRARequest` — no merge step required. If you
+prefer a single self-contained model instead of base + adapter, merge them:
+
+```bash
+trialmatchai-finetune merge \
+  --base-model google/gemma-2-2b-it \
+  --adapter models/reranker-adapter \
+  --output-dir models/reranker-merged
+```
+
+Then point the config at the merged directory (`reranker_model_path` /
+`cot model`) and leave the adapter path empty.
 
 ## 2. Fine-tuning
 

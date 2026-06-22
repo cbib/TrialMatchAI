@@ -84,26 +84,23 @@ def run_preflight_checks(
             model_cfg.get("reranker_adapter_path"),
             required=True,
         )
-        if config.get("cot_backend") == "vllm":
-            vllm_available = importlib.util.find_spec("vllm") is not None
-            if not vllm_available:
+        # vLLM is the only LLM backend (CoT + reranker), so it is always required
+        # when running models.
+        vllm_available = importlib.util.find_spec("vllm") is not None
+        if not vllm_available:
+            issues.append(
+                "vLLM is required (`uv sync --extra llm --extra gpu`)."
+            )
+        else:
+            try:
+                import torch
+            except Exception:
                 issues.append(
-                    "cot_backend=vllm requires the GPU extra "
-                    "(`uv sync --extra llm --extra gpu`)."
+                    "vLLM requires PyTorch (`uv sync --extra llm --extra gpu`)."
                 )
             else:
-                try:
-                    import torch
-                except Exception:
-                    issues.append(
-                        "cot_backend=vllm requires PyTorch "
-                        "(`uv sync --extra llm --extra gpu`)."
-                    )
-                else:
-                    if not torch.cuda.is_available():
-                        issues.append(
-                            "cot_backend=vllm requires a CUDA-capable runtime."
-                        )
+                if not torch.cuda.is_available():
+                    issues.append("vLLM requires a CUDA-capable runtime.")
 
     search_cfg = config.get("search_backend", {})
     if search_cfg:

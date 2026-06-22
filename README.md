@@ -32,8 +32,10 @@ CoT eligibility reasoning (per-criterion Met / Not Met / Violated …)
 Ranking ──► ranked trials + per-criterion explanations  (results/)
 ```
 
-Every model stage — **NER, reranker, and CoT** — is swappable and fine-tunable
-(see [Bring your own models](#bring-your-own-models)).
+The generative LLM stages — **reranker and CoT** — run on **vLLM** (the only LLM
+backend), which serves fine-tuned **LoRA adapters** natively. Every model stage —
+NER, reranker, and CoT — is swappable and fine-tunable (see
+[Bring your own models](#bring-your-own-models)).
 
 ## Requirements
 

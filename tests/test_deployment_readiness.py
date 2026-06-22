@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from trialmatchai.config.config_loader import load_config, resolve_config_path
-from trialmatchai.matching.eligibility_reasoning import BatchTrialProcessor
+from trialmatchai.matching.eligibility_base import BaseTrialProcessor
 from trialmatchai.utils.json_utils import extract_json_object
 
 
@@ -37,9 +37,9 @@ def test_config_env_overrides_and_search_tables(monkeypatch):
 
 
 def test_cot_prompt_does_not_inject_consent():
-    processor = BatchTrialProcessor.__new__(BatchTrialProcessor)
+    processor = BaseTrialProcessor.__new__(BaseTrialProcessor)
     processor.use_cot = True
-    processor.tokenizer = object()
+    processor.tokenizer = None
 
     prompt = processor._format_prompt("Age >= 18", "Patient has lung cancer.")
 

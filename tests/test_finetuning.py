@@ -74,6 +74,11 @@ def test_cli_parses_each_subcommand():
         )
         assert args.component == component
 
+    merge_args = parser.parse_args(
+        ["merge", "--base-model", "b", "--adapter", "a", "--output-dir", "o"]
+    )
+    assert merge_args.component == "merge" and merge_args.adapter == "a"
+
     with pytest.raises(SystemExit):
         parser.parse_args(["cot"])  # missing required args
 

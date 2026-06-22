@@ -36,7 +36,6 @@ def _base_config(tmp_path):
             "cot_adapter_path": str(tmp_path / "models" / "cot"),
             "reranker_adapter_path": str(tmp_path / "models" / "reranker"),
         },
-        "cot_backend": "default",
     }
 
 
@@ -104,17 +103,13 @@ def test_preflight_reports_missing_search_db_path(tmp_path):
 
 def test_preflight_reports_missing_vllm_extra(tmp_path, monkeypatch):
     cfg = _base_config(tmp_path)
-    cfg["cot_backend"] = "vllm"
     Path(cfg["model"]["cot_adapter_path"]).mkdir(parents=True)
     Path(cfg["model"]["reranker_adapter_path"]).mkdir(parents=True)
     monkeypatch.setattr(preflight.importlib.util, "find_spec", lambda name: None)
 
     issues = run_preflight_checks(cfg, require_models=True)
 
-    assert issues == [
-        "cot_backend=vllm requires the GPU extra "
-        "(`uv sync --extra llm --extra gpu`)."
-    ]
+    assert issues == ["vLLM is required (`uv sync --extra llm --extra gpu`)."]
 
 
 def test_preflight_reports_missing_entity_extra(tmp_path, monkeypatch):

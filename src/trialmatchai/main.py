@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from trialmatchai.config.config_loader import load_config
 from trialmatchai.entities import build_entity_annotator
-from trialmatchai.matching.eligibility_reasoning import BatchTrialProcessor
 from trialmatchai.matching.trial_ranker import (
     load_trial_data,
     rank_trials,
@@ -144,8 +143,6 @@ def run_rag_processing(
     output_folder: str,
     top_trials_file: str,
     patient_info: Dict,
-    model,
-    tokenizer,
     config: Dict,
 ):
     top_trials = read_text_file(top_trials_file)
@@ -159,52 +156,28 @@ def run_rag_processing(
         logger.error("No patient profile available for RAG processing.")
         return
 
-    # Check if vLLM backend is configured
-    cot_backend = config.get("cot_backend", "default")
-    use_vllm = cot_backend == "vllm"
+    # vLLM is the only LLM backend. A configured cot_adapter_path is served as a
+    # LoRA adapter (LoRARequest) by the engine loader.
+    from trialmatchai.matching.eligibility_reasoning_vllm import BatchTrialProcessorVLLM
+    from trialmatchai.models.llm.vllm_loader import load_vllm_engine
 
-    if use_vllm:
-        logger.info("Using vLLM backend for CoT reasoning")
-        from trialmatchai.matching.eligibility_reasoning_vllm import (
-            BatchTrialProcessorVLLM,
-        )
-        from trialmatchai.models.llm.vllm_loader import load_vllm_engine
-
-        # Load vLLM configuration
-        vllm_cfg = config.get("vllm", {})
-
-        # Load vLLM engine
-        vllm_engine, vllm_tokenizer, lora_request = load_vllm_engine(
-            model_config=config.get("model", {}),
-            vllm_cfg=vllm_cfg,
-        )
-
-        # Create vLLM processor
-        rag_processor = BatchTrialProcessorVLLM(
-            llm=vllm_engine,  # type: ignore
-            tokenizer=vllm_tokenizer,
-            batch_size=vllm_cfg.get("batch_size", 16),
-            use_cot=config.get("use_cot_reasoning", True),
-            max_new_tokens=vllm_cfg.get("max_new_tokens", 5000),
-            temperature=vllm_cfg.get("temperature", 0.0),
-            top_p=vllm_cfg.get("top_p", 1.0),
-            seed=vllm_cfg.get("seed", 1234),
-            length_bucket=vllm_cfg.get("length_bucket", True),
-            lora_request=lora_request,
-        )
-    else:
-        logger.info("Using default (HuggingFace) backend for CoT reasoning")
-
-        batch_size = min(config["rag"]["batch_size"] * 2, 8)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-
-        rag_processor = BatchTrialProcessor(
-            model,
-            tokenizer,
-            device=config["global"]["device"],
-            batch_size=batch_size,
-        )
+    vllm_cfg = config.get("vllm", {})
+    vllm_engine, vllm_tokenizer, lora_request = load_vllm_engine(
+        model_config=config.get("model", {}),
+        vllm_cfg=vllm_cfg,
+    )
+    rag_processor = BatchTrialProcessorVLLM(
+        llm=vllm_engine,  # type: ignore
+        tokenizer=vllm_tokenizer,
+        batch_size=vllm_cfg.get("batch_size", 16),
+        use_cot=config.get("use_cot_reasoning", True),
+        max_new_tokens=vllm_cfg.get("max_new_tokens", 5000),
+        temperature=vllm_cfg.get("temperature", 0.0),
+        top_p=vllm_cfg.get("top_p", 1.0),
+        seed=vllm_cfg.get("seed", 1234),
+        length_bucket=vllm_cfg.get("length_bucket", True),
+        lora_request=lora_request,
+    )
 
     rag_processor.process_trials(
         nct_ids=top_trials,
@@ -256,7 +229,6 @@ def main_pipeline(config_path: str | None = None) -> int:
         return 1
 
     from trialmatchai.models.embedding import build_embedder
-    from trialmatchai.models.llm.llm_loader import load_model_and_tokenizer
     from trialmatchai.models.llm.llm_reranker import LLMReranker
 
     if torch.cuda.is_available():
@@ -266,27 +238,8 @@ def main_pipeline(config_path: str | None = None) -> int:
 
     import warnings
 
-    # The HuggingFace CoT model is only used by the default backend. When the
-    # vLLM backend is configured, run_rag_processing loads its own engine and
-    # ignores these, so skip loading (and half()-ing) the HF model entirely to
-    # avoid wasting GPU memory and load time (and risking OOM next to vLLM).
-    model, tokenizer = None, None
-    if config.get("cot_backend", "default") != "vllm":
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore", message=".*quantization_config.*", category=UserWarning
-            )
-            model, tokenizer = load_model_and_tokenizer(
-                config["model"], config["global"]["device"]
-            )
-
-        if tokenizer.pad_token is None:  # type: ignore
-            tokenizer.pad_token = tokenizer.eos_token  # type: ignore
-            if hasattr(model.config, "pad_token_id") and model.config.pad_token_id is None:  # type: ignore
-                model.config.pad_token_id = tokenizer.pad_token_id  # type: ignore
-
-        if config["global"]["device"] != "cpu" and torch.cuda.is_available():
-            model = model.half()  # type: ignore
+    # The CoT reasoning model is loaded lazily by run_rag_processing as a vLLM
+    # engine (the only LLM backend), so nothing to load here.
 
     # Initialize components
     embedder = build_embedder(config)
@@ -374,8 +327,6 @@ def main_pipeline(config_path: str | None = None) -> int:
                         str(output_folder),
                         top_trials_path,
                         patient_info,
-                        model,
-                        tokenizer,
                         config,
                     )
 

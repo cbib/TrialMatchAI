@@ -76,6 +76,14 @@ def build_parser() -> argparse.ArgumentParser:
     reranker = sub.add_parser("reranker", help="LoRA SFT for the reranker (Yes/No)")
     _add_common_lora_args(reranker)
 
+    merge = sub.add_parser(
+        "merge", help="Merge a LoRA adapter into its base model (standalone checkpoint)"
+    )
+    merge.add_argument("--base-model", required=True)
+    merge.add_argument("--adapter", required=True)
+    merge.add_argument("--output-dir", required=True)
+    merge.add_argument("--trust-remote-code", action="store_true")
+
     ner = sub.add_parser("ner", help="Fine-tune the GLiNER2 NER model")
     ner.add_argument("--base-model", default="fastino/gliner2-base-v1")
     ner.add_argument("--train-data", required=True)
@@ -105,6 +113,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         from trialmatchai.finetuning.reranker import finetune_reranker
 
         finetune_reranker(_lora_config_from_args(args))
+    elif args.component == "merge":
+        from trialmatchai.finetuning.merge import merge_adapter
+
+        merge_adapter(
+            base_model=args.base_model,
+            adapter_path=args.adapter,
+            output_dir=args.output_dir,
+            trust_remote_code=args.trust_remote_code,
+        )
     elif args.component == "ner":
         from trialmatchai.finetuning.ner import NERFinetuneConfig, finetune_ner
 

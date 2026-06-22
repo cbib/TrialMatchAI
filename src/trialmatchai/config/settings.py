@@ -165,16 +165,8 @@ class TrialMatchSettings(BaseModel):
     LLM_reranker: LLMRerankerSettings
     search: SearchSettings
     use_cot_reasoning: bool = True
-    cot_backend: str = "vllm"
     rag: RagSettings
     vllm: VllmSettings
-
-    @field_validator("cot_backend")
-    @classmethod
-    def validate_cot_backend(cls, value: str) -> str:
-        if value not in {"default", "vllm"}:
-            raise ValueError("cot_backend must be 'default' or 'vllm'")
-        return value
 
     def to_dict(self) -> Dict[str, Any]:
         return self.model_dump(by_alias=True)
@@ -216,7 +208,6 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
             "model",
             "reranker_adapter_path",
         ),
-        "TRIALMATCHAI_COT_BACKEND": ("cot_backend",),
         "TRIALMATCHAI_ENTITY_BACKEND": ("entity_extraction", "backend"),
         "TRIALMATCHAI_ENTITY_MODEL_NAME": ("entity_extraction", "model_name"),
         "TRIALMATCHAI_ENTITY_FALLBACK_MODEL_NAME": (
