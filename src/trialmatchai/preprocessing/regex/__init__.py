@@ -1,1 +1,0 @@
-"""Regex preprocessing resource package."""

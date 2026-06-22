@@ -159,7 +159,6 @@ def _trialmatchai_resource_path(path: Path) -> Path | None:
     if not relative.parts or relative.parts[0] not in {
         "config",
         "entity_schemas",
-        "preprocessing",
     }:
         return None
 

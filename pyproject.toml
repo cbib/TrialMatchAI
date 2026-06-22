@@ -78,8 +78,6 @@ where = ["src"]
 trialmatchai = [
   "config/*.json",
   "entity_schemas/*.yaml",
-  "preprocessing/regex/*.json",
-  "preprocessing/regex/*.tsv",
 ]
 
 [tool.uv]
