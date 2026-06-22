@@ -231,8 +231,8 @@ status (`search.first_level.hard_filters`). Geographic **location** is an opt-in
 hard filter: add `"location"` to `hard_filters` to keep only trials with a
 recruiting site in the patient's country (country-level, site-aware, and
 recall-safe — trials with unknown site countries are never dropped; patient
-location is populated by the FHIR importer). Biomarkers, phase, prior therapy,
-and eligibility constraints remain soft signals for later stages.
+location is populated by the FHIR and OMOP importers). Biomarkers, phase, prior
+therapy, and eligibility constraints remain soft signals for later stages.
 
 When enabled, first-level artifacts are written under `results/<patient_id>/`:
 

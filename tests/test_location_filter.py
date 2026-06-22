@@ -127,6 +127,25 @@ def test_location_filter_off_by_default_keeps_all_countries(tmp_path):
     assert {"N_US", "N_FR"} <= set(nct_ids)
 
 
+def test_omop_importer_extracts_patient_location(tmp_path):
+    import pandas as pd
+
+    omop = tmp_path / "omop"
+    omop.mkdir()
+    pd.DataFrame(
+        [{"person_id": 1, "gender_source_value": "M", "year_of_birth": 1975, "location_id": 10}]
+    ).to_csv(omop / "PERSON.csv", index=False)
+    pd.DataFrame(
+        [{"location_id": 10, "city": "Lyon", "country_source_value": "France"}]
+    ).to_csv(omop / "LOCATION.csv", index=False)
+
+    profiles = import_patient_path(omop)
+    assert len(profiles) == 1
+    assert profiles[0].location is not None
+    assert profiles[0].location.country == "France"
+    assert profiles[0].location.city == "Lyon"
+
+
 def test_fhir_importer_extracts_patient_location(tmp_path):
     path = tmp_path / "patient.json"
     path.write_text(

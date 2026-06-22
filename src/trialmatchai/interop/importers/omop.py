@@ -5,7 +5,14 @@ from typing import Any
 
 import pandas as pd
 
-from trialmatchai.interop.models import Demographics, NormalizedCode, PatientNote, PatientProfile, Provenance
+from trialmatchai.interop.models import (
+    Demographics,
+    Location,
+    NormalizedCode,
+    PatientNote,
+    PatientProfile,
+    Provenance,
+)
 from trialmatchai.interop.utils import (
     age_years_from_birth_date,
     clean_text,
@@ -25,6 +32,7 @@ def import_omop_extract(
     root = Path(path)
     tables = _load_tables(root)
     concepts = _concept_lookup(tables.get("concept"))
+    location_index = _location_index(tables.get("location"))
     person = tables.get("person")
     if person is None or person.empty:
         if strict:
@@ -68,6 +76,7 @@ def import_omop_extract(
                 birth_date=birth_date,
                 age_years=age_years_from_birth_date(birth_date),
             ),
+            location=_person_location(row, location_index, concepts),
             provenance=[provenance],
         )
         _add_condition_rows(profile, grouped["condition_occurrence"].get(person_key, []), concepts, root)
@@ -310,6 +319,47 @@ def _normalize_join_id(value: Any) -> str:
     if text.endswith(".0") and text[:-2].isdigit():
         return text[:-2]
     return text
+
+
+def _location_index(table: pd.DataFrame | None) -> dict[str, dict[str, Any]]:
+    if table is None or table.empty or "location_id" not in table.columns:
+        return {}
+    index: dict[str, dict[str, Any]] = {}
+    for record in table.to_dict("records"):
+        key = _normalize_join_id(record.get("location_id"))
+        if key:
+            index.setdefault(key, record)
+    return index
+
+
+def _person_location(
+    row: dict[str, Any],
+    location_index: dict[str, dict[str, Any]],
+    concepts: dict[Any, dict[str, Any]],
+) -> Location | None:
+    if not location_index:
+        return None
+    location_id = _normalize_join_id(row.get("location_id"))
+    if not location_id:
+        return None
+    loc = location_index.get(location_id)
+    if not loc:
+        return None
+
+    def field(name: str) -> str | None:
+        value = loc.get(name)
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return None
+        return clean_text(value) or None
+
+    country = field("country_source_value") or _concept_label(
+        loc.get("country_concept_id"), concepts
+    )
+    state = field("state")
+    city = field("city")
+    if not (country or state or city):
+        return None
+    return Location(country=country, state=state, city=city)
 
 
 def _group_by_person(table: pd.DataFrame | None) -> dict[str, list[dict[str, Any]]]:
