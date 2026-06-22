@@ -265,6 +265,69 @@ def test_omop_importer_from_csv_extract(tmp_path):
     assert profiles[0].conditions[0].normalized_codes[0].code == "44054006"
 
 
+def test_omop_join_survives_null_person_id_float_promotion(tmp_path):
+    # A NULL person_id in a child table promotes the whole column to float64, so
+    # person_id 1 serializes as "1.0". The join must still match the PERSON row
+    # (previously every child record was silently dropped).
+    omop = tmp_path / "omop"
+    omop.mkdir()
+    pd.DataFrame(
+        [{"person_id": 1, "gender_source_value": "F", "year_of_birth": 1980}]
+    ).to_csv(omop / "PERSON.csv", index=False)
+    pd.DataFrame(
+        [
+            {"person_id": 1, "condition_concept_id": 10},
+            {"person_id": None, "condition_concept_id": 11},
+        ]
+    ).to_csv(omop / "CONDITION_OCCURRENCE.csv", index=False)
+    pd.DataFrame(
+        [
+            {
+                "concept_id": 10,
+                "vocabulary_id": "SNOMED",
+                "concept_code": "44054006",
+                "concept_name": "Diabetes mellitus",
+                "domain_id": "Condition",
+            }
+        ]
+    ).to_csv(omop / "CONCEPT.csv", index=False)
+
+    profiles = import_patient_path(omop)
+
+    assert len(profiles) == 1
+    assert [c.label for c in profiles[0].conditions] == ["Diabetes mellitus"]
+
+
+def test_omop_join_uses_raw_person_id_not_sanitized_profile_id(tmp_path):
+    # The profile id is sanitized ("pat 01" -> "pat-01"), but child-table joins
+    # must key off the raw person_id, not the sanitized profile id.
+    omop = tmp_path / "omop"
+    omop.mkdir()
+    pd.DataFrame(
+        [{"person_id": "pat 01", "gender_source_value": "M", "year_of_birth": 1970}]
+    ).to_csv(omop / "PERSON.csv", index=False)
+    pd.DataFrame(
+        [{"person_id": "pat 01", "condition_concept_id": 10}]
+    ).to_csv(omop / "CONDITION_OCCURRENCE.csv", index=False)
+    pd.DataFrame(
+        [
+            {
+                "concept_id": 10,
+                "vocabulary_id": "SNOMED",
+                "concept_code": "44054006",
+                "concept_name": "Diabetes mellitus",
+                "domain_id": "Condition",
+            }
+        ]
+    ).to_csv(omop / "CONCEPT.csv", index=False)
+
+    profiles = import_patient_path(omop)
+
+    assert len(profiles) == 1
+    assert profiles[0].patient_id == "pat-01"
+    assert [c.label for c in profiles[0].conditions] == ["Diabetes mellitus"]
+
+
 def test_narrative_and_phenopacket_export_are_deterministic(tmp_path):
     packet = {
         "id": "patient-export",

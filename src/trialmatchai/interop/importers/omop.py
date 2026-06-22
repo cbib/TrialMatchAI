@@ -31,9 +31,27 @@ def import_omop_extract(
             raise ValueError(f"OMOP extract is missing PERSON table: {root}")
         return []
 
+    # Group each child table by normalized person_id ONCE, so each patient is an
+    # O(1) lookup instead of a full-table scan (no N+1), and the join is robust
+    # to float promotion from null person_id and to id sanitization.
+    grouped = {
+        name: _group_by_person(tables.get(name))
+        for name in (
+            "condition_occurrence",
+            "measurement",
+            "drug_exposure",
+            "procedure_occurrence",
+            "observation",
+            "note",
+            "note_nlp",
+        )
+    }
+
     profiles: list[PatientProfile] = []
-    for _, row in person.iterrows():
-        patient_id = safe_patient_id(row.get("person_id"), "omop-patient")
+    for row in person.to_dict("records"):
+        raw_person_id = row.get("person_id")
+        person_key = _normalize_join_id(raw_person_id)
+        patient_id = safe_patient_id(raw_person_id, "omop-patient")
         provenance = Provenance(
             source_format="omop",
             source_id=patient_id,
@@ -52,13 +70,13 @@ def import_omop_extract(
             ),
             provenance=[provenance],
         )
-        _add_condition_rows(profile, tables.get("condition_occurrence"), concepts, root)
-        _add_measurement_rows(profile, tables.get("measurement"), concepts, root)
-        _add_drug_rows(profile, tables.get("drug_exposure"), concepts, root)
-        _add_procedure_rows(profile, tables.get("procedure_occurrence"), concepts, root)
-        _add_observation_rows(profile, tables.get("observation"), concepts, root)
-        _add_note_rows(profile, tables.get("note"), root)
-        _add_note_nlp_rows(profile, tables.get("note_nlp"), concepts, root)
+        _add_condition_rows(profile, grouped["condition_occurrence"].get(person_key, []), concepts, root)
+        _add_measurement_rows(profile, grouped["measurement"].get(person_key, []), concepts, root)
+        _add_drug_rows(profile, grouped["drug_exposure"].get(person_key, []), concepts, root)
+        _add_procedure_rows(profile, grouped["procedure_occurrence"].get(person_key, []), concepts, root)
+        _add_observation_rows(profile, grouped["observation"].get(person_key, []), concepts, root)
+        _add_note_rows(profile, grouped["note"].get(person_key, []), root)
+        _add_note_nlp_rows(profile, grouped["note_nlp"].get(person_key, []), concepts, root)
         profiles.append(profile)
     return profiles
 
@@ -82,9 +100,9 @@ def _concept_lookup(table: pd.DataFrame | None) -> dict[Any, dict[str, Any]]:
     if table is None:
         return {}
     return {
-        row.get("concept_id"): row.to_dict()
-        for _, row in table.iterrows()
-        if row.get("concept_id") is not None
+        record.get("concept_id"): record
+        for record in table.to_dict("records")
+        if record.get("concept_id") is not None
     }
 
 
@@ -101,11 +119,11 @@ def _person_birth_date(row) -> Any:
 
 def _add_condition_rows(
     profile: PatientProfile,
-    table: pd.DataFrame | None,
+    rows: list[dict[str, Any]],
     concepts: dict[Any, dict[str, Any]],
     root: Path,
 ) -> None:
-    for row in _rows_for_patient(table, profile.patient_id, "person_id"):
+    for row in rows:
         code = _omop_code(row.get("condition_concept_id"), concepts)
         label = _concept_label(row.get("condition_concept_id"), concepts) or clean_text(
             row.get("condition_source_value")
@@ -124,11 +142,11 @@ def _add_condition_rows(
 
 def _add_measurement_rows(
     profile: PatientProfile,
-    table: pd.DataFrame | None,
+    rows: list[dict[str, Any]],
     concepts: dict[Any, dict[str, Any]],
     root: Path,
 ) -> None:
-    for row in _rows_for_patient(table, profile.patient_id, "person_id"):
+    for row in rows:
         code = _omop_code(row.get("measurement_concept_id"), concepts)
         label = _concept_label(row.get("measurement_concept_id"), concepts) or clean_text(
             row.get("measurement_source_value")
@@ -152,11 +170,11 @@ def _add_measurement_rows(
 
 def _add_drug_rows(
     profile: PatientProfile,
-    table: pd.DataFrame | None,
+    rows: list[dict[str, Any]],
     concepts: dict[Any, dict[str, Any]],
     root: Path,
 ) -> None:
-    for row in _rows_for_patient(table, profile.patient_id, "person_id"):
+    for row in rows:
         code = _omop_code(row.get("drug_concept_id"), concepts)
         label = _concept_label(row.get("drug_concept_id"), concepts) or clean_text(
             row.get("drug_source_value")
@@ -175,11 +193,11 @@ def _add_drug_rows(
 
 def _add_procedure_rows(
     profile: PatientProfile,
-    table: pd.DataFrame | None,
+    rows: list[dict[str, Any]],
     concepts: dict[Any, dict[str, Any]],
     root: Path,
 ) -> None:
-    for row in _rows_for_patient(table, profile.patient_id, "person_id"):
+    for row in rows:
         code = _omop_code(row.get("procedure_concept_id"), concepts)
         label = _concept_label(row.get("procedure_concept_id"), concepts) or clean_text(
             row.get("procedure_source_value")
@@ -198,11 +216,11 @@ def _add_procedure_rows(
 
 def _add_observation_rows(
     profile: PatientProfile,
-    table: pd.DataFrame | None,
+    rows: list[dict[str, Any]],
     concepts: dict[Any, dict[str, Any]],
     root: Path,
 ) -> None:
-    for row in _rows_for_patient(table, profile.patient_id, "person_id"):
+    for row in rows:
         code = _omop_code(row.get("observation_concept_id"), concepts)
         label = _concept_label(row.get("observation_concept_id"), concepts) or clean_text(
             row.get("observation_source_value")
@@ -221,10 +239,10 @@ def _add_observation_rows(
 
 def _add_note_rows(
     profile: PatientProfile,
-    table: pd.DataFrame | None,
+    rows: list[dict[str, Any]],
     root: Path,
 ) -> None:
-    for row in _rows_for_patient(table, profile.patient_id, "person_id"):
+    for row in rows:
         text = clean_text(row.get("note_text"))
         if not text:
             continue
@@ -241,11 +259,11 @@ def _add_note_rows(
 
 def _add_note_nlp_rows(
     profile: PatientProfile,
-    table: pd.DataFrame | None,
+    rows: list[dict[str, Any]],
     concepts: dict[Any, dict[str, Any]],
     root: Path,
 ) -> None:
-    for row in _rows_for_patient(table, profile.patient_id, "person_id"):
+    for row in rows:
         code = _omop_code(row.get("note_nlp_concept_id"), concepts)
         label = _concept_label(row.get("note_nlp_concept_id"), concepts) or clean_text(
             row.get("lexical_variant") or row.get("snippet")
@@ -268,15 +286,42 @@ def _add_note_nlp_rows(
         )
 
 
-def _rows_for_patient(
-    table: pd.DataFrame | None,
-    patient_id: str,
-    column: str,
-) -> list[dict[str, Any]]:
-    if table is None or table.empty or column not in table.columns:
-        return []
-    patient_rows = table[table[column].astype(str) == str(patient_id)]
-    return [row.to_dict() for _, row in patient_rows.iterrows()]
+def _normalize_join_id(value: Any) -> str:
+    """Canonicalize a person_id for joining across tables.
+
+    Robust to float promotion (a null in the column makes person_id 1 -> 1.0)
+    and to the raw-vs-string mismatch, so PERSON and child tables join on the
+    same key regardless of dtype.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        if pd.isna(value):
+            return ""
+        if value.is_integer():
+            return str(int(value))
+        return str(value)
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    if text.endswith(".0") and text[:-2].isdigit():
+        return text[:-2]
+    return text
+
+
+def _group_by_person(table: pd.DataFrame | None) -> dict[str, list[dict[str, Any]]]:
+    if table is None or table.empty or "person_id" not in table.columns:
+        return {}
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for record in table.to_dict("records"):
+        key = _normalize_join_id(record.get("person_id"))
+        if not key:
+            continue
+        grouped.setdefault(key, []).append(record)
+    return grouped
 
 
 def _row_provenance(root: Path, patient_id: str, table_name: str) -> Provenance:
