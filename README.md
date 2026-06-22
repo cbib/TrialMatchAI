@@ -172,8 +172,26 @@ uv run python scripts/scan_secrets.py
 uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
 ```
 
-## Support & citation
+## Citation
+
+If you use TrialMatchAI in your research, please cite our **Nature
+Communications** paper:
+
+> Abdallah, M. _et al._ TrialMatchAI. _Nature Communications_ (2026).
+> <https://www.nature.com/articles/s41467-026-70509-w>
+
+```bibtex
+@article{trialmatchai,
+  title   = {TrialMatchAI},
+  author  = {Abdallah, Majd and others},
+  journal = {Nature Communications},
+  year    = {2026},
+  doi     = {10.1038/s41467-026-70509-w},
+  url     = {https://www.nature.com/articles/s41467-026-70509-w}
+}
+```
+
+## Support
 
 - Email: abdallahmajd7@gmail.com
-- DOI: https://doi.org/10.5281/zenodo.18329084
-- arXiv: https://arxiv.org/abs/2505.08508
+- Software archive (DOI): <https://doi.org/10.5281/zenodo.18329084>
