@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import re
+from importlib import resources
 from typing import Any, Protocol, Sequence
 
 from trialmatchai.entities.schemas import schema_by_label
 from trialmatchai.entities.types import EntityAnnotation, EntitySchema, NO_ENTITY_ID
+from trialmatchai.utils.logging_config import setup_logging
+
+logger = setup_logging(__name__)
+
+VARIANT_PATTERNS_RESOURCE = ("trialmatchai.entities", "resources/variant_patterns.tsv")
 
 
 class EntityRecognizer(Protocol):
@@ -51,6 +57,93 @@ class RegexSchemaRecognizer:
                     )
             results.append(resolve_overlaps(annotations))
         return results
+
+
+def _load_variant_patterns() -> list[tuple[str, "re.Pattern[str]"]]:
+    """Load curated genetic-variant regexes (label, compiled pattern)."""
+    package, name = VARIANT_PATTERNS_RESOURCE
+    try:
+        raw = resources.files(package).joinpath(name).read_text(encoding="utf-8")
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        logger.warning("Variant pattern resource not found; variant detection off.")
+        return []
+    patterns: list[tuple[str, "re.Pattern[str]"]] = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        label = parts[0].strip() or "variant"
+        # The table stores patterns with doubled backslashes; collapse to one.
+        pattern_text = parts[-1].replace("\\\\", "\\")
+        try:
+            patterns.append((label, re.compile(pattern_text)))
+        except re.error as exc:
+            logger.warning("Skipping invalid variant pattern %r: %s", label, exc)
+    return patterns
+
+
+class RegexVariantRecognizer:
+    """Deterministic recognizer for genetic variants (HGVS mutations, fusions,
+    chromosome arms, ...) from a curated pattern table.
+
+    Runs alongside the model recognizer to capture precise biomedical strings —
+    e.g. ``c.1799T>A``, ``p.V600E``, ``EGFR fusion`` — that a generalist NER
+    model often misses or mangles. Emits high-confidence spans tagged with the
+    variant type as the entity group.
+    """
+
+    def __init__(self, patterns: list[tuple[str, "re.Pattern[str]"]] | None = None):
+        self._patterns = patterns if patterns is not None else _load_variant_patterns()
+
+    def recognize(
+        self, texts: Sequence[str], schemas: Sequence[EntitySchema]
+    ) -> list[list[EntityAnnotation]]:
+        results: list[list[EntityAnnotation]] = []
+        for text in texts:
+            annotations: list[EntityAnnotation] = []
+            for label, pattern in self._patterns:
+                for match in pattern.finditer(text):
+                    start, end = match.start(), match.end()
+                    if end <= start or not match.group(0).strip():
+                        continue  # skip zero-width / whitespace-only matches
+                    annotations.append(
+                        EntityAnnotation(
+                            entity_group=label,
+                            text=match.group(0).strip(),
+                            start=start,
+                            end=end,
+                            score=0.97,
+                            normalized_id=(NO_ENTITY_ID,),
+                            schema_id=None,
+                        )
+                    )
+            results.append(resolve_overlaps(annotations))
+        return results
+
+
+class CompositeRecognizer:
+    """Runs a primary recognizer plus augmenters and merges their annotations.
+
+    Overlaps are resolved by confidence then span length, so a high-precision
+    variant match wins over a lower-confidence model span covering the same text.
+    """
+
+    def __init__(self, primary: EntityRecognizer, *augmenters: EntityRecognizer):
+        self._recognizers = [primary, *augmenters]
+
+    def recognize(
+        self, texts: Sequence[str], schemas: Sequence[EntitySchema]
+    ) -> list[list[EntityAnnotation]]:
+        per_recognizer = [r.recognize(texts, schemas) for r in self._recognizers]
+        merged: list[list[EntityAnnotation]] = []
+        for i in range(len(texts)):
+            combined: list[EntityAnnotation] = []
+            for recognizer_results in per_recognizer:
+                combined.extend(recognizer_results[i])
+            merged.append(resolve_overlaps(combined))
+        return merged
 
 
 class GLiNER2Recognizer:
@@ -144,7 +237,7 @@ def build_recognizer(config: dict[str, Any]) -> EntityRecognizer:
     if backend == "regex":
         return RegexSchemaRecognizer()
     if backend == "gliner":
-        return GLiNERRecognizer(
+        recognizer: EntityRecognizer = GLiNERRecognizer(
             model_name=config.get("fallback_model_name")
             or config.get("model_name")
             or "urchade/gliner_base",
@@ -153,17 +246,26 @@ def build_recognizer(config: dict[str, Any]) -> EntityRecognizer:
             trust_remote_code=bool(config.get("trust_remote_code", False)),
             batch_size=int(config.get("batch_size", 8)),
         )
-    if backend == "gliner2":
-        return GLiNER2Recognizer(
+    elif backend == "gliner2":
+        recognizer = GLiNER2Recognizer(
             model_name=config.get("model_name", "fastino/gliner2-base"),
             revision=config.get("model_revision"),
             device=config.get("device", "auto"),
             trust_remote_code=bool(config.get("trust_remote_code", False)),
             batch_size=int(config.get("batch_size", 8)),
         )
-    raise ValueError(
-        "entity_extraction.backend must be one of: gliner2, gliner, regex, disabled."
-    )
+    else:
+        raise ValueError(
+            "entity_extraction.backend must be one of: gliner2, gliner, regex, disabled."
+        )
+
+    # Augment model NER with the deterministic variant recognizer (on by default)
+    # so precise HGVS/fusion strings are captured alongside model spans.
+    if bool(config.get("variant_regex", True)):
+        variants = _load_variant_patterns()
+        if variants:
+            return CompositeRecognizer(recognizer, RegexVariantRecognizer(variants))
+    return recognizer
 
 
 def resolve_overlaps(

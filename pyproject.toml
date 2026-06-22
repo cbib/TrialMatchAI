@@ -84,6 +84,7 @@ where = ["src"]
 trialmatchai = [
   "config/*.json",
   "entity_schemas/*.yaml",
+  "entities/resources/*.tsv",
 ]
 
 [tool.uv]

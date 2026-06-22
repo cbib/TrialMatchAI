@@ -1,0 +1,52 @@
+protein mutation	protein mutation	(|/|-|Braf|BRAF|Kras|KRAS)(((c\\.[1-9][0-9]{1,4}((-|\\+)[1-9]{1,})?(((del|ins)(A|T|C|G))|(A|C|T|G)>(A|C|T|G)))|((p\\.)?[A-Z][1-9][0-9]{0,3}([A-Z]|((_|-)[A-Z]?[1-9][0-9]{0,3}(delins|del|dup|ins)*[A-Z]{0,}))?)|(rs[0-9]{3,})|((((p\\.)?((NON|non|Non)(-| )?)?((Ala|Asx|Cys|Asp|Glu|Phe|Gly|His|Ile|Lys|Leu|Met|Asn|Pro|Gln|Arg|Ser|Thr|Sec|Val|Trp|Xaa|Tyr|Ter|Glx)|[A-Z])[1-9][0-9]{1,3}(del|dup|ins|=|(Ala|Asx|Cys|Asp|Glu|Phe|Gly|His|Ile|Lys|Leu|Met|Ter|Asn|Pro|Gln|Arg|Ser|Thr|Sec|Val|Trp|Xaa|Tyr|Glx)|[A-Z]){0,})(fs(\\*[0-9]{1,})?)?)))((-|/)[A-Z]([0-9]{1,3}([A-Z])?)?)?( |/|$))
+chromosome arm	chromosome arm	((chromosome ([0-9]{1,2}|X|Y)(q|p)?([1-9]{1,2})?(\\.[0-9]{1,})?)|((chromosome)?( ([1-9]{1}|(1[0-9]{1})|(2([0-2]){1})|X|Y)(q|p)([1-9]{1}[0-9]{0,1})? )))
+aberration	aberration	((((cytogenetic(al)?)|(chromosom(e|al)|genetic) )?(abnormalit(ies|y)|alteration(s)?|variant(s)?|aberrant|aberration(s)?))( of)?)
+demethylation	demethylation	demethylat(ed|es)|demethylation|hypomethylation|decreased methylation
+expression	expression	(((E|e)xpression( (S|s)tatus)?( of)?)|(((mRNA|RNA|(G|g)ene)? (E|e)xpress(ed|es|ion|ing))( status)?( of)?)|(m?RNA levels( of)?)|((((G|g)ene )?(E|e)xpression) level(s)?( of)?))
+frameshift	frameshift	(frame(-| )?shift(s)?( ((alteration|variant|mutation)(s)?))?( of )?)
+inframe deletion	inframe deletion	(in(-)?frame (deletion|insertion)(s)?( of)?)
+fusion	fusion	((((G|g)ene )?(F|f)usion(s)?( (G|g)ene)?)|(NTRK( (G|g)ene)?(( |-)((T|t)ranslocation(s)?|(F|f)usion(s)?))))
+exon	exon	(((E|e)xon)(s)?)( |-)[0-9]{1,}(( |-|( (or|and) ))[0-9]{1,})*
+gain of function	gain of function	(((gain(s)?(-| )of(-| )function)( (alteration|mutation|variant)s?)( of)?)|(( activating(( (gene|point))? (alteration|mutation|variant)s?)?)( of )?))
+cna	cna	((gene )?copy (number|aberration|alteration)( of )?)
+amplification	amplification	(- amplified|amplification|((gene )?amplifi(ed|cation)( of )?)|((chromosom(e|al) )?amplification(s)?( of )?)|((gene )?copy( number)? (gain(ed|s)?( of )?))|(increase(d|s)?)|(extra copy( of )?)|cn gain)
+deletion	deletion	-deleted|- deleted| del([0-9]{1,})? |gene deleted|gene-deleted|gene deletion( of )?|((chromosom(e|al) )?deletion(s)?( of )?)|(copy los(t|s|ses)(of )?)|([0-9]{1,}(p|q)(-| )del(etion))|copy number decrease(d)?|copy decrease|deleted|((homozygous|heterozygous)(ly)?( (deletion|eleted|loss|lost))( of)?)|cn loss
+germline amplification	germline amplification	germline amplification|germ-line amplification
+germline deletion	germline deletion	(inherited )?germ(-)?line deletion|(delet(ed|ion)|loss|lost) in germline
+germline loh	germline loh	(germ(-)?line (loh|(loss(-| )of(-| )heterozygosity)))
+germline mutation	germline mutation	((germ(-)?line( or somatic)?( mutation(s)?( (in |of |(status (of )?))?)))|((inherited )?germ(-)?line (variant(s)?|snv|alteration(s)?|mutation(s)?)))
+inactivation	inactivation	inactivat(ed|ion)|((gene|mutation(al)?) (inactivat(ion|ed)))|(inactivating (deletion(s)?|insertion(s)?|mutation(s)?))
+indel	indel	indel|indels|insertion or deletion
+insertion	insertion	insertion(s)?
+inhibitor	inhibitor	inhibitor(s)?|inhibition|inhibited|inhibit(s)?
+loss	loss	(loss( of)?( (both|either))?)
+knockdown	knockdown	knockdown
+loss of function	loss of function	((loss(-| )of(-| )function( (mutation|variant|substitution)(s)?))|(deactivating( point)? (alteration|variant|substitution|mutation)(s)?))
+loss of heterozygosity	loss of heterozygosity	loss of heterozygosity|loss-of-heterozygosity|LOH
+methylation	methylation	((un|non-)?methylat(ed|es))|methylation|hypermethylation|increased methylation
+mutation	mutation	(((missense|nonsense|(nonsynonymous( coding)?)|(protein(-| )coding)|point|coding|actionable|hotspot|acquired|de(-| )novo|driver|molecular(ly)?|(somatic( coding)?))( ((mutation|(alter(ed|ation))|variant|snv|(nucleotide )?substitution)(s)?)))|((mutation|variant|alteration)(s)? (of|in|within) the)|(gene (substitution(s)?|mutated|alteration(s)?|mutation(s)?))|( (-)?mutated)|(-mut )|(((gene|known) )?mutation(s)?((-| )(positive|negative|in |testing|((wild(-| )?type or muta(nt|ed))|(status( of )?)|of ))?))|((pathway )?muta(ted|nt)( or ((wt|(wild(-| )?type))))?))
+phosphorylation	phosphorylation	((un|non-)?phosphorylat(ed|ion|es))
+promoter demethylation	promoter demethylation	((promoter (de|hypo|non|un)(-)?methylat(ed|ion))|((de|hypo|un|non)(-)?methylat(ed|ion)( of( the)?)? promoter))
+promoter methylation	promoter methylation	((promoter (hyper)?methylat(ed|ion))|((hyper)?methylation of( the)? promoter))
+promoter mutation	promoter mutation	(promoter (alteration|variant|mutation)s?)
+protein expression	protein expression	((((p|P)rotein )(E|e)xpression( of )?)|((P|p)rotein (L|l)evel(s)?( of )?)|((I|i)mmunohistochemi(cal|stry)( ((S|s)taining|(S|s)tatus|(E|e)xpression|(A|a)ssay))?( of)?)|(IHC( |-)(((P|p)ositive)|((N|n)egative)))|(IHC( )?[0-9]\\+))
+protein overexpression	protein overexpression	protein over(-)?express(ed|ion|ing|es)
+protein underexpression	protein underexpression	protein under(-)?express(ed|ion|ing|es)
+overexpression	overexpression	((((mrna|rna) )?(non-)?over(-| )?express(ed|ion|ing|es)( of )?)|(transcriptional up(-)?regulation)|(elevated level(s)? of )|(up(-)?regulat(es|ion|ed))|((increased|increase in |up(-)?regulated|prominent(ly)?|high(ly|er)?) express(ed|ion)))
+underexpression	underexpression	((((mrna|rna) )?under(-| )?express(ed|ion|es|ing)( of )?)|(ihc loss)|silenced|(transcriptional down(-)?regulation( of )?)|(down(-)?regulat(es|ion|ed)( of )?)|(loss of expression( of )?)|((decreased|low(er)?|no|zero|down(-)?regulated) expression)|not expressed|(no expresssion( of )?))
+single nucleotide polymorphism	single nucleotide polymorphism	single nucleotide polymorphism|snp
+splice variant	splice variant	((splice ((mutation|variant)(s)?))|(splice site (alteration|mutation|substitution|variant)(s)?))
+structural variant	structural variant	(structural variant(s)?|((cytogenetic|gene|chromosom(e|al) )?rearrangement(s)?)|(large( |-)?scale (gene )?rearrangement(s)))
+synonymous mutation	synonymous mutation	((synonymous|silent)( coding)?( (mutation(s)?|substitution(s)?)))
+switch of function	switch of function	switch of function
+translocation	translocation	(gene )?translocat(ion|ing)(s)?
+truncation	truncation	(truncat(ed|ing|ion(s)?)( mutation(s)?)?)|truncated form
+wildtype	wildtype	((N|n)on-(A|a)mplified)|((N|n)onamplified)|((N|n)on(-| )?(D|d)eleted)|((W|w)ild(-| )?(T|t)ype)|((U|u)nmutated)|((N|n)on(-)?(M|m)utated)|( WT )|-(WT|wt)|(WILD( |-)?TYPE)
+codon	codon	((amino acid position [0-9]{1,})|( codon(s)? [0-9]{1,}((/[0-9]{1,})|(( or | and | et | |-)[0-9]{1,}))*))
+codon mutation	codon mutation	(mutation(s)? (in|of) codon(s)? [0-9]{1,}((/[0-9]{1,})|(( or | and | et | |-)[0-9]{1,}))*)
+exon mutation	exon mutation	((((met|c(-)?met) )?(exon(s)? [0-9]{1,} skipping))|(metex14)|(exon(s)? [0-9]{1,2}(( (or|and|et) |-| |/)[0-9]{1,2})* ((splice|skipping) )?(substitution|snp|variant|mutation|alteration)(s)?)|((splice )?(mutation|variant|substitution|snp|alteration)(s)?( (detected|occur(red)?))? (in|of)( [A-Z0-9]{3,8})? exon(s)? [0-9]{1,2}(( (or|and|to|et) |-| |/)[0-9]{1,2})*))
+exon deletion	exon deletion	((ex[1-9][0-9]{0,}del)|(exon(s)? [0-9]{1,2}(( (or|and|et) |-| |/)[0-9]{1,2})* del(etion(s)?)?)|(deletion(s)?( (detected|occur(red)?|found))? (in|of)( [A-Z0-9]{3,8})? exon(s)? [0-9]{1,2}(( (or|and|et) |-| |/)[0-9]{1,2})*)|(exon del-[0-9]{1,2})|(exon [0-9]{1,}-del))
+exon insertion	exon insertion	((ex[1-9][0-9]{0,}ins)|(exon(s)? [0-9]{1,2}(( (or|and|et) |-| |/)[0-9]{1,2})* insertion(s)?)|(insertion(s)?( (detected|occur(red)?|found))? (in|of) exon(s)? [0-9]{1,2}(( (or|and|et) |-| |/)[0-9]{1,2})*)|(exon ins-[0-9]{1,2})|(exon [0-9]{1,2}-ins))
+deficiency	deficiency	deficienc(y|ies)|deficancy
+rearrangement	rearrangement	re(arrangement(s)?|arranged|arranging)|gen(e|etic|omic)? rearrangement(s)?|chromosomal rearrangement(s)?
+mutation	mutation	mutation(s)?|mutated|mutant|mutate|mutating|mutational|mutate|mutating|mutate|mutating

@@ -21,7 +21,8 @@ with no external search service.
 Patient data (text / FHIR / Phenopacket / OMOP)
       │  interop importers → canonical PatientProfile
       ▼
-Biomedical NER (GLiNER) ──► concept linking (OMOP/UMLS, hybrid lexical+vector)
+Biomedical NER (GLiNER + deterministic variant patterns) ──► concept linking
+      ▼                       (OMOP/UMLS, hybrid lexical+vector)
       ▼
 First-level retrieval ──► LanceDB hybrid search (BM25 + embeddings) over trials
       ▼

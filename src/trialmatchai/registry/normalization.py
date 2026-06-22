@@ -3,6 +3,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from trialmatchai.registry.criteria_chunking import split_eligibility_criteria
+
+__all__ = ["normalize_study", "split_eligibility_criteria"]
+
 
 def normalize_study(study: dict[str, Any]) -> dict[str, Any]:
     """Normalize a ClinicalTrials.gov v2 study into TrialMatchAI trial JSON."""
@@ -50,48 +54,6 @@ def normalize_study(study: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in normalized.items() if value not in (None, "", [])}
 
 
-def split_eligibility_criteria(text: str) -> list[dict[str, str]]:
-    if not text or not text.strip():
-        return []
-
-    current_type = "unknown"
-    entries: list[dict[str, str]] = []
-    buffered: list[str] = []
-
-    def flush() -> None:
-        if not buffered:
-            return
-        criterion = " ".join(buffered).strip()
-        buffered.clear()
-        if _is_useful_criterion(criterion):
-            entries.append({"type": current_type, "criterion": criterion})
-
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            flush()
-            continue
-        detected_type = _detect_criteria_header(line)
-        if detected_type:
-            flush()
-            current_type = detected_type
-            continue
-        cleaned = _clean_criterion_line(line)
-        if not cleaned:
-            flush()
-            continue
-        if _starts_new_criterion(line):
-            flush()
-            buffered.append(cleaned)
-        else:
-            buffered.append(cleaned)
-
-    flush()
-    if entries:
-        return entries
-
-    fallback = _clean_criterion_line(text)
-    return [{"type": "unknown", "criterion": fallback}] if fallback else []
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -176,30 +138,3 @@ def _reference_rows(value: Any) -> list[dict[str, str]]:
     return rows
 
 
-def _detect_criteria_header(line: str) -> str | None:
-    normalized = re.sub(r"[^a-z]+", " ", line.casefold()).strip()
-    if normalized in {"inclusion criteria", "inclusion"}:
-        return "inclusion"
-    if normalized in {"exclusion criteria", "exclusion"}:
-        return "exclusion"
-    return None
-
-
-def _starts_new_criterion(line: str) -> bool:
-    return bool(re.match(r"^\s*(?:[-*•]|\d+[\).]|[a-zA-Z][\).])\s+", line))
-
-
-def _clean_criterion_line(line: str) -> str:
-    cleaned = re.sub(r"^\s*(?:[-*•]|\d+[\).]|[a-zA-Z][\).])\s+", "", line)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" :-\t")
-    if _detect_criteria_header(cleaned):
-        return ""
-    return cleaned
-
-
-def _is_useful_criterion(text: str) -> bool:
-    if len(text) < 3:
-        return False
-    if _detect_criteria_header(text):
-        return False
-    return True
