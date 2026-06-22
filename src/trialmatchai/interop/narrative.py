@@ -5,11 +5,7 @@ import re
 from trialmatchai.interop.models import ClinicalFact, PatientProfile
 
 
-def render_patient_narrative(
-    profile: PatientProfile,
-    *,
-    style: str = "rag",
-) -> list[str]:
+def render_patient_narrative(profile: PatientProfile) -> list[str]:
     """Render structured profile facts into deterministic LLM-ready sentences."""
     lines: list[str] = []
     demographics = profile.demographics
@@ -37,10 +33,7 @@ def render_patient_narrative(
     lines.extend(_render_fact_group("Cancer profile", profile.cancer_profile))
     lines.extend(_render_fact_group("Family history", profile.family_history))
 
-    if style == "audit":
-        for note in profile.notes:
-            lines.append(f"Source note {note.note_id}: {note.text}")
-    elif profile.notes:
+    if profile.notes:
         note_text = " ".join(note.text for note in profile.notes[:3])
         if note_text:
             lines.append(f"Clinical note context: {note_text[:2000]}")

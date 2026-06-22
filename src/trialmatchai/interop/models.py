@@ -17,20 +17,6 @@ MappingStatus = Literal[
 ]
 
 
-class EvidenceSpan(BaseModel):
-    text: str | None = None
-    start: int | None = Field(default=None, ge=0)
-    end: int | None = Field(default=None, ge=0)
-
-    @field_validator("end")
-    @classmethod
-    def validate_end(cls, value: int | None, info):
-        start = info.data.get("start")
-        if value is not None and start is not None and value < start:
-            raise ValueError("evidence span end must be >= start")
-        return value
-
-
 class Provenance(BaseModel):
     source_format: str
     source_id: str | None = None
@@ -38,7 +24,6 @@ class Provenance(BaseModel):
     source_resource: str | None = None
     source_table: str | None = None
     source_field: str | None = None
-    raw_text_span: EvidenceSpan | None = None
 
     model_config = ConfigDict(extra="allow")
 
@@ -133,19 +118,6 @@ class PatientProfile(BaseModel):
     unsupported: list[dict[str, Any]] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="allow")
-
-    def all_facts(self) -> list[ClinicalFact]:
-        return [
-            *self.conditions,
-            *self.phenotypes,
-            *self.observations,
-            *self.medications,
-            *self.procedures,
-            *self.diagnostic_reports,
-            *self.genomic_findings,
-            *self.cancer_profile,
-            *self.family_history,
-        ]
 
     def add_fact(self, fact: ClinicalFact) -> None:
         bucket = {

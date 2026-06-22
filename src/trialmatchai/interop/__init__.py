@@ -3,7 +3,6 @@ from trialmatchai.interop.importers import import_patient_path
 from trialmatchai.interop.models import (
     ClinicalFact,
     Demographics,
-    EvidenceSpan,
     NormalizedCode,
     PatientNote,
     PatientProfile,
@@ -14,7 +13,6 @@ from trialmatchai.interop.models import (
 __all__ = [
     "ClinicalFact",
     "Demographics",
-    "EvidenceSpan",
     "NormalizedCode",
     "PatientNote",
     "PatientProfile",

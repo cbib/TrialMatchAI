@@ -110,7 +110,7 @@ class SecondStageRetriever:
                 query_to_hits[query] = hits
         return query_to_hits
 
-    def rerank_criteria(self, queries: List[str], criteria: List[Dict]) -> List[Dict]:
+    def rerank_criteria(self, criteria: List[Dict]) -> List[Dict]:
         if self.llm_reranker is None:
             logger.warning("LLM reranker not available, using search scores only")
             return self.score_criteria_without_llm(criteria)
@@ -210,7 +210,7 @@ class SecondStageRetriever:
 
         # Check if reranker is available before trying to use it
         if use_reranker and self.llm_reranker is not None:
-            ranked_criteria = self.rerank_criteria(queries, all_criteria)
+            ranked_criteria = self.rerank_criteria(all_criteria)
         else:
             if use_reranker and self.llm_reranker is None:
                 logger.info(

@@ -38,10 +38,7 @@ class SchemaEntityAnnotator:
         self,
         texts: Sequence[str],
         max_workers: int = 20,
-        retries: int = 1,
-        delay: float = 0,
     ) -> list[list[dict[str, Any]]]:
-        del retries, delay
         if max_workers <= 1 or len(texts) <= 1:
             return [
                 [annotation.to_dict() for annotation in annotations]
@@ -65,15 +62,11 @@ class SchemaEntityAnnotator:
         return results
 
 
-class CompatibilityEntityAnnotator(SchemaEntityAnnotator):
-    """Compatibility annotator exposing the historical batch annotation shape."""
-
-
 def build_entity_annotator(
     config: dict[str, Any],
     *,
     embedder: Any | None = None,
-) -> CompatibilityEntityAnnotator:
+) -> SchemaEntityAnnotator:
     extraction_cfg = dict(config.get("entity_extraction") or {})
     linker_cfg = dict(config.get("concept_linker") or {})
     schema_path = extraction_cfg.get("schema_path")
@@ -91,7 +84,7 @@ def build_entity_annotator(
             search_limit=int(linker_cfg.get("search_limit", 10)),
         )
 
-    return CompatibilityEntityAnnotator(recognizer, schemas, linker=linker)
+    return SchemaEntityAnnotator(recognizer, schemas, linker=linker)
 
 
 def _build_concept_store(

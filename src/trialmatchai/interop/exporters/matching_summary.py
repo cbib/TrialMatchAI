@@ -12,7 +12,7 @@ def profile_to_matching_summary(profile: PatientProfile) -> dict:
         else "all"
     )
     gender = profile.demographics.sex or profile.demographics.gender or "all"
-    expanded_sentences = render_patient_narrative(profile, style="rag")
+    expanded_sentences = render_patient_narrative(profile)
     return {
         "patient_id": profile.patient_id,
         "main_conditions": main_conditions,

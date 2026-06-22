@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from trialmatchai.entities.annotator import CompatibilityEntityAnnotator
+from trialmatchai.entities.annotator import SchemaEntityAnnotator
 from trialmatchai.entities.builder import (
     build_dictionary_rows,
     build_omop_concept_rows,
@@ -29,7 +29,7 @@ def test_default_schema_validates_vocab_routing():
 
 def test_regex_backend_returns_current_output_shape():
     schemas = [schema for schema in load_entity_schemas() if schema.id == "disease"]
-    annotator = CompatibilityEntityAnnotator(RegexSchemaRecognizer(), schemas)
+    annotator = SchemaEntityAnnotator(RegexSchemaRecognizer(), schemas)
 
     result = annotator.annotate_texts_in_parallel(["metastatic cancer"], max_workers=1)
 

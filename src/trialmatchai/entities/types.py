@@ -94,12 +94,6 @@ class EntityAnnotation:
             "linker_status": self.linker_status,
         }
 
-    def to_index_entity(self) -> dict[str, Any]:
-        data = self.to_dict()
-        data["entity"] = self.text
-        data["class"] = self.entity_group
-        return data
-
 
 def normalize_concept_id(vocabulary_id: str, concept_code: str) -> str:
     vocab = vocabulary_id.strip()

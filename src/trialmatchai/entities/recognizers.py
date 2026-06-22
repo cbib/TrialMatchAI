@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from dataclasses import replace
 from typing import Any, Protocol, Sequence
 
 from trialmatchai.entities.schemas import schema_by_label
@@ -266,13 +265,3 @@ def _as_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def with_schema_threshold(
-    annotation: EntityAnnotation,
-    schemas: Sequence[EntitySchema],
-) -> EntityAnnotation | None:
-    schema = next((item for item in schemas if item.id == annotation.schema_id), None)
-    if schema is not None and annotation.score < schema.threshold:
-        return None
-    return replace(annotation)
