@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import json
 import math
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional
 
+from trialmatchai.constraints import apply_constraint_score, evaluate_constraint_set
+from trialmatchai.constraints.models import ConstraintSet, CriterionConstraintEvaluation
 from trialmatchai.matching.retrieval.synonyms import disease_synonyms
 from trialmatchai.search.lancedb_backend import TrialSearchBackend
 from trialmatchai.utils.file_utils import write_text_file
 from trialmatchai.utils.logging_config import setup_logging
 
 if TYPE_CHECKING:
+    from trialmatchai.constraints.models import PatientConstraintContext
     from trialmatchai.models.embedding.text_embedder import TextEmbedder
     from trialmatchai.models.llm.llm_reranker import LLMReranker
 
@@ -26,7 +30,6 @@ class SecondStageRetriever:
         size: int = 250,
         inclusion_weight: float = 1.0,
         exclusion_weight: float = 0.25,
-        bio_med_ner=None,
         entity_annotator=None,
         search_mode: str = "hybrid",
     ):
@@ -36,8 +39,9 @@ class SecondStageRetriever:
         self.size = size
         self.inclusion_weight = inclusion_weight
         self.exclusion_weight = exclusion_weight
-        self.entity_annotator = entity_annotator or bio_med_ner
+        self.entity_annotator = entity_annotator
         self.search_mode = search_mode.lower() if search_mode else "hybrid"
+        self.last_constraint_evaluations: list[CriterionConstraintEvaluation] = []
 
     def get_synonyms(self, condition: str) -> List[str]:
         return disease_synonyms(self.entity_annotator, condition)
@@ -138,6 +142,59 @@ class SecondStageRetriever:
             criterion["llm_score"] = base
         return criteria
 
+    def apply_constraint_adjustments(
+        self,
+        criteria: List[Dict],
+        *,
+        patient_context: Optional["PatientConstraintContext"] = None,
+        constraints_config: Mapping[str, Any] | None = None,
+    ) -> List[Dict]:
+        self.last_constraint_evaluations = []
+        config = constraints_config or {}
+        if not config.get("enabled", True) or patient_context is None:
+            return criteria
+
+        score_weight = _constraint_score_weight(config.get("score_weight", 0.25))
+        unknown_is_neutral = bool(config.get("unknown_is_neutral", True))
+        seen_criteria: set[str] = set()
+        for criterion in criteria:
+            source = criterion.get("_source") or {}
+            raw_constraints = source.get("constraints")
+            if not raw_constraints:
+                continue
+            try:
+                constraint_set = _constraint_set_from_payload(raw_constraints)
+            except Exception:
+                logger.warning(
+                    "Ignoring invalid constraint payload for criterion %s.",
+                    source.get("criteria_id", "unknown"),
+                )
+                continue
+            if not constraint_set.constraints:
+                continue
+
+            evaluation = evaluate_constraint_set(
+                constraint_set, patient_context, unknown_is_neutral=unknown_is_neutral
+            )
+            if evaluation.criteria_id not in seen_criteria:
+                self.last_constraint_evaluations.append(evaluation)
+                seen_criteria.add(evaluation.criteria_id)
+
+            base_score = float(
+                criterion.get("llm_score", criterion.get("_score", 0.0)) or 0.0
+            )
+            adjusted_score = apply_constraint_score(
+                base_score,
+                evaluation.constraint_signal,
+                score_weight=score_weight,
+            )
+            criterion["pre_constraint_score"] = base_score
+            criterion["constraint_signal"] = evaluation.constraint_signal
+            criterion["constraint_adjusted_score"] = adjusted_score
+            criterion["constraint_evaluation"] = evaluation.model_dump(mode="json")
+            criterion["llm_score"] = adjusted_score
+        return criteria
+
     def aggregate_to_trials(
         self, criteria: List[Dict], threshold: float = 0.5, method: str = "weighted"
     ) -> List[Dict]:
@@ -145,7 +202,8 @@ class SecondStageRetriever:
         for criterion in criteria:
             nct_id = criterion["_source"]["nct_id"]
             score = criterion["llm_score"]
-            if score >= threshold:
+            threshold_basis = criterion.get("pre_constraint_score", score)
+            if score >= threshold or threshold_basis >= threshold:
                 trial_scores[nct_id].append(score)
         aggregated_scores = {}
         for nct_id, scores in trial_scores.items():
@@ -179,6 +237,8 @@ class SecondStageRetriever:
         top_n: int,
         use_reranker: bool = True,
         save_path: Optional[str] = None,
+        patient_context: Optional["PatientConstraintContext"] = None,
+        constraints_config: Mapping[str, Any] | None = None,
     ) -> List[Dict]:
         # Cap queries to prevent memory/performance issues
         max_queries = 150  # Reasonable limit for second-level search
@@ -209,6 +269,11 @@ class SecondStageRetriever:
                 )
             ranked_criteria = self.score_criteria_without_llm(all_criteria)
 
+        ranked_criteria = self.apply_constraint_adjustments(
+            ranked_criteria,
+            patient_context=patient_context,
+            constraints_config=constraints_config,
+        )
         sorted_trials = self.aggregate_to_trials(ranked_criteria)
         top_trials = sorted_trials[:top_n]
         logger.info(f"Top {top_n} trials retrieved: {top_trials}")
@@ -216,3 +281,19 @@ class SecondStageRetriever:
             write_text_file([trial["nct_id"] for trial in top_trials], save_path)
             logger.info(f"Top trials saved to {save_path}")
         return top_trials
+
+
+def _constraint_score_weight(value: Any) -> float:
+    try:
+        weight = float(value)
+    except (TypeError, ValueError):
+        return 0.25
+    return max(0.0, min(1.0, weight))
+
+
+def _constraint_set_from_payload(payload: Any) -> ConstraintSet:
+    if isinstance(payload, ConstraintSet):
+        return payload
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    return ConstraintSet.model_validate(payload)

@@ -23,11 +23,12 @@ class TestConfigLoading(unittest.TestCase):
                 "criteria_table": "old-criteria",
             },
             "embedder": {"model_name": "old"},
-            "search": {"mode": "hybrid"},
             "entity_extraction": {"backend": "gliner2"},
             "concept_linker": {"db_path": "old"},
             "patient_inputs": {"profile_dir": "old-profiles"},
             "registry": {"since_days": 7, "raw_dir": "old-raw"},
+            "constraints": {"enabled": True, "score_weight": 0.25},
+            "search": {"mode": "hybrid", "first_level": {"max_trials": 1000}},
         }
         os.environ["TRIALMATCHAI_SEARCH_DB_PATH"] = "data/search-test"
         os.environ["TRIALMATCHAI_SEARCH_TRIALS_TABLE"] = "trials-test"
@@ -39,6 +40,12 @@ class TestConfigLoading(unittest.TestCase):
         os.environ["TRIALMATCHAI_PATIENT_STRICT_VALIDATION"] = "true"
         os.environ["TRIALMATCHAI_REGISTRY_SINCE_DAYS"] = "30"
         os.environ["TRIALMATCHAI_REGISTRY_RAW_DIR"] = "registry/raw"
+        os.environ["TRIALMATCHAI_CONSTRAINTS_ENABLED"] = "false"
+        os.environ["TRIALMATCHAI_CONSTRAINTS_SCORE_WEIGHT"] = "0.4"
+        os.environ["TRIALMATCHAI_FIRST_LEVEL_ENABLED"] = "false"
+        os.environ["TRIALMATCHAI_FIRST_LEVEL_MAX_TRIALS"] = "700"
+        os.environ["TRIALMATCHAI_FIRST_LEVEL_PER_CHANNEL_SIZE"] = "250"
+        os.environ["TRIALMATCHAI_FIRST_LEVEL_VECTOR_SCORE_THRESHOLD"] = "0.1"
         try:
             updated = apply_env_overrides(raw)
         finally:
@@ -52,6 +59,12 @@ class TestConfigLoading(unittest.TestCase):
             os.environ.pop("TRIALMATCHAI_PATIENT_STRICT_VALIDATION", None)
             os.environ.pop("TRIALMATCHAI_REGISTRY_SINCE_DAYS", None)
             os.environ.pop("TRIALMATCHAI_REGISTRY_RAW_DIR", None)
+            os.environ.pop("TRIALMATCHAI_CONSTRAINTS_ENABLED", None)
+            os.environ.pop("TRIALMATCHAI_CONSTRAINTS_SCORE_WEIGHT", None)
+            os.environ.pop("TRIALMATCHAI_FIRST_LEVEL_ENABLED", None)
+            os.environ.pop("TRIALMATCHAI_FIRST_LEVEL_MAX_TRIALS", None)
+            os.environ.pop("TRIALMATCHAI_FIRST_LEVEL_PER_CHANNEL_SIZE", None)
+            os.environ.pop("TRIALMATCHAI_FIRST_LEVEL_VECTOR_SCORE_THRESHOLD", None)
 
         self.assertEqual(updated["search_backend"]["db_path"], "data/search-test")
         self.assertEqual(updated["search_backend"]["trials_table"], "trials-test")
@@ -63,6 +76,12 @@ class TestConfigLoading(unittest.TestCase):
         self.assertTrue(updated["patient_inputs"]["strict_validation"])
         self.assertEqual(updated["registry"]["since_days"], 30)
         self.assertEqual(updated["registry"]["raw_dir"], "registry/raw")
+        self.assertFalse(updated["constraints"]["enabled"])
+        self.assertEqual(updated["constraints"]["score_weight"], 0.4)
+        self.assertFalse(updated["search"]["first_level"]["enabled"])
+        self.assertEqual(updated["search"]["first_level"]["max_trials"], 700)
+        self.assertEqual(updated["search"]["first_level"]["per_channel_size"], 250)
+        self.assertEqual(updated["search"]["first_level"]["vector_score_threshold"], 0.1)
 
 
 if __name__ == "__main__":

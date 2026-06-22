@@ -179,12 +179,12 @@ class BaseTrialProcessor:
         nct_ids: List[str],
         json_folder: str,
         output_folder: str,
-        patient_profile: List[str],
+        patient_narrative: List[str],
     ):
         """Build a worklist (skipping already-processed trials), length-bucket to
         minimize padding, then process in batches."""
         patient_text = " ".join(
-            str(line).strip() for line in patient_profile if str(line).strip()
+            str(line).strip() for line in patient_narrative if str(line).strip()
         )
 
         items: List[Dict] = []

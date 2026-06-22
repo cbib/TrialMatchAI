@@ -191,62 +191,13 @@ class GLiNER2Recognizer:
         ]
 
 
-class GLiNERRecognizer:
-    def __init__(
-        self,
-        model_name: str,
-        *,
-        revision: str | None = None,
-        device: str | None = None,
-        trust_remote_code: bool = False,
-        batch_size: int = 8,
-    ):
-        try:
-            from gliner import GLiNER  # type: ignore
-        except Exception as exc:  # pragma: no cover - optional dependency
-            raise RuntimeError(
-                "entity_extraction.backend=gliner requires the GLiNER dependency."
-            ) from exc
-
-        kwargs: dict[str, Any] = {}
-        if revision:
-            kwargs["revision"] = revision
-        if trust_remote_code:
-            kwargs["trust_remote_code"] = trust_remote_code
-        self.model = GLiNER.from_pretrained(model_name, **kwargs)
-        if device and device != "auto" and hasattr(self.model, "to"):
-            self.model.to(device)
-        self.batch_size = batch_size
-
-    def recognize(
-        self, texts: Sequence[str], schemas: Sequence[EntitySchema]
-    ) -> list[list[EntityAnnotation]]:
-        labels = [schema.label for schema in schemas]
-        label_map = schema_by_label(list(schemas))
-        results: list[list[EntityAnnotation]] = []
-        for text in texts:
-            raw = self.model.predict_entities(text, labels)
-            results.append(resolve_overlaps(_parse_model_entities(raw, text, label_map)))
-        return results
-
-
 def build_recognizer(config: dict[str, Any]) -> EntityRecognizer:
     backend = str(config.get("backend", "gliner2")).lower()
     if backend == "disabled":
         return DisabledRecognizer()
     if backend == "regex":
         return RegexSchemaRecognizer()
-    if backend == "gliner":
-        recognizer: EntityRecognizer = GLiNERRecognizer(
-            model_name=config.get("fallback_model_name")
-            or config.get("model_name")
-            or "urchade/gliner_base",
-            revision=config.get("model_revision"),
-            device=config.get("device", "auto"),
-            trust_remote_code=bool(config.get("trust_remote_code", False)),
-            batch_size=int(config.get("batch_size", 8)),
-        )
-    elif backend == "gliner2":
+    if backend == "gliner2":
         recognizer = GLiNER2Recognizer(
             model_name=config.get("model_name", "fastino/gliner2-base"),
             revision=config.get("model_revision"),
@@ -256,7 +207,7 @@ def build_recognizer(config: dict[str, Any]) -> EntityRecognizer:
         )
     else:
         raise ValueError(
-            "entity_extraction.backend must be one of: gliner2, gliner, regex, disabled."
+            "entity_extraction.backend must be one of: gliner2, regex, disabled."
         )
 
     # Augment model NER with the deterministic variant recognizer (on by default)

@@ -16,7 +16,7 @@ class Phenopacket(BaseModel):
 class Keywords(BaseModel):
     main_conditions: List[str] = Field(default_factory=list)
     other_conditions: List[str] = Field(default_factory=list)
-    expanded_sentences: List[str] = Field(default_factory=list)
+    patient_narrative: List[str] = Field(default_factory=list)
     error: Optional[str] = None
 
     model_config = ConfigDict(extra="allow")

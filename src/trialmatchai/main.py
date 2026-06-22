@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from trialmatchai.config.config_loader import load_config
+from trialmatchai.constraints import (
+    build_patient_constraint_context,
+    write_constraint_reports,
+)
 from trialmatchai.entities import build_entity_annotator
 from trialmatchai.matching.trial_ranker import (
     load_trial_data,
@@ -28,6 +32,7 @@ from trialmatchai.utils.logging_config import reset_request_id, set_request_id, 
 from trialmatchai.utils.timing import log_timing
 
 if TYPE_CHECKING:
+    from trialmatchai.constraints import PatientConstraintContext
     from trialmatchai.models.embedding.text_embedder import TextEmbedder
 
 logger = setup_logging(__name__)
@@ -41,10 +46,11 @@ def run_first_level_search(
     embedder: TextEmbedder,
     config: Dict,
     search_backend,
+    patient_profile: PatientProfile | None = None,
 ) -> Optional[Tuple]:
-    main_conditions = keywords.get("main_conditions", [])
-    other_conditions = keywords.get("other_conditions", [])
-    expanded_sentences = keywords.get("expanded_sentences", [])
+    main_conditions = list(keywords.get("main_conditions", []))
+    other_conditions = list(keywords.get("other_conditions", []))
+    patient_narrative = list(keywords.get("patient_narrative", []))
 
     if not main_conditions:
         logger.error("No main_conditions found in keywords.")
@@ -61,22 +67,75 @@ def run_first_level_search(
         entity_annotator=entity_annotator,
     )
 
-    # Get synonyms and expand main conditions
-    synonyms = cts.get_synonyms(condition.lower().strip())
-    main_conditions.extend(synonyms[:5])
+    search_cfg = config["search"]
+    first_level_cfg = _first_level_search_config(search_cfg)
+    if first_level_cfg.get("enabled", True) and patient_profile is not None:
+        plan = cts.build_query_plan(
+            profile=patient_profile,
+            matching_summary=keywords,
+            config=first_level_cfg,
+            age=age,
+            sex=sex,
+            overall_status=overall_status,
+        )
+        trials, scores, candidate_evidence = cts.search_trials_with_plan(
+            query_plan=plan,
+            age_input=age,
+            sex=sex,
+            overall_status=overall_status,
+            size=int(first_level_cfg.get("max_trials", 1000)),
+            per_channel_size=int(first_level_cfg.get("per_channel_size", 300)),
+            pre_selected_nct_ids=None,
+            vector_score_threshold=float(
+                first_level_cfg.get("vector_score_threshold", 0.0)
+            ),
+            search_mode=search_cfg.get("mode", "hybrid"),
+            rrf_k=int(first_level_cfg.get("rrf_k", 60)),
+        )
+        main_conditions = _dedupe_strings(
+            [
+                *main_conditions,
+                *plan.terms_for("primary_condition", "concept_synonym"),
+            ]
+        )
+        other_conditions = _dedupe_strings(
+            [
+                *other_conditions,
+                *plan.terms_for("biomarker", "therapy", "broader_disease"),
+            ]
+        )
+        if first_level_cfg.get("write_reports", True):
+            write_json_file(
+                plan.model_dump(mode="json"),
+                f"{output_folder}/first_level_query_plan.json",
+            )
+            write_json_file(
+                {
+                    "candidates": [
+                        item.model_dump(mode="json") for item in candidate_evidence
+                    ]
+                },
+                f"{output_folder}/first_level_candidates.json",
+            )
+    else:
+        # Single-query first-level retrieval path. This remains available for exact
+        # behavior preservation when search.first_level.enabled=false.
+        synonyms = cts.get_synonyms(condition.lower().strip())
+        main_conditions.extend(synonyms[:5])
 
-    search_size = config["search"].get("max_trials_first_level", 300)
-    trials, scores = cts.search_trials(
-        condition=condition,
-        age_input=age,
-        sex=sex,
-        overall_status=overall_status,
-        size=search_size,
-        pre_selected_nct_ids=None,
-        synonyms=main_conditions,
-        other_conditions=other_conditions,
-        vector_score_threshold=config["search"]["vector_score_threshold"],
-    )
+        search_size = search_cfg.get("max_trials_first_level", 300)
+        trials, scores = cts.search_trials(
+            condition=condition,
+            age_input=age,
+            sex=sex,
+            overall_status=overall_status,
+            size=search_size,
+            pre_selected_nct_ids=None,
+            synonyms=main_conditions,
+            other_conditions=other_conditions,
+            vector_score_threshold=search_cfg["vector_score_threshold"],
+            search_mode=search_cfg.get("mode", "hybrid"),
+        )
 
     nct_ids = [trial.get("nct_id") for trial in trials if trial.get("nct_id")]
     first_level_scores = {
@@ -93,7 +152,7 @@ def run_first_level_search(
         nct_ids,
         main_conditions,
         other_conditions,
-        expanded_sentences,
+        patient_narrative,
         first_level_scores,
     )
 
@@ -103,12 +162,13 @@ def run_second_level_search(
     nct_ids: List[str],
     main_conditions: List[str],
     other_conditions: List[str],
-    expanded_sentences: List[str],
+    patient_narrative: List[str],
     gemma_retriever: SecondStageRetriever,
     first_level_scores: Dict,
     config: Dict,
+    patient_context: Optional["PatientConstraintContext"] = None,
 ) -> Tuple:
-    queries = list(set(main_conditions + other_conditions + expanded_sentences))[:10]
+    queries = list(set(main_conditions + other_conditions + patient_narrative))[:10]
     logger.info(f"Running second-level retrieval with {len(queries)} queries ...")
 
     # Add synonyms for second level
@@ -118,7 +178,11 @@ def run_second_level_search(
 
     top_n = min(len(nct_ids), config["search"].get("max_trials_second_level", 100))
     second_level_results = gemma_retriever.retrieve_and_rank(
-        queries, nct_ids, top_n=top_n
+        queries,
+        nct_ids,
+        top_n=top_n,
+        patient_context=patient_context,
+        constraints_config=config.get("constraints", {}),
     )
 
     combined_scores = {}
@@ -134,6 +198,19 @@ def run_second_level_search(
 
     top_trials_path = f"{output_folder}/top_trials.txt"
     write_text_file([trial_id for trial_id, _ in semi_final_trials], top_trials_path)
+    constraints_config = config.get("constraints", {})
+    if constraints_config.get("enabled", True) and constraints_config.get(
+        "write_reports",
+        True,
+    ):
+        write_constraint_reports(
+            output_folder=output_folder,
+            evaluations=gemma_retriever.last_constraint_evaluations,
+            top_trials=[
+                {"nct_id": trial_id, "score": score}
+                for trial_id, score in semi_final_trials
+            ],
+        )
 
     logger.info("Second-level retrieval and ranking complete. Top trials saved.")
     return semi_final_trials, top_trials_path
@@ -151,9 +228,9 @@ def run_rag_processing(
         return
 
     top_trials = top_trials[: config["rag"].get("max_trials_rag", 20)]
-    patient_profile = patient_info.get("split_raw_description", [])
-    if not patient_profile:
-        logger.error("No patient profile available for RAG processing.")
+    patient_narrative = patient_info.get("patient_narrative", [])
+    if not patient_narrative:
+        logger.error("No patient narrative available for RAG processing.")
         return
 
     # vLLM is the only LLM backend. A configured cot_adapter_path is served as a
@@ -183,7 +260,7 @@ def run_rag_processing(
         nct_ids=top_trials,
         json_folder=config["paths"]["trials_json_folder"],
         output_folder=output_folder,
-        patient_profile=patient_profile,
+        patient_narrative=patient_narrative,
     )
     write_json_file({"status": "done"}, f"{output_folder}/rag_output.json")
     logger.info("RAG-based trial matching complete.")
@@ -280,9 +357,8 @@ def main_pipeline(config_path: str | None = None) -> int:
             )
             keywords = Keywords.model_validate(summary).model_dump()
             patient_info = dict(summary)
-            patient_info["split_raw_description"] = summary.get(
-                "expanded_sentences", []
-            )
+            patient_info["patient_narrative"] = summary.get("patient_narrative", [])
+            patient_context = build_patient_constraint_context(profile)
 
             # Run pipeline
             with log_timing(logger, "First-level search"):
@@ -295,6 +371,7 @@ def main_pipeline(config_path: str | None = None) -> int:
                         embedder,
                         config,
                         search_backend,
+                        patient_profile=profile,
                     )
             if not result:
                 logger.error("First-level search failed for %s", patient_id)
@@ -304,7 +381,7 @@ def main_pipeline(config_path: str | None = None) -> int:
                 nct_ids,
                 main_conditions,
                 other_conditions,
-                expanded_sentences,
+                patient_narrative,
                 first_level_scores,
             ) = result
 
@@ -315,10 +392,11 @@ def main_pipeline(config_path: str | None = None) -> int:
                         nct_ids,
                         main_conditions,
                         other_conditions,
-                        expanded_sentences,
+                        patient_narrative,
                         gemma_retriever,
                         first_level_scores,
                         config,
+                        patient_context,
                     )
 
             with log_timing(logger, "RAG processing"):
@@ -373,6 +451,38 @@ def _load_patient_inputs(config: Dict) -> list[tuple[PatientProfile, Dict]]:
         except Exception:
             logger.exception("Failed to load patient profile: %s", profile_file)
     return loaded
+
+
+def _first_level_search_config(search_cfg: Dict) -> Dict:
+    first_level_cfg = dict(search_cfg.get("first_level") or {})
+    first_level_cfg.setdefault(
+        "max_trials",
+        search_cfg.get("max_trials_first_level", 1000),
+    )
+    first_level_cfg.setdefault("per_channel_size", 300)
+    first_level_cfg.setdefault("rrf_k", 60)
+    first_level_cfg.setdefault("vector_score_threshold", 0.0)
+    first_level_cfg.setdefault("enabled", True)
+    first_level_cfg.setdefault("write_reports", True)
+    first_level_cfg.setdefault("llm_expansion_enabled", False)
+    first_level_cfg.setdefault("llm_max_terms", 12)
+    first_level_cfg.setdefault("hard_filters", ["age", "sex", "overall_status"])
+    return first_level_cfg
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    output: list[str] = []
+    for value in values:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            continue
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(cleaned)
+    return output
 
 
 if __name__ == "__main__":

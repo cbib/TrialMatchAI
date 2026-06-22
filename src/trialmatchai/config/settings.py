@@ -2,19 +2,21 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Literal, Tuple
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class EntityExtractionSettings(BaseModel):
-    backend: Literal["gliner2", "gliner", "regex", "disabled"] = "gliner2"
+    backend: Literal["gliner2", "regex", "disabled"] = "gliner2"
     model_name: str = "fastino/gliner2-base"
-    fallback_model_name: str = "gliner-community/gliner_large-v2.5"
     model_revision: str | None = None
     schema_path: str = "entity_schemas/trialmatchai.yaml"
     threshold: float = Field(0.8, ge=0.0, le=1.0)
     batch_size: int = Field(8, ge=1)
     device: str = "auto"
     trust_remote_code: bool = False
+    # Augment model NER with the deterministic genetic-variant recognizer.
+    variant_regex: bool = True
+    model_config = ConfigDict(extra="forbid")
 
 
 class ConceptLinkerSettings(BaseModel):
@@ -116,11 +118,51 @@ class EmbedderSettings(BaseModel):
         return value
 
 
+class FirstLevelSearchSettings(BaseModel):
+    enabled: bool = True
+    max_trials: int = Field(1000, ge=1)
+    per_channel_size: int = Field(300, ge=1)
+    fusion: Literal["rrf"] = "rrf"
+    rrf_k: int = Field(60, ge=1)
+    vector_score_threshold: float = Field(0.0, ge=0.0, le=1.0)
+    llm_expansion_enabled: bool = False
+    llm_max_terms: int = Field(12, ge=0)
+    write_reports: bool = True
+    hard_filters: list[Literal["age", "sex", "overall_status"]] = Field(
+        default_factory=lambda: ["age", "sex", "overall_status"]
+    )
+
+
 class SearchSettings(BaseModel):
     mode: Literal["bm25", "vector", "hybrid"] = "hybrid"
     vector_score_threshold: float = Field(0.5, ge=0.0, le=1.0)
-    max_trials_first_level: int = Field(300, ge=1)
+    max_trials_first_level: int = Field(1000, ge=1)
     max_trials_second_level: int = Field(100, ge=1)
+    first_level: FirstLevelSearchSettings = Field(
+        default_factory=FirstLevelSearchSettings
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_first_level_alias(cls, data):
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        first_level = dict(normalized.get("first_level") or {})
+        if "first_level" not in normalized and "max_trials_first_level" in normalized:
+            first_level["max_trials"] = normalized["max_trials_first_level"]
+            normalized["first_level"] = first_level
+        elif "max_trials" in first_level:
+            normalized["max_trials_first_level"] = first_level["max_trials"]
+        return normalized
+
+
+class ConstraintSettings(BaseModel):
+    enabled: bool = True
+    score_weight: float = Field(0.25, ge=0.0, le=1.0)
+    llm_extraction_enabled: bool = False
+    unknown_is_neutral: bool = True
+    write_reports: bool = True
 
 
 class RagSettings(BaseModel):
@@ -164,6 +206,7 @@ class TrialMatchSettings(BaseModel):
     cot: CotSettings
     LLM_reranker: LLMRerankerSettings
     search: SearchSettings
+    constraints: ConstraintSettings = Field(default_factory=ConstraintSettings)
     use_cot_reasoning: bool = True
     rag: RagSettings
     vllm: VllmSettings
@@ -210,10 +253,6 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "TRIALMATCHAI_ENTITY_BACKEND": ("entity_extraction", "backend"),
         "TRIALMATCHAI_ENTITY_MODEL_NAME": ("entity_extraction", "model_name"),
-        "TRIALMATCHAI_ENTITY_FALLBACK_MODEL_NAME": (
-            "entity_extraction",
-            "fallback_model_name",
-        ),
         "TRIALMATCHAI_ENTITY_MODEL_REVISION": (
             "entity_extraction",
             "model_revision",
@@ -252,6 +291,27 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
             "strict_validation",
         ),
         "TRIALMATCHAI_PATIENT_COPY_RAW": ("patient_inputs", "copy_raw"),
+        "TRIALMATCHAI_CONSTRAINTS_ENABLED": ("constraints", "enabled"),
+        "TRIALMATCHAI_CONSTRAINTS_LLM_EXTRACTION_ENABLED": (
+            "constraints",
+            "llm_extraction_enabled",
+        ),
+        "TRIALMATCHAI_CONSTRAINTS_UNKNOWN_IS_NEUTRAL": (
+            "constraints",
+            "unknown_is_neutral",
+        ),
+        "TRIALMATCHAI_CONSTRAINTS_WRITE_REPORTS": ("constraints", "write_reports"),
+        "TRIALMATCHAI_FIRST_LEVEL_ENABLED": ("search", "first_level", "enabled"),
+        "TRIALMATCHAI_FIRST_LEVEL_LLM_EXPANSION_ENABLED": (
+            "search",
+            "first_level",
+            "llm_expansion_enabled",
+        ),
+        "TRIALMATCHAI_FIRST_LEVEL_WRITE_REPORTS": (
+            "search",
+            "first_level",
+            "write_reports",
+        ),
     }
     for env_key, path in bool_env_map.items():
         value = os.getenv(env_key)
@@ -272,6 +332,22 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
             "search",
             "max_trials_first_level",
         ),
+        "TRIALMATCHAI_FIRST_LEVEL_MAX_TRIALS": (
+            "search",
+            "first_level",
+            "max_trials",
+        ),
+        "TRIALMATCHAI_FIRST_LEVEL_PER_CHANNEL_SIZE": (
+            "search",
+            "first_level",
+            "per_channel_size",
+        ),
+        "TRIALMATCHAI_FIRST_LEVEL_RRF_K": ("search", "first_level", "rrf_k"),
+        "TRIALMATCHAI_FIRST_LEVEL_LLM_MAX_TERMS": (
+            "search",
+            "first_level",
+            "llm_max_terms",
+        ),
         "TRIALMATCHAI_SEARCH_MAX_TRIALS_SECOND_LEVEL": (
             "search",
             "max_trials_second_level",
@@ -287,6 +363,16 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
                 _set_nested(raw, path, int(value))
             except ValueError:
                 pass
+    max_trials_first_level_env = os.getenv("TRIALMATCHAI_SEARCH_MAX_TRIALS_FIRST_LEVEL")
+    if max_trials_first_level_env:
+        try:
+            _set_nested(
+                raw,
+                ("search", "first_level", "max_trials"),
+                int(max_trials_first_level_env),
+            )
+        except ValueError:
+            pass
 
     float_env_map: dict[str, Tuple[str, ...]] = {
         "TRIALMATCHAI_ENTITY_THRESHOLD": ("entity_extraction", "threshold"),
@@ -300,6 +386,12 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
         "TRIALMATCHAI_REGISTRY_FAILURE_THRESHOLD": (
             "registry",
             "failure_threshold",
+        ),
+        "TRIALMATCHAI_CONSTRAINTS_SCORE_WEIGHT": ("constraints", "score_weight"),
+        "TRIALMATCHAI_FIRST_LEVEL_VECTOR_SCORE_THRESHOLD": (
+            "search",
+            "first_level",
+            "vector_score_threshold",
         ),
     }
     for env_key, path in float_env_map.items():

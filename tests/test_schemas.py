@@ -10,7 +10,7 @@ class TestSchemas(unittest.TestCase):
         self.assertEqual(obj.id, "patient-1")
 
     def test_keywords_default(self) -> None:
-        data = {"main_conditions": ["A"], "other_conditions": [], "expanded_sentences": []}
+        data = {"main_conditions": ["A"], "other_conditions": [], "patient_narrative": []}
         obj = Keywords.model_validate(data)
         self.assertEqual(obj.main_conditions, ["A"])
 
@@ -18,7 +18,7 @@ class TestSchemas(unittest.TestCase):
         data = {
             "main_conditions": [],
             "other_conditions": [],
-            "expanded_sentences": [],
+            "patient_narrative": [],
             "error": "bad",
             "extra": "ok",
         }

@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import pytest
+
 from trialmatchai.config.config_loader import load_config
+from trialmatchai.config.settings import EntityExtractionSettings
 from trialmatchai.entities.schemas import default_schema_path
 
 
@@ -26,3 +29,11 @@ def test_packaged_schema_path_resolves_outside_repo(tmp_path, monkeypatch):
     assert cfg["entity_extraction"]["schema_path"] == str(default_schema_path().resolve())
     assert Path(cfg["entity_extraction"]["schema_path"]).exists()
     assert cfg["paths"]["output_dir"] == str((tmp_path / "results").resolve())
+
+
+def test_legacy_gliner_backend_and_fallback_key_are_rejected():
+    with pytest.raises(ValueError):
+        EntityExtractionSettings.model_validate({"backend": "gliner"})
+
+    with pytest.raises(ValueError):
+        EntityExtractionSettings.model_validate({"fallback_model_name": "old-model"})

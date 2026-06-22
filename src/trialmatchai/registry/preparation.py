@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 import dateutil.parser
 
+from trialmatchai.constraints import extract_constraint_set
 from trialmatchai.utils.text import flatten_text
 
 
@@ -118,6 +119,13 @@ def prepare_criteria_documents(
     rows: list[dict[str, Any]] = []
     for entry, vector in zip(entries, vectors):
         criteria_id = compute_criteria_id(entry["nct_id"], entry["criterion"])
+        constraint_set = extract_constraint_set(
+            nct_id=entry["nct_id"],
+            criteria_id=criteria_id,
+            criterion=entry["criterion"],
+            eligibility_type=entry["eligibility_type"],
+            entities=entry.get("entities"),
+        )
         rows.append(
             {
                 "criteria_id": criteria_id,
@@ -126,6 +134,7 @@ def prepare_criteria_documents(
                 "entities": _entities_for_index(entry.get("entities")),
                 "eligibility_type": entry["eligibility_type"],
                 "criterion_vector": vector,
+                "constraints": constraint_set.model_dump(mode="json"),
             }
         )
     return rows

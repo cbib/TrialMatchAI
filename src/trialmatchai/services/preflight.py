@@ -57,10 +57,6 @@ def run_preflight_checks(
                     "entity_extraction.backend=gliner2 requires the entity extra "
                     "(`uv sync --extra entity`)."
                 )
-            elif backend == "gliner" and importlib.util.find_spec("gliner") is None:
-                issues.append(
-                    "entity_extraction.backend=gliner requires the GLiNER dependency."
-                )
 
         linker_cfg = config.get("concept_linker")
         if linker_cfg and linker_cfg.get("enabled", True):

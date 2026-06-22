@@ -20,7 +20,7 @@ def test_runtime_loads_profiles_from_configured_directory(tmp_path):
                 "patient_id": "p1",
                 "main_conditions": ["melanoma"],
                 "other_conditions": [],
-                "expanded_sentences": ["Patient has melanoma."],
+                "patient_narrative": ["Patient has melanoma."],
                 "age": "all",
                 "gender": "all",
             }

@@ -2991,7 +2991,6 @@ dependencies = [
 
 [package.optional-dependencies]
 entity = [
-    { name = "gliner", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
     { name = "gliner2", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
     { name = "torch", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
     { name = "transformers", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
@@ -3000,7 +2999,6 @@ finetune = [
     { name = "accelerate", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
     { name = "bitsandbytes", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "datasets", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "gliner", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
     { name = "gliner2", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
     { name = "peft", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
     { name = "torch", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
@@ -3036,8 +3034,6 @@ requires-dist = [
     { name = "bitsandbytes", marker = "(sys_platform == 'linux' and extra == 'gpu') or (sys_platform == 'win32' and extra == 'gpu')", specifier = "==0.49.2" },
     { name = "datasets", marker = "extra == 'finetune'", specifier = ">=3.0,<5" },
     { name = "einops", marker = "extra == 'llm'", specifier = "==0.8.0" },
-    { name = "gliner", marker = "extra == 'entity'", specifier = "==0.2.27" },
-    { name = "gliner", marker = "extra == 'finetune'", specifier = "==0.2.27" },
     { name = "gliner2", marker = "extra == 'entity'", specifier = ">=1.3.1,<2" },
     { name = "gliner2", marker = "extra == 'finetune'", specifier = ">=1.3.1,<2" },
     { name = "lancedb", specifier = ">=0.25.0,<0.26" },

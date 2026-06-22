@@ -26,7 +26,8 @@ def disease_synonyms(entity_annotator: Any, condition: str) -> List[str]:
             for entity in raw_result[0]:
                 if entity.get("entity_group", "").lower() == "disease":
                     synonyms.update(entity.get("synonyms", []))
-            return list(synonyms)
+            # sorted() for deterministic ordering across runs (set order is not stable).
+            return sorted(synonyms)
         logger.warning("No annotations found for condition: %s", condition)
     except Exception as exc:
         logger.error("Entity synonym extraction failed for '%s': %s", condition, exc)

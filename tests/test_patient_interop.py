@@ -44,7 +44,7 @@ def test_patient_profile_schema_and_summary():
     summary = profile_to_matching_summary(profile)
     assert summary["patient_id"] == "p1"
     assert summary["age"] == "all"
-    assert summary["expanded_sentences"]
+    assert summary["patient_narrative"]
 
 
 def test_text_importer_preserves_offsets_and_entities(tmp_path):

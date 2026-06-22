@@ -27,7 +27,7 @@ def test_search_trials_bm25_returns_hits():
     search = ClinicalTrialSearch(
         search_backend=backend,
         embedder=None,
-        bio_med_ner=None,
+        entity_annotator=None,
     )
     trials, scores = search.search_trials(
         condition="lung cancer",

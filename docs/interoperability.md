@@ -50,7 +50,7 @@ runtime summary fields:
 
 - `main_conditions`
 - `other_conditions`
-- `expanded_sentences`
+- `patient_narrative`
 - `age`
 - `gender`
 - `provenance`

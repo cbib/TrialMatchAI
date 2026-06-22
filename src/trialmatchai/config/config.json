@@ -2,7 +2,6 @@
   "entity_extraction": {
     "backend": "gliner2",
     "model_name": "fastino/gliner2-base",
-    "fallback_model_name": "gliner-community/gliner_large-v2.5",
     "model_revision": null,
     "schema_path": "entity_schemas/trialmatchai.yaml",
     "threshold": 0.8,
@@ -92,8 +91,27 @@
   "search": {
     "mode": "hybrid",
     "vector_score_threshold": 0.5,
-    "max_trials_first_level": 300,
-    "max_trials_second_level": 100
+    "max_trials_first_level": 1000,
+    "max_trials_second_level": 100,
+    "first_level": {
+      "enabled": true,
+      "max_trials": 1000,
+      "per_channel_size": 300,
+      "fusion": "rrf",
+      "rrf_k": 60,
+      "vector_score_threshold": 0.0,
+      "llm_expansion_enabled": false,
+      "llm_max_terms": 12,
+      "write_reports": true,
+      "hard_filters": ["age", "sex", "overall_status"]
+    }
+  },
+  "constraints": {
+    "enabled": true,
+    "score_weight": 0.25,
+    "llm_extraction_enabled": false,
+    "unknown_is_neutral": true,
+    "write_reports": true
   },
   "use_cot_reasoning": true,
   "rag": {

@@ -6,7 +6,7 @@ def test_first_level_query_describes_backend_search():
     search = ClinicalTrialSearch(
         search_backend=InMemorySearchBackend(),
         embedder=None,
-        bio_med_ner=None,
+        entity_annotator=None,
     )
     query = search.create_query(
         synonyms=["lung cancer"],

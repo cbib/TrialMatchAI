@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from dateutil import parser as date_parser
+from trialmatchai.matching.retrieval.first_level_planner import (
+    FirstLevelCandidateEvidence,
+    FirstLevelQueryPlan,
+    FirstLevelQueryPlanner,
+    LLMQueryExpansionBackend,
+    fuse_first_level_channel_hits,
+)
 from trialmatchai.matching.retrieval.synonyms import disease_synonyms
 from trialmatchai.search.lancedb_backend import TrialSearchBackend
 from trialmatchai.utils.logging_config import setup_logging
 
 if TYPE_CHECKING:
+    from trialmatchai.interop.models import PatientProfile
     from trialmatchai.models.embedding.text_embedder import TextEmbedder
 
 logger = setup_logging(__name__)
@@ -19,12 +27,16 @@ class ClinicalTrialSearch:
         self,
         search_backend: TrialSearchBackend,
         embedder: Optional[TextEmbedder],
-        bio_med_ner=None,
         entity_annotator=None,
+        llm_query_expander: LLMQueryExpansionBackend | None = None,
     ):
         self.search_backend = search_backend
         self.embedder = embedder
-        self.entity_annotator = entity_annotator or bio_med_ner
+        self.entity_annotator = entity_annotator
+        self.query_planner = FirstLevelQueryPlanner(
+            entity_annotator=entity_annotator,
+            llm_expander=llm_query_expander,
+        )
 
     def get_synonyms(self, condition: str) -> List[str]:
         return disease_synonyms(self.entity_annotator, condition)
@@ -149,6 +161,121 @@ class ClinicalTrialSearch:
             f"[{mode}] Found {len(trials)} trials matching the search criteria."
         )
         return trials, scores
+
+    def build_query_plan(
+        self,
+        *,
+        profile: "PatientProfile",
+        matching_summary: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        age: int | str | None = None,
+        sex: str | None = None,
+        overall_status: str | None = None,
+    ) -> FirstLevelQueryPlan:
+        return self.query_planner.build(
+            profile=profile,
+            matching_summary=matching_summary,
+            config=config,
+            age=age,
+            sex=sex,
+            overall_status=overall_status,
+        )
+
+    def search_trials_with_plan(
+        self,
+        *,
+        query_plan: FirstLevelQueryPlan,
+        age_input: Union[int, str],
+        sex: str,
+        overall_status: Optional[str] = None,
+        size: int = 1000,
+        per_channel_size: int = 300,
+        pre_selected_nct_ids: Optional[List[str]] = None,
+        vector_score_threshold: float = 0.0,
+        search_mode: str = "hybrid",
+        rrf_k: int = 60,
+    ) -> tuple[list[dict], list[float], list[FirstLevelCandidateEvidence]]:
+        # Honor the configured hard filters: only apply the ones listed in the
+        # plan (default age/sex/overall_status). This makes first_level.hard_filters
+        # actually controllable instead of always-on.
+        # Distinguish an unset value (None -> default) from an explicit empty
+        # list ([] -> no hard filters), so hard_filters=[] truly disables them.
+        configured = query_plan.filters.get("hard_filters")
+        hard_filters = set(
+            configured if configured is not None else ["age", "sex", "overall_status"]
+        )
+
+        age = None
+        if "age" in hard_filters and str(age_input).strip().casefold() != "all":
+            age = self.parse_age_input(age_input)
+            if age is None:
+                logger.warning(
+                    "Could not parse age %r; proceeding without an age filter.",
+                    age_input,
+                )
+        effective_sex = sex if "sex" in hard_filters else "all"
+        effective_status = overall_status if "overall_status" in hard_filters else None
+
+        mode = (search_mode or "hybrid").lower()
+        if mode in {"vector", "hybrid"} and self.embedder is None:
+            logger.warning(
+                "Vector/hybrid mode selected but embedder is None. Falling back to BM25 only."
+            )
+            mode = "bm25"
+
+        channel_hits = []
+        failed_channels = 0
+        for channel in query_plan.channels:
+            embeddings = self._embed_terms(channel.terms, mode)
+            try:
+                trials, scores = self.search_backend.search_trials(
+                    primary_terms=channel.terms,
+                    other_terms=[],
+                    embeddings=embeddings,
+                    age=age,
+                    sex=effective_sex,
+                    overall_status=effective_status,
+                    pre_selected_nct_ids=pre_selected_nct_ids,
+                    size=per_channel_size,
+                    vector_score_threshold=vector_score_threshold,
+                    search_mode=mode,
+                )
+            except Exception:
+                failed_channels += 1
+                logger.exception(
+                    "First-level channel search failed for %s; skipping channel.",
+                    channel.kind,
+                )
+                continue
+            if trials:
+                channel_hits.append((channel, trials, scores))
+
+        if query_plan.channels and not channel_hits:
+            logger.warning(
+                "First-level retrieval produced no candidates from %d channels "
+                "(%d errored). Check the search backend/tables.",
+                len(query_plan.channels),
+                failed_channels,
+            )
+
+        trials, scores, evidence = fuse_first_level_channel_hits(
+            channel_hits,
+            size=size,
+            rrf_k=rrf_k,
+        )
+        logger.info(
+            "[%s] First-level planned retrieval found %s trials across %s channels.",
+            mode,
+            len(trials),
+            len(channel_hits),
+        )
+        return trials, scores, evidence
+
+    def _embed_terms(self, terms: list[str], mode: str) -> dict[str, list[float]]:
+        if mode not in {"vector", "hybrid"} or self.embedder is None:
+            return {}
+        vectors = self.embedder.embed_texts(terms)
+        return dict(zip(terms, vectors))
 
 
 def _clean_terms(terms: List[str]) -> List[str]:

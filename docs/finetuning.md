@@ -7,7 +7,7 @@ checkpoints/adapters via config, and train those adapters with the built-in
 
 | Component | Default | Config key | Fine-tune target |
 |-----------|---------|------------|------------------|
-| Biomedical NER | `fastino/gliner2-base` | `entity_extraction.model_name` | GLiNER checkpoint |
+| Biomedical NER | `fastino/gliner2-base` | `entity_extraction.model_name` | GLiNER2 checkpoint |
 | Reranker | `google/gemma-2-2b-it` | `model.reranker_adapter_path` | LoRA adapter |
 | CoT eligibility | configured CoT model | `model.cot_adapter_path` | LoRA adapter |
 
@@ -121,5 +121,5 @@ trialmatchai-finetune ner \
 - 4-bit quantized loading is on by default (`--no-4bit` to disable); `bf16` is
   default (`--fp16` to switch). See `trialmatchai-finetune <component> --help`
   for all flags.
-- GLiNER's training API varies by version; if your installed `gliner` exposes a
-  different interface, adapt `src/trialmatchai/finetuning/ner.py`.
+- GLiNER2's training API can vary by version; if your installed `gliner2` exposes
+  a different interface, adapt `src/trialmatchai/finetuning/ner.py`.
