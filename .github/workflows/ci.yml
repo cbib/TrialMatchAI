@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, dev, deployment-readiness-audit, refactor/audit-fixes]
+    branches: [main, dev, deployment-readiness-audit]
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
