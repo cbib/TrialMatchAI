@@ -1,9 +1,15 @@
 import re
-import threading
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 
+from trialmatchai.models.llm._common import (
+    build_4bit_quant_config,
+    configure_decoder_tokenizer,
+    load_llm_dependencies,
+    resolve_cuda_device,
+    select_attn_impl,
+    select_compute_dtype,
+)
 from trialmatchai.utils.logging_config import setup_logging
 from tqdm import tqdm
 
@@ -15,53 +21,39 @@ class LLMReranker:
         self,
         model_path: str,
         adapter_path: Optional[str] = None,
-        device: int = 0,
+        device: Any = 0,
         torch_dtype: Any | None = None,
         batch_size: int = 8,
         revision: Optional[str] = None,
         trust_remote_code: bool = False,
     ):
-        (
-            self._torch,
-            self._torch_functional,
-            self._peft_model,
-            self._auto_model,
-            self._auto_tokenizer,
-            self._bits_and_bytes_config,
-        ) = _load_llm_dependencies()
+        self._deps = load_llm_dependencies()
+        self._torch = self._deps.torch
+        self._torch_functional = self._deps.torch_functional
         self.model_path = model_path
         self.adapter_path = adapter_path
-        self.torch_dtype = torch_dtype or self._torch.float16
         self.batch_size = batch_size
         self.revision = revision
         self.trust_remote_code = trust_remote_code
-        # Resolve device string
-        if self._torch.cuda.is_available():
-            cuda_count = self._torch.cuda.device_count()
-            idx = int(device) if isinstance(device, int) else 0
-            if idx < 0 or idx >= cuda_count:
-                logger.warning(
-                    f"LLMReranker: requested CUDA device {device} invalid; using 0 (num_gpus={cuda_count})."
-                )
-                idx = 0
-            self.device_str = f"cuda:{idx}"
-            # Ensure Accelerate/HF loaders use the selected GPU when device_map='auto'
-            try:
-                self._torch.cuda.set_device(idx)
-            except Exception as e:
-                logger.warning(f"Could not set CUDA device to {idx}: {e}")
-        else:
-            logger.warning("LLMReranker: CUDA not available; using CPU.")
-            self.device_str = "cpu"
 
-        self.tokenizer = self._auto_tokenizer.from_pretrained(
+        # Validate/select the GPU once (handles int or "auto"); pins the device so
+        # device_map below is consistent with where inputs are moved.
+        self.device_str, self._cuda_index = resolve_cuda_device(
+            self._torch, device, label="LLMReranker"
+        )
+        use_cuda = self._cuda_index is not None
+        self.torch_dtype = torch_dtype or select_compute_dtype(self._torch, use_cuda)
+
+        self.tokenizer = self._deps.auto_tokenizer.from_pretrained(
             self.model_path,
             revision=self.revision,
             trust_remote_code=self.trust_remote_code,
         )
+        # Left padding is required: process_batch reads logits[:, -1, :], which
+        # must be the last real token, not a right-pad position.
+        configure_decoder_tokenizer(self.tokenizer)
         self._initialize_token_ids()
         self.model = self.load_model()
-        self.model_lock = threading.Lock()
 
     def _initialize_token_ids(self):
         responses = ["Yes", "No"]
@@ -74,28 +66,31 @@ class LLMReranker:
         ]
 
     def load_model(self):
-        use_cuda = self.device_str.startswith("cuda")
+        use_cuda = self._cuda_index is not None
         quant_config = (
-            self._bits_and_bytes_config(
+            build_4bit_quant_config(
+                self._deps.bnb_config,
                 load_in_4bit=True,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=self.torch_dtype,
+                double_quant=True,
+                quant_type="nf4",
+                compute_dtype=self.torch_dtype,
             )
             if use_cuda
             else None
         )
-        model = self._auto_model.from_pretrained(
+        model = self._deps.auto_model.from_pretrained(
             self.model_path,
             revision=self.revision,
             torch_dtype=self.torch_dtype if use_cuda else self._torch.float32,
             quantization_config=quant_config,
-            device_map="auto" if use_cuda else None,
-            attn_implementation="flash_attention_2" if use_cuda else None,
+            # Pin to the selected GPU (not "auto"): inputs are moved to
+            # self.device_str, so the model's first layer must live there too.
+            device_map=self.device_str if use_cuda else None,
+            attn_implementation=select_attn_impl(self._torch, self._cuda_index),
             trust_remote_code=self.trust_remote_code,
         )
         if self.adapter_path:
-            model = self._peft_model.from_pretrained(model, self.adapter_path)
+            model = self._deps.peft_model.from_pretrained(model, self.adapter_path)
         model.eval()
         return model
 
@@ -132,9 +127,8 @@ class LLMReranker:
             batch_prompts.append(prompt)
         inputs = self.tokenizer(batch_prompts, return_tensors="pt", padding=True)
         inputs = {k: v.to(self.device_str) for k, v in inputs.items()}
-        with self.model_lock:
-            with self._torch.no_grad():
-                outputs = self.model(**inputs)
+        with self._torch.no_grad():
+            outputs = self.model(**inputs)
         logits = outputs.logits[:, -1, :]
         probabilities = self._torch_functional.softmax(logits, dim=-1)
         applicable_probs = probabilities[:, self.applicable_token_id].tolist()
@@ -144,36 +138,13 @@ class LLMReranker:
         ]
 
     def rank_pairs(self, patient_trial_pairs: List[tuple]) -> List[Dict]:
+        # Inference on a single device is serial regardless; iterate batches
+        # directly rather than behind a thread pool + lock that serialized anyway.
         batches = [
             patient_trial_pairs[i : i + self.batch_size]
             for i in range(0, len(patient_trial_pairs), self.batch_size)
         ]
-        results = []
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = [executor.submit(self.process_batch, batch) for batch in batches]
-            for future in tqdm(
-                as_completed(futures), total=len(futures), desc="Processing batches"
-            ):
-                results.extend(future.result())
+        results: List[Dict] = []
+        for batch in tqdm(batches, desc="Reranking batches"):
+            results.extend(self.process_batch(batch))
         return results
-
-
-def _load_llm_dependencies() -> tuple[Any, Any, Any, Any, Any, Any]:
-    try:
-        import torch
-        import torch.nn.functional as torch_functional
-        from peft import PeftModel
-        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-    except Exception as exc:  # pragma: no cover - exercised in lean installs
-        raise RuntimeError(
-            "LLM reranking requires the optional `llm` dependencies "
-            "(`uv sync --extra llm`)."
-        ) from exc
-    return (
-        torch,
-        torch_functional,
-        PeftModel,
-        AutoModelForCausalLM,
-        AutoTokenizer,
-        BitsAndBytesConfig,
-    )
