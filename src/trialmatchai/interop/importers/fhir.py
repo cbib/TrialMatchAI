@@ -14,7 +14,7 @@ from trialmatchai.interop.models import (
 from trialmatchai.interop.utils import (
     age_years_from_birth_date,
     clean_text,
-    code_from_fhir_codeable,
+    codes_from_fhir_codeable,
     label_from_fhir_codeable,
     make_fact,
     normalize_gender,
@@ -22,6 +22,9 @@ from trialmatchai.interop.utils import (
     safe_patient_id,
     source_path_string,
 )
+from trialmatchai.utils.logging_config import setup_logging
+
+logger = setup_logging(__name__)
 
 
 def import_fhir(
@@ -32,7 +35,7 @@ def import_fhir(
 ) -> list[PatientProfile]:
     source_path = Path(path)
     resources = (
-        _load_ndjson(source_path)
+        _load_ndjson(source_path, strict=strict)
         if input_format == "fhir-ndjson"
         else _load_json_resources(source_path)
     )
@@ -56,26 +59,33 @@ def import_fhir(
                 raise ValueError(
                     f"{message}: {resource.get('resourceType')}/{resource.get('id')}"
                 )
-            for candidate in profiles:
-                candidate.unsupported.append(
-                    {
-                        "resourceType": resource.get("resourceType"),
-                        "id": resource.get("id"),
-                        "reason": message,
-                    }
-                )
+            # Attribute the orphan to the first profile only (avoid duplicating it
+            # across every profile in a multi-patient bundle).
+            profiles[0].unsupported.append(
+                {
+                    "resourceType": resource.get("resourceType"),
+                    "id": resource.get("id"),
+                    "reason": message,
+                }
+            )
             continue
         try:
             base_provenance = profile.provenance[0]
             _add_resource(profile, resource, base_provenance)
-        except Exception:
+        except Exception as exc:
             if strict:
                 raise
+            logger.warning(
+                "FHIR mapping failed for %s/%s: %s",
+                resource.get("resourceType"),
+                resource.get("id"),
+                exc,
+            )
             profile.unsupported.append(
                 {
                     "resourceType": resource.get("resourceType"),
                     "id": resource.get("id"),
-                    "reason": "resource mapping failed",
+                    "reason": f"resource mapping failed: {exc}",
                 }
             )
     return profiles
@@ -124,6 +134,9 @@ def _patient_location(address: Any) -> Location | None:
     return None
 
 
+# --------------------------------------------------------------------------- I/O
+
+
 def _load_json_resources(path: Path) -> list[dict[str, Any]]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, list):
@@ -143,13 +156,31 @@ def _load_json_resources(path: Path) -> list[dict[str, Any]]:
     return [data]
 
 
-def _load_ndjson(path: Path) -> list[dict[str, Any]]:
-    resources = []
+def _load_ndjson(path: Path, *, strict: bool = False) -> list[dict[str, Any]]:
+    resources: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            if line.strip():
-                resources.append(json.loads(line))
+        for line_number, line in enumerate(handle, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError as exc:
+                if strict:
+                    raise
+                logger.warning(
+                    "Skipping malformed NDJSON line %d in %s: %s",
+                    line_number,
+                    path.name,
+                    exc,
+                )
+                continue
+            if isinstance(obj, dict):
+                resources.append(obj)
     return resources
+
+
+# ------------------------------------------------------------ reference resolution
 
 
 def _profiles_by_reference(
@@ -165,6 +196,8 @@ def _profiles_by_reference(
         full_url = str(patient.get("_bundle_full_url") or "").strip()
         if full_url:
             mapping[full_url] = profile
+            if full_url.casefold().startswith("urn:uuid:"):
+                mapping[full_url.split(":")[-1]] = profile
     return mapping
 
 
@@ -175,10 +208,32 @@ def _profile_for_resource(
 ) -> PatientProfile | None:
     reference = _patient_reference(resource)
     if reference:
-        return profiles_by_reference.get(reference)
+        for candidate in _reference_candidates(reference):
+            if candidate in profiles_by_reference:
+                return profiles_by_reference[candidate]
     if len(profiles) == 1:
         return profiles[0]
     return None
+
+
+def _reference_candidates(reference: str) -> list[str]:
+    """All key forms a patient reference might match (relative, absolute URL,
+    urn:uuid, contained)."""
+    ref = reference.strip()
+    candidates = [ref]
+    if ref.casefold().startswith("urn:uuid:"):
+        candidates.append(ref.split(":")[-1])
+    if ref.startswith("#"):
+        candidates.append(ref[1:])
+    if "/" in ref:
+        parts = ref.rstrip("/").split("/")
+        tail = parts[-1]
+        candidates.append(tail)
+        if len(parts) >= 2 and parts[-2].casefold() == "patient":
+            candidates.append(f"Patient/{tail}")
+    # de-duplicate, preserve order
+    seen: set[str] = set()
+    return [c for c in candidates if c and not (c in seen or seen.add(c))]
 
 
 def _patient_reference(resource: Mapping[str, Any]) -> str | None:
@@ -197,6 +252,78 @@ def _reference_value(value: Any) -> str | None:
     return None
 
 
+# ------------------------------------------------------------------ status / dates
+
+# Statuses that mean the resource is an error or did not happen -> drop entirely.
+_STATUS_DROP = {"entered-in-error", "cancelled", "not-done", "nullified", "declined"}
+# clinicalStatus values that mean the item is no longer present -> negate.
+_INACTIVE_CLINICAL = {"resolved", "inactive", "remission"}
+
+
+def _status_code(value: Any) -> str:
+    if isinstance(value, Mapping):
+        for coding in value.get("coding") or []:
+            code = str((coding or {}).get("code") or "").strip().casefold()
+            if code:
+                return code
+        return clean_text(value.get("text")).casefold()
+    return str(value or "").strip().casefold()
+
+
+def _resource_disposition(resource_type: str, resource: Mapping[str, Any]) -> tuple[str, bool]:
+    """Return ("drop"|"keep", negated) from FHIR status fields.
+
+    - entered-in-error / cancelled / not-done -> drop (error or did not happen)
+    - verificationStatus refuted -> keep but negated
+    - clinicalStatus resolved/inactive on Condition/Allergy -> keep but negated
+      (medications stay un-negated: a completed/stopped drug is real prior exposure)
+    """
+    status = _status_code(resource.get("status"))
+    verification = _status_code(resource.get("verificationStatus"))
+    clinical = _status_code(resource.get("clinicalStatus"))
+
+    if status in _STATUS_DROP or verification == "entered-in-error":
+        return "drop", False
+    if verification == "refuted":
+        return "keep", True
+    if resource_type in {"Condition", "AllergyIntolerance"} and clinical in _INACTIVE_CLINICAL:
+        return "keep", True
+    return "keep", False
+
+
+def _temporality(resource: Mapping[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = resource.get(key)
+        if not value:
+            continue
+        if isinstance(value, str):
+            return clean_text(value) or None
+        if isinstance(value, Mapping):
+            if value.get("start") or value.get("end"):
+                span = f"{value.get('start', '')} to {value.get('end', '')}"
+                return clean_text(span).strip(" to") or None
+            if value.get("value") is not None:
+                return clean_text(f"{value.get('value')} {value.get('unit', '')}") or None
+    return None
+
+
+def _annotations_text(value: Any) -> str | None:
+    if isinstance(value, Mapping):
+        value = [value]
+    if not isinstance(value, list):
+        return None
+    texts = [
+        clean_text((note or {}).get("text"))
+        for note in value
+        if isinstance(note, Mapping)
+    ]
+    joined = "; ".join(text for text in texts if text)
+    return joined or None
+
+
+# ----------------------------------------------------------------- resource router
+
+
 def _add_resource(
     profile: PatientProfile,
     resource: Mapping[str, Any],
@@ -205,33 +332,43 @@ def _add_resource(
     resource_type = resource.get("resourceType")
     if resource_type in {None, "Patient"}:
         return
+
+    disposition, negated = _resource_disposition(str(resource_type), resource)
     provenance = base_provenance.model_copy(
-        update={
-            "source_resource": f"{resource_type}/{resource.get('id', 'unknown')}",
-        }
+        update={"source_resource": f"{resource_type}/{resource.get('id', 'unknown')}"}
     )
+    if disposition == "drop":
+        profile.unsupported.append(
+            {
+                "resourceType": resource_type,
+                "id": resource.get("id"),
+                "reason": "dropped: status indicates error or did-not-happen",
+            }
+        )
+        return
+
     if resource_type == "Condition":
-        _add_condition(profile, resource, provenance)
+        _add_condition(profile, resource, provenance, negated)
     elif resource_type == "Observation":
-        _add_observation(profile, resource, provenance)
+        _add_observation(profile, resource, provenance, negated)
     elif resource_type in {
         "MedicationRequest",
         "MedicationStatement",
         "MedicationAdministration",
     }:
-        _add_medication(profile, resource, provenance)
+        _add_medication(profile, resource, provenance, negated)
     elif resource_type == "Procedure":
-        _add_procedure(profile, resource, provenance)
+        _add_procedure(profile, resource, provenance, negated)
     elif resource_type == "DiagnosticReport":
         _add_diagnostic_report(profile, resource, provenance)
     elif resource_type == "DocumentReference":
         _add_document_reference(profile, resource, provenance)
     elif resource_type == "AllergyIntolerance":
-        _add_allergy(profile, resource, provenance)
+        _add_allergy(profile, resource, provenance, negated)
     elif resource_type == "FamilyMemberHistory":
         _add_family_history(profile, resource, provenance)
     elif resource_type in {"MolecularSequence", "GenomicStudy"}:
-        _add_genomic(profile, resource, provenance)
+        _add_genomic(profile, resource, provenance, negated)
     elif resource_type == "Specimen":
         _add_specimen(profile, resource, provenance)
     else:
@@ -248,20 +385,26 @@ def _add_condition(
     profile: PatientProfile,
     resource: Mapping[str, Any],
     provenance: Provenance,
+    negated: bool,
 ) -> None:
-    code = code_from_fhir_codeable(resource.get("code") or {})
-    label = label_from_fhir_codeable(resource.get("code") or {})
+    codeable = resource.get("code") or {}
+    codes = codes_from_fhir_codeable(codeable)
+    label = label_from_fhir_codeable(codeable)
     if not label:
         return
     profile.conditions.append(
         make_fact(
             category="condition",
             label=label,
-            original_code=code,
+            original_code=codes[0] if codes else None,
+            normalized_codes=codes or None,
             provenance=provenance,
-            description=clean_text(resource.get("note")) or None,
-            temporality=clean_text(resource.get("onsetDateTime")) or None,
-            negated=_is_negated(resource),
+            description=_annotations_text(resource.get("note")),
+            temporality=_temporality(
+                resource,
+                ("onsetDateTime", "onsetPeriod", "onsetAge", "onsetString", "recordedDate"),
+            ),
+            negated=negated,
         )
     )
 
@@ -270,21 +413,26 @@ def _add_observation(
     profile: PatientProfile,
     resource: Mapping[str, Any],
     provenance: Provenance,
+    negated: bool,
 ) -> None:
-    code = code_from_fhir_codeable(resource.get("code") or {})
-    label = label_from_fhir_codeable(resource.get("code") or {})
+    codeable = resource.get("code") or {}
+    codes = codes_from_fhir_codeable(codeable)
+    label = label_from_fhir_codeable(codeable)
     if not label:
         return
-    value = _observation_value(resource)
     category = "genomic_finding" if _is_genomic_observation(resource) else "observation"
     profile.add_fact(
         make_fact(
             category=category,
             label=label,
-            original_code=code,
+            original_code=codes[0] if codes else None,
+            normalized_codes=codes or None,
             provenance=provenance,
-            description=value,
-            temporality=clean_text(resource.get("effectiveDateTime")) or None,
+            description=_observation_value(resource),
+            temporality=_temporality(
+                resource, ("effectiveDateTime", "effectivePeriod", "effectiveInstant")
+            ),
+            negated=negated,
         )
     )
 
@@ -293,28 +441,24 @@ def _add_medication(
     profile: PatientProfile,
     resource: Mapping[str, Any],
     provenance: Provenance,
+    negated: bool,
 ) -> None:
-    medication = (
-        resource.get("medicationCodeableConcept")
-        or resource.get("medication")
-        or resource.get("contained")
-        or {}
-    )
-    code = code_from_fhir_codeable(medication) if isinstance(medication, Mapping) else None
-    label = (
-        label_from_fhir_codeable(medication)
-        if isinstance(medication, Mapping)
-        else clean_text(medication)
-    )
+    codes, label = _medication_codes_label(resource)
     if not label:
         return
     profile.medications.append(
         make_fact(
             category="medication",
             label=label,
-            original_code=code,
+            original_code=codes[0] if codes else None,
+            normalized_codes=codes or None,
             provenance=provenance,
-            description=clean_text(resource.get("dosageInstruction")) or None,
+            description=_dosage_text(resource.get("dosageInstruction")),
+            temporality=_temporality(
+                resource,
+                ("authoredOn", "effectiveDateTime", "effectivePeriod"),
+            ),
+            negated=negated,
         )
     )
 
@@ -323,17 +467,23 @@ def _add_procedure(
     profile: PatientProfile,
     resource: Mapping[str, Any],
     provenance: Provenance,
+    negated: bool,
 ) -> None:
-    code = code_from_fhir_codeable(resource.get("code") or {})
-    label = label_from_fhir_codeable(resource.get("code") or {})
+    codeable = resource.get("code") or {}
+    codes = codes_from_fhir_codeable(codeable)
+    label = label_from_fhir_codeable(codeable)
     if label:
         profile.procedures.append(
             make_fact(
                 category="procedure",
                 label=label,
-                original_code=code,
+                original_code=codes[0] if codes else None,
+                normalized_codes=codes or None,
                 provenance=provenance,
-                temporality=clean_text(resource.get("performedDateTime")) or None,
+                temporality=_temporality(
+                    resource, ("performedDateTime", "performedPeriod", "performedString")
+                ),
+                negated=negated,
             )
         )
 
@@ -343,16 +493,16 @@ def _add_diagnostic_report(
     resource: Mapping[str, Any],
     provenance: Provenance,
 ) -> None:
-    code = code_from_fhir_codeable(resource.get("code") or {})
-    label = label_from_fhir_codeable(resource.get("code") or {}) or clean_text(
-        resource.get("conclusion")
-    )
+    codeable = resource.get("code") or {}
+    codes = codes_from_fhir_codeable(codeable)
+    label = label_from_fhir_codeable(codeable) or clean_text(resource.get("conclusion"))
     if label:
         profile.diagnostic_reports.append(
             make_fact(
                 category="diagnostic_report",
                 label=label,
-                original_code=code,
+                original_code=codes[0] if codes else None,
+                normalized_codes=codes or None,
                 provenance=provenance,
                 description=clean_text(resource.get("conclusion")) or None,
             )
@@ -379,17 +529,21 @@ def _add_allergy(
     profile: PatientProfile,
     resource: Mapping[str, Any],
     provenance: Provenance,
+    negated: bool,
 ) -> None:
-    code = code_from_fhir_codeable(resource.get("code") or {})
-    label = label_from_fhir_codeable(resource.get("code") or {})
+    codeable = resource.get("code") or {}
+    codes = codes_from_fhir_codeable(codeable)
+    label = label_from_fhir_codeable(codeable)
     if label:
         profile.conditions.append(
             make_fact(
                 category="condition",
                 label=f"Allergy: {label}",
-                original_code=code,
+                original_code=codes[0] if codes else None,
+                normalized_codes=codes or None,
                 provenance=provenance,
-                extra={"clinical_status": resource.get("clinicalStatus")},
+                negated=negated,
+                extra={"clinical_status": _status_code(resource.get("clinicalStatus")) or None},
             )
         )
 
@@ -415,7 +569,7 @@ def _add_family_history(
                 category="family_history",
                 label=label,
                 provenance=provenance,
-                extra={"relationship": relationship, "conditions": conditions},
+                extra={"relationship": relationship},
             )
         )
 
@@ -424,14 +578,19 @@ def _add_genomic(
     profile: PatientProfile,
     resource: Mapping[str, Any],
     provenance: Provenance,
+    negated: bool = False,
 ) -> None:
-    label = clean_text(resource.get("id") or resource.get("type") or "Genomic finding")
+    label = (
+        label_from_fhir_codeable(resource.get("type") or {})
+        or clean_text(resource.get("id"))
+        or "Genomic finding"
+    )
     profile.genomic_findings.append(
         make_fact(
             category="genomic_finding",
             label=label,
             provenance=provenance,
-            extra=dict(resource),
+            negated=negated,
         )
     )
 
@@ -450,35 +609,151 @@ def _add_specimen(
                 category="diagnostic_report",
                 label=f"Specimen: {label}",
                 provenance=provenance,
-                extra=dict(resource),
             )
         )
 
 
-def _observation_value(resource: Mapping[str, Any]) -> str | None:
-    if resource.get("valueQuantity"):
-        value = resource["valueQuantity"]
-        return clean_text(
-            f"{value.get('value', '')} {value.get('unit') or value.get('code') or ''}"
-        )
-    if resource.get("valueCodeableConcept"):
-        return label_from_fhir_codeable(resource.get("valueCodeableConcept") or {})
-    for key in ("valueString", "valueBoolean", "valueInteger", "valueDateTime"):
-        if key in resource:
-            return clean_text(resource.get(key))
+# ------------------------------------------------------------------- value helpers
+
+
+def _medication_codes_label(resource: Mapping[str, Any]):
+    """Resolve a medication's codes + label across R4/R5 shapes and references."""
+    codeable = resource.get("medicationCodeableConcept")
+    if not isinstance(codeable, Mapping):
+        medication = resource.get("medication")
+        if isinstance(medication, Mapping):
+            # R5 wraps as medication.concept; otherwise treat as the concept itself.
+            concept = medication.get("concept")
+            codeable = concept if isinstance(concept, Mapping) else medication
+    if isinstance(codeable, Mapping) and (codeable.get("coding") or codeable.get("text")):
+        label = label_from_fhir_codeable(codeable)
+        if label:
+            return codes_from_fhir_codeable(codeable), label
+
+    # medicationReference (R4) / medication.reference (R5), incl. contained Medication.
+    reference = resource.get("medicationReference")
+    if not isinstance(reference, Mapping) and isinstance(resource.get("medication"), Mapping):
+        reference = resource["medication"].get("reference")
+    if isinstance(reference, Mapping):
+        contained = _resolve_contained(resource, reference.get("reference"))
+        if contained is not None:
+            contained_code = contained.get("code") or {}
+            label = label_from_fhir_codeable(contained_code) or clean_text(
+                reference.get("display")
+            )
+            if label:
+                return codes_from_fhir_codeable(contained_code), label
+        display = clean_text(reference.get("display"))
+        if display:
+            return [], display
+    return [], None
+
+
+def _resolve_contained(resource: Mapping[str, Any], reference: Any) -> Mapping[str, Any] | None:
+    if not isinstance(reference, str) or not reference.startswith("#"):
+        return None
+    target = reference[1:]
+    for item in resource.get("contained") or []:
+        if isinstance(item, Mapping) and str(item.get("id")) == target:
+            return item
     return None
 
 
-def _is_negated(resource: Mapping[str, Any]) -> bool:
-    verification = resource.get("verificationStatus") or {}
-    text = label_from_fhir_codeable(verification).casefold()
-    return "refuted" in text or "entered-in-error" in text
+def _dosage_text(value: Any) -> str | None:
+    if isinstance(value, Mapping):
+        value = [value]
+    if not isinstance(value, list):
+        return None
+    texts = [
+        clean_text((dosage or {}).get("text"))
+        for dosage in value
+        if isinstance(dosage, Mapping)
+    ]
+    joined = "; ".join(text for text in texts if text)
+    return joined or None
+
+
+def _observation_value(resource: Mapping[str, Any]) -> str | None:
+    parts: list[str] = []
+    main = _value_x(resource)
+    if main:
+        parts.append(main)
+    interpretation = _interpretation_text(resource.get("interpretation"))
+    if interpretation:
+        parts.append(f"[{interpretation}]")
+    for component in resource.get("component") or []:
+        if not isinstance(component, Mapping):
+            continue
+        component_label = label_from_fhir_codeable(component.get("code") or {})
+        component_value = _value_x(component)
+        if component_label and component_value:
+            parts.append(f"{component_label}: {component_value}")
+        elif component_label:
+            parts.append(component_label)
+        elif component_value:
+            parts.append(component_value)
+    return clean_text(" ".join(parts)) or None
+
+
+def _value_x(node: Mapping[str, Any]) -> str | None:
+    quantity = node.get("valueQuantity")
+    if isinstance(quantity, Mapping):
+        comparator = clean_text(quantity.get("comparator"))
+        unit = clean_text(quantity.get("unit") or quantity.get("code"))
+        value = quantity.get("value")
+        if value is not None or comparator:
+            number = f"{comparator}{value if value is not None else ''}".strip()
+            return clean_text(f"{number} {unit}") or None
+    concept = node.get("valueCodeableConcept")
+    if isinstance(concept, Mapping):
+        return label_from_fhir_codeable(concept) or None
+    value_range = node.get("valueRange")
+    if isinstance(value_range, Mapping):
+        low = (value_range.get("low") or {}).get("value")
+        high = (value_range.get("high") or {}).get("value")
+        span = f"{'' if low is None else low}-{'' if high is None else high}"
+        return clean_text(span).strip("-") or None
+    ratio = node.get("valueRatio")
+    if isinstance(ratio, Mapping):
+        numerator = (ratio.get("numerator") or {}).get("value")
+        denominator = (ratio.get("denominator") or {}).get("value")
+        return clean_text(f"{numerator}/{denominator}") or None
+    for key in ("valueString", "valueBoolean", "valueInteger", "valueDateTime", "valueTime"):
+        if key in node:
+            return clean_text(node.get(key)) or None
+    return None
+
+
+def _interpretation_text(value: Any) -> str | None:
+    if isinstance(value, Mapping):
+        value = [value]
+    if not isinstance(value, list):
+        return None
+    labels = [
+        label_from_fhir_codeable(item) for item in value if isinstance(item, Mapping)
+    ]
+    joined = ", ".join(label for label in labels if label)
+    return joined or None
+
+
+_GENOMIC_HINTS = (
+    "genetic",
+    "genomic",
+    "variant",
+    "mutation",
+    "sequence variant",
+    "molecular",
+)
 
 
 def _is_genomic_observation(resource: Mapping[str, Any]) -> bool:
-    categories = resource.get("category") or []
-    text = clean_text(categories).casefold()
-    return "genetic" in text or "genomic" in text
+    haystack = " ".join(
+        [
+            clean_text(resource.get("category")).casefold(),
+            label_from_fhir_codeable(resource.get("code") or {}).casefold(),
+        ]
+    )
+    return any(hint in haystack for hint in _GENOMIC_HINTS)
 
 
 def _document_url(resource: Mapping[str, Any]) -> str | None:

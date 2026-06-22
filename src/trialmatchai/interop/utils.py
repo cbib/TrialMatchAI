@@ -54,10 +54,32 @@ def normalize_gender(value: Any) -> str | None:
 def parse_date(value: Any) -> date | None:
     if not value:
         return None
+    text = str(value).strip()
+    # Full date / datetime (FHIR dateTime, with or without timezone).
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
     except ValueError:
-        return None
+        pass
+    # Partial FHIR dates are legal: YYYY or YYYY-MM (default to Jan / day 1).
+    match = re.fullmatch(r"(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?", text)
+    if match:
+        try:
+            return date(
+                int(match.group(1)),
+                int(match.group(2) or 1),
+                int(match.group(3) or 1),
+            )
+        except ValueError:
+            return None
+    # Datetime string fromisoformat couldn't parse (e.g. older Python tz forms):
+    # fall back to the leading YYYY-MM-DD if present.
+    prefix = re.match(r"(\d{4}-\d{2}-\d{2})", text)
+    if prefix:
+        try:
+            return date.fromisoformat(prefix.group(1))
+        except ValueError:
+            return None
+    return None
 
 
 def age_years_from_birth_date(birth_date: date | None) -> float | None:
@@ -104,33 +126,56 @@ def code_from_ontology_class(value: Mapping[str, Any] | None) -> NormalizedCode 
     )
 
 
-def code_from_fhir_codeable(value: Mapping[str, Any] | None) -> NormalizedCode | None:
-    if not value:
-        return None
+def codes_from_fhir_codeable(value: Mapping[str, Any] | None) -> list[NormalizedCode]:
+    """Extract all codings from a FHIR CodeableConcept, known vocabularies first.
+
+    Real EHRs emit several codings per concept (e.g. a proprietary code plus
+    SNOMED/LOINC/RxNorm). We keep them all and order recognized vocabularies
+    first so concept linking uses the standard code rather than a local one.
+    """
+    if not isinstance(value, Mapping) or not value:
+        return []
     text = clean_text(value.get("text"))
-    codings = value.get("coding") or []
-    if isinstance(codings, list) and codings:
-        coding = codings[0] or {}
-        system = str(coding.get("system") or "")
-        vocabulary = FHIR_SYSTEM_TO_VOCABULARY.get(system, system.rsplit("/", 1)[-1])
+    codings = value.get("coding")
+    ranked: list[tuple[int, NormalizedCode]] = []
+    for coding in codings if isinstance(codings, list) else []:
+        if not isinstance(coding, Mapping):
+            continue
         code = str(coding.get("code") or "").strip()
-        label = clean_text(coding.get("display")) or text or None
-        if code:
-            return NormalizedCode(
-                vocabulary=vocabulary or "FHIR",
-                code=code,
-                label=label,
-                system=system or None,
-                mapping_status="exact",
-            )
-    if text:
-        return NormalizedCode(
-            vocabulary="FHIR",
-            code=text,
-            label=text,
-            mapping_status="unmapped",
+        if not code:
+            continue
+        system = str(coding.get("system") or "")
+        known = system in FHIR_SYSTEM_TO_VOCABULARY
+        vocabulary = FHIR_SYSTEM_TO_VOCABULARY.get(system) or (
+            system.rsplit("/", 1)[-1] if system else "FHIR"
         )
-    return None
+        label = clean_text(coding.get("display")) or text or None
+        ranked.append(
+            (
+                0 if known else 1,
+                NormalizedCode(
+                    vocabulary=vocabulary or "FHIR",
+                    code=code,
+                    label=label,
+                    system=system or None,
+                    mapping_status="exact",
+                ),
+            )
+        )
+    ranked.sort(key=lambda item: item[0])  # stable: known vocabularies first
+    codes = [code for _, code in ranked]
+    if not codes and text:
+        codes = [
+            NormalizedCode(
+                vocabulary="FHIR", code=text, label=text, mapping_status="unmapped"
+            )
+        ]
+    return codes
+
+
+def code_from_fhir_codeable(value: Mapping[str, Any] | None) -> NormalizedCode | None:
+    codes = codes_from_fhir_codeable(value)
+    return codes[0] if codes else None
 
 
 def label_from_fhir_codeable(value: Mapping[str, Any] | None) -> str:
