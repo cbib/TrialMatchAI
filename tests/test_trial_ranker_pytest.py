@@ -9,19 +9,18 @@ from trialmatchai.matching.trial_ranker import (
 
 
 def test_score_trial_basic():
+    # A violated exclusion hard-disqualifies the trial regardless of inclusions.
     trial = {
         "Inclusion_Criteria_Evaluation": [
             {"Classification": "Met"},
             {"Classification": "Met"},
-            {"Classification": "Violated"},
         ],
         "Exclusion_Criteria_Evaluation": [
             {"Classification": "Not Violated"},
             {"Classification": "Violated"},
         ],
     }
-    score = score_trial(trial)
-    assert score == ((2 - 1) / 3 + (1 - 1) / 2) / 2
+    assert score_trial(trial) == -1.0
 
 
 def test_rank_trials_orders_by_score():

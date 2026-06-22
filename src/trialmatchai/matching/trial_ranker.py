@@ -22,46 +22,38 @@ def load_trial_data(json_folder: str) -> List[Dict]:
     return trial_data
 
 
-def score_trial(trial: Dict) -> float:
-    def calculate_ratio(
-        criteria_list, positive_classifications, negative_classifications
-    ):
-        criteria_to_exclude = ["Irrelevant", "Unclear"]
-        criteria_list = [
-            c
-            for c in criteria_list
-            if c.get("Classification") not in criteria_to_exclude
-        ]
-        total_criteria = len(criteria_list)
-        if total_criteria == 0:
-            return 0.0
-        positive_count = sum(
-            1
-            for c in criteria_list
-            if c.get("Classification") in positive_classifications
-        )
-        negative_count = sum(
-            1
-            for c in criteria_list
-            if c.get("Classification") in negative_classifications
-        )
-        penalty_factor_negative = 1.0
-        reward_factor_positive = 1.0
-        score = (
-            reward_factor_positive * positive_count
-            - penalty_factor_negative * negative_count
-        ) / total_criteria
-        return score
+# Eligibility scoring contract (see REFACTOR_PLAN.md PR1, audit finding C1).
+#
+# The eligibility model classifies each inclusion criterion as one of
+# {Met, Not Met, Unclear, Irrelevant} and each exclusion criterion as one of
+# {Violated, Not Violated, Unclear, Irrelevant}. A single Violated exclusion
+# makes the patient ineligible, so it HARD-DISQUALIFIES the trial rather than
+# being averaged against the inclusion score (the previous behavior, which let a
+# violated trial outrank an eligible one). Eligible trials are ranked in [0, 1]
+# by the fraction of decided inclusion criteria (Met or Not Met) that are Met.
+DISQUALIFIED_SCORE = -1.0
 
-    inclusion_criteria = trial.get("Inclusion_Criteria_Evaluation", [])
-    exclusion_criteria = trial.get("Exclusion_Criteria_Evaluation", [])
-    inclusion_ratio = calculate_ratio(
-        inclusion_criteria, ["Met", "Not Violated"], ["Violated", "Not Met"]
-    )
-    exclusion_ratio = calculate_ratio(
-        exclusion_criteria, ["Not Violated", "Met"], ["Violated"]
-    )
-    return (inclusion_ratio + exclusion_ratio) / 2
+_DECIDED_INCLUSION = {"Met", "Not Met"}
+
+
+def score_trial(trial: Dict) -> float:
+    inclusion = [
+        c.get("Classification") for c in trial.get("Inclusion_Criteria_Evaluation", [])
+    ]
+    exclusion = [
+        c.get("Classification") for c in trial.get("Exclusion_Criteria_Evaluation", [])
+    ]
+
+    # Any violated exclusion is a hard disqualifier: rank below all eligible trials.
+    if "Violated" in exclusion:
+        return DISQUALIFIED_SCORE
+
+    # Eligible: score by the fraction of decided inclusion criteria that are Met.
+    decided = [c for c in inclusion if c in _DECIDED_INCLUSION]
+    if not decided:
+        return 0.0
+    met = sum(1 for c in decided if c == "Met")
+    return met / len(decided)
 
 
 def rank_trials(trial_data: List[Dict]) -> List[Dict]:
