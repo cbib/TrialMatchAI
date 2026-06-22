@@ -78,15 +78,11 @@ class ClinicalTrialSearch:
         self,
         synonyms: List[str],
         embeddings: Dict[str, List[float]],
-        age: int,
-        sex: str,
-        overall_status: Optional[str],
-        max_text_score: float,
-        vector_score_threshold: float = 0.5,
-        pre_selected_nct_ids: Optional[List[str]] = None,
         other_conditions: Optional[List[str]] = None,
-        search_mode: str = "hybrid",
     ) -> Dict:
+        # Assemble the term lists (with a conservative cap) and embeddings the
+        # backend consumes. Filters like age/sex/status/nct_ids are passed to the
+        # backend directly by search_trials, not threaded through this dict.
         max_conditions_per_query = 800  # Conservative limit
         all_conditions = synonyms + (other_conditions or [])
         if len(all_conditions) > max_conditions_per_query:
@@ -107,13 +103,6 @@ class ClinicalTrialSearch:
             "primary_terms": synonyms,
             "other_terms": other_conditions or [],
             "embeddings": embeddings,
-            "age": age,
-            "sex": sex,
-            "overall_status": overall_status,
-            "pre_selected_nct_ids": pre_selected_nct_ids or [],
-            "search_mode": search_mode,
-            "vector_score_threshold": vector_score_threshold,
-            "max_text_score": max_text_score,
         }
 
     def search_trials(
@@ -155,18 +144,7 @@ class ClinicalTrialSearch:
             )
             mode = "bm25"
 
-        query = self.create_query(
-            primary_synonyms,
-            embeddings,
-            age if age is not None else 0,
-            sex,
-            overall_status,
-            1.0,
-            vector_score_threshold,
-            pre_selected_nct_ids,
-            other_conditions,
-            search_mode=mode,
-        )
+        query = self.create_query(primary_synonyms, embeddings, other_conditions)
         try:
             trials, scores = self.search_backend.search_trials(
                 primary_terms=query["primary_terms"],

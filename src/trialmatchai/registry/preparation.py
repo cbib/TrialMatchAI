@@ -46,6 +46,12 @@ def prepare_trial_document(
         out[field] = text
         out[vector_field] = vector
 
+    # Text-only fields the backend scores on (TRIAL_TEXT_WEIGHTS) but does not embed.
+    for text_field in ("detailed_description", "official_title"):
+        value = _preprocess_text(_flatten_text(doc.get(text_field)))
+        if value:
+            out[text_field] = value
+
     for simple in (
         "overall_status",
         "phase",

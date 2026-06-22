@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from trialmatchai.search import LanceDBSearchBackend
+from trialmatchai.search.lancedb_backend import _nct_where
 
 
 pytest.importorskip("lancedb")
@@ -73,3 +74,41 @@ def test_lancedb_backend_indexes_and_searches_trials_and_criteria(tmp_path):
     assert trials[0]["nct_id"] == "N1"
     assert scores[0] > 0
     assert criteria_hits[0]["_source"]["criteria_id"] == "C1"
+
+
+def test_scan_rows_fallback_applies_nct_filter(tmp_path):
+    # The fallback scan (used when FTS and vector both return nothing) must honor
+    # the nct_id filter; otherwise it returns arbitrary rows that may exclude the
+    # requested trials entirely.
+    backend = LanceDBSearchBackend(
+        tmp_path / "search",
+        trials_table="trials",
+        criteria_table="criteria",
+        candidate_limit=25,
+    )
+    backend.index_criteria(
+        [
+            {
+                "criteria_id": "C1",
+                "nct_id": "N1",
+                "criterion": "alpha",
+                "criterion_vector": [1.0, 0.0],
+                "entities": [],
+                "eligibility_type": "Inclusion Criteria",
+            },
+            {
+                "criteria_id": "C2",
+                "nct_id": "N2",
+                "criterion": "beta",
+                "criterion_vector": [0.0, 1.0],
+                "entities": [],
+                "eligibility_type": "Inclusion Criteria",
+            },
+        ]
+    )
+    table = backend._open_table("criteria")
+
+    rows = backend._scan_rows(table, where=_nct_where(["N1"]), limit=25)
+
+    assert rows
+    assert {row["nct_id"] for row in rows} == {"N1"}

@@ -11,20 +11,14 @@ def test_first_level_query_describes_backend_search():
     query = search.create_query(
         synonyms=["lung cancer"],
         embeddings={},
-        age=45,
-        sex="ALL",
-        overall_status="Recruiting",
-        max_text_score=1.0,
-        vector_score_threshold=0.5,
-        pre_selected_nct_ids=None,
         other_conditions=["smoking"],
-        search_mode="bm25",
     )
 
     assert query["primary_terms"] == ["lung cancer"]
     assert query["other_terms"] == ["smoking"]
-    assert query["overall_status"] == "Recruiting"
-    assert query["search_mode"] == "bm25"
+    assert query["embeddings"] == {}
+    # Filters are passed to the backend directly, not via the query dict.
+    assert set(query) == {"primary_terms", "other_terms", "embeddings"}
 
 
 def test_build_trial_record_flattens_search_text_and_vector():

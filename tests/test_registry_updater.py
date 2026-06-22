@@ -49,6 +49,31 @@ def test_client_paginates_and_filters_since():
     assert session.calls[1]["params"]["pageToken"] == "page-2"
 
 
+def test_prepare_trial_document_preserves_detailed_description_and_official_title():
+    # These two fields carry BM25 weight in the backend (TRIAL_TEXT_WEIGHTS) but
+    # were previously dropped before indexing, silently losing retrieval signal.
+    from trialmatchai.registry.preparation import prepare_trial_document
+
+    class _StubEmbedder:
+        def embed_texts(self, texts):
+            return [[0.0, 0.0] for _ in texts]
+
+    prepared = prepare_trial_document(
+        {
+            "nct_id": "NCT00000009",
+            "brief_title": "Brief",
+            "condition": ["Lung cancer"],
+            "eligibility_criteria": "Adults",
+            "detailed_description": "A longer detailed description of the study.",
+            "official_title": "The Official Long Title of the Study",
+        },
+        _StubEmbedder(),
+    )
+
+    assert "description" in prepared["detailed_description"].lower()
+    assert "official" in prepared["official_title"].lower()
+
+
 def test_normalize_study_maps_v2_modules_and_splits_criteria():
     normalized = normalize_study(_study("NCT00000004"))
 

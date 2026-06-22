@@ -10,7 +10,10 @@ logger = setup_logging(__name__)
 def load_trial_data(json_folder: str) -> List[Dict]:
     trial_data = []
     for file_name in os.listdir(json_folder):
-        if file_name.endswith(".json"):
+        # Only NCT-named files are trials; skip run sidecars written to the same
+        # folder (keywords.json, patient_profile.json, first_level_scores.json,
+        # rag_output.json), which would otherwise be scored as bogus trials.
+        if file_name.endswith(".json") and file_name.upper().startswith("NCT"):
             file_path = os.path.join(json_folder, file_name)
             trial_id = os.path.splitext(file_name)[0]
             try:

@@ -413,7 +413,7 @@ class LanceDBSearchBackend:
                 rows_by_key[_row_key(row)] = row
 
         if not rows_by_key:
-            for row in self._scan_rows(table, limit=limit):
+            for row in self._scan_rows(table, where=where, limit=limit):
                 rows_by_key[_row_key(row)] = row
 
         return list(rows_by_key.values())
@@ -455,8 +455,14 @@ class LanceDBSearchBackend:
             )
             return []
 
-    def _scan_rows(self, table: Any, *, limit: int) -> list[dict[str, Any]]:
+    def _scan_rows(
+        self, table: Any, *, where: str, limit: int
+    ) -> list[dict[str, Any]]:
         try:
+            # Honor the nct_id filter on the fallback path; an unfiltered head
+            # slice could return rows that exclude the requested trials entirely.
+            if where:
+                return list(table.search().where(where).limit(limit).to_list())
             return list(table.to_arrow().to_pylist())[:limit]
         except Exception as exc:
             logger.warning("Could not scan LanceDB table rows: %s", exc)
