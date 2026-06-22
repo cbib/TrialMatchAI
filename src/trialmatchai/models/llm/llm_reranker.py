@@ -99,7 +99,8 @@ class LLMReranker:
         text = re.sub(r"\s+", " ", text)
         return text.strip()
 
-    def create_messages(self, patient_text: str, trial_text: str) -> List[Dict]:
+    @staticmethod
+    def create_messages(patient_text: str, trial_text: str) -> List[Dict]:
         system_prompt = (
             "You are a clinical assistant tasked with determining whether the patient information (Statement A) "
             "provides enough details to evaluate whether the patient satisfies or violates the clinical "
