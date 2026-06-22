@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, dev, deployment-readiness-audit]
+    branches: [main, dev, deployment-readiness-audit, refactor/audit-fixes]
   pull_request:
     branches: [main, dev]
   workflow_dispatch:
@@ -40,7 +40,7 @@ jobs:
 
       - name: Installed package smoke
         run: |
-          WHEEL="$(ls dist/trialmatchai-*.whl | head -n 1)"
+          WHEEL="$(ls "$PWD"/dist/trialmatchai-*.whl | head -n 1)"
           mkdir -p /tmp/trialmatchai-installed-smoke
           cd /tmp/trialmatchai-installed-smoke
           uv run --python 3.11 --isolated --with "$WHEEL" python - <<'PY'
@@ -69,3 +69,49 @@ jobs:
       - name: Dependency audit
         # vLLM 0.23 pins torch 2.11.0; CVE-2025-3000 has no fixed version listed.
         run: uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
+
+  ml-extras-smoke:
+    # Installs the optional ML extras (CPU-only) and imports the local-model
+    # surface that the default job never touches, so a broken import or wrong
+    # transformers/gliner API call is caught instead of shipping silently.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install with entity extra (CPU)
+        run: uv sync --extra entity
+
+      - name: Import ML surface
+        run: |
+          uv run python - <<'PY'
+          import importlib
+
+          # The entity extra's heavy libs must import cleanly in the resolved
+          # environment (catches a bad transformers API or a torch pin conflict).
+          for lib in ("torch", "transformers", "gliner", "gliner2"):
+              importlib.import_module(lib)
+              print(f"imported {lib}")
+
+          # The package's local-model modules must import with extras present.
+          modules = [
+              "trialmatchai.entities.recognizers",
+              "trialmatchai.models.embedding.text_embedder",
+              "trialmatchai.models.llm.llm_loader",
+              "trialmatchai.models.llm.llm_reranker",
+              "trialmatchai.matching.eligibility_reasoning",
+              "trialmatchai.matching.eligibility_reasoning_vllm",
+          ]
+          for name in modules:
+              importlib.import_module(name)
+              print(f"imported {name}")
+          PY
