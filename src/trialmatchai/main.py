@@ -266,21 +266,27 @@ def main_pipeline(config_path: str | None = None) -> int:
 
     import warnings
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore", message=".*quantization_config.*", category=UserWarning
-        )
-        model, tokenizer = load_model_and_tokenizer(
-            config["model"], config["global"]["device"]
-        )
+    # The HuggingFace CoT model is only used by the default backend. When the
+    # vLLM backend is configured, run_rag_processing loads its own engine and
+    # ignores these, so skip loading (and half()-ing) the HF model entirely to
+    # avoid wasting GPU memory and load time (and risking OOM next to vLLM).
+    model, tokenizer = None, None
+    if config.get("cot_backend", "default") != "vllm":
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", message=".*quantization_config.*", category=UserWarning
+            )
+            model, tokenizer = load_model_and_tokenizer(
+                config["model"], config["global"]["device"]
+            )
 
-    if tokenizer.pad_token is None:  # type: ignore
-        tokenizer.pad_token = tokenizer.eos_token  # type: ignore
-        if hasattr(model.config, "pad_token_id") and model.config.pad_token_id is None:  # type: ignore
-            model.config.pad_token_id = tokenizer.pad_token_id  # type: ignore
+        if tokenizer.pad_token is None:  # type: ignore
+            tokenizer.pad_token = tokenizer.eos_token  # type: ignore
+            if hasattr(model.config, "pad_token_id") and model.config.pad_token_id is None:  # type: ignore
+                model.config.pad_token_id = tokenizer.pad_token_id  # type: ignore
 
-    if config["global"]["device"] != "cpu" and torch.cuda.is_available():
-        model = model.half()  # type: ignore
+        if config["global"]["device"] != "cpu" and torch.cuda.is_available():
+            model = model.half()  # type: ignore
 
     # Initialize components
     embedder = build_embedder(config)

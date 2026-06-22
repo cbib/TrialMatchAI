@@ -532,7 +532,9 @@ def _rank_trial_rows(
     mode = (search_mode or "hybrid").lower()
     hits: list[SearchHit] = []
     for raw in rows:
-        row = build_trial_record(raw)
+        # Candidate rows read from the index already carry the derived fields;
+        # only rebuild for callers (e.g. in-memory) that pass raw docs.
+        row = dict(raw) if "search_text" in raw else build_trial_record(raw)
         if not _trial_passes_filters(
             row,
             age=age,
@@ -578,7 +580,7 @@ def _rank_criteria_rows(
     )
     hits: list[SearchHit] = []
     for raw in rows:
-        row = build_criteria_record(raw)
+        row = dict(raw) if "search_text" in raw else build_criteria_record(raw)
         if allowed and row.get("nct_id") not in allowed:
             continue
         text_score = _weighted_text_score(row, [query], fields)
