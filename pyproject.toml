@@ -17,15 +17,10 @@ dependencies = [
   "requests==2.34.2",
   "tenacity==9.0.0",
   "tqdm==4.67.1",
-  "regex>=2025.10.22,<2027",
   "PyYAML==6.0.2",
-  "python-dotenv==1.2.2",
-  "rich==13.9.4",
   "lancedb>=0.25.0,<0.26",
   "pyarrow>=24.0.0,<25",
   "pydantic>=2.12.0,<3",
-  "bioregistry==0.13.62",
-  "rapidfuzz==3.14.5",
 ]
 
 [project.optional-dependencies]

@@ -82,8 +82,12 @@ def main() -> int:
 def _try_build_entity_annotator(config: dict[str, Any]):
     try:
         from trialmatchai.entities import build_entity_annotator
+        from trialmatchai.models.embedding import build_embedder
 
-        return build_entity_annotator(config)
+        # Pass an embedder so concept linking can use semantic (vector) search;
+        # without it linking silently degrades to lexical-only matching.
+        embedder = build_embedder(config)
+        return build_entity_annotator(config, embedder=embedder)
     except Exception as exc:
         logger.warning("Entity annotation unavailable; importing without entities: %s", exc)
         return None

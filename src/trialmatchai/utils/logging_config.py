@@ -39,8 +39,14 @@ def reset_request_id(token: contextvars.Token) -> None:
     _request_id_var.reset(token)
 
 
-def setup_logging(name: Optional[str] = None) -> logging.Logger:
-    """Configure logging for the application."""
+_root_configured = False
+
+
+def _configure_root_once() -> None:
+    """Install the root stream handler exactly once (imported by ~all modules)."""
+    global _root_configured
+    if _root_configured:
+        return
     level = os.getenv("TRIALMATCHAI_LOG_LEVEL", "INFO").upper()
     use_json = os.getenv("TRIALMATCHAI_LOG_JSON", "0") in {"1", "true", "TRUE"}
     handler = logging.StreamHandler(sys.stdout)
@@ -54,6 +60,13 @@ def setup_logging(name: Optional[str] = None) -> logging.Logger:
             )
         )
     logging.basicConfig(level=level, handlers=[handler])
+    _root_configured = True
+
+
+def setup_logging(name: Optional[str] = None) -> logging.Logger:
+    """Return a named logger with request-id context; configures root once."""
+    _configure_root_once()
+    level = os.getenv("TRIALMATCHAI_LOG_LEVEL", "INFO").upper()
     logger = logging.getLogger(name if name else __name__)
     logger.setLevel(level)
     if not any(isinstance(f, ContextFilter) for f in logger.filters):
