@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 from trialmatchai.utils.logging_config import setup_logging
+from trialmatchai.utils.text import flatten_text
 
 logger = setup_logging(__name__)
 
@@ -486,7 +487,7 @@ class LanceDBSearchBackend:
 
 def build_trial_record(doc: Mapping[str, Any]) -> dict[str, Any]:
     row = dict(doc)
-    search_text = _flatten_text(
+    search_text = flatten_text(
         [
             row.get("condition"),
             row.get("eligibility_criteria"),
@@ -508,7 +509,7 @@ def build_criteria_record(doc: Mapping[str, Any]) -> dict[str, Any]:
     entity_text, synonym_text = _flatten_entities(row.get("entities"))
     row["entity_text"] = entity_text
     row["entity_synonyms_text"] = synonym_text
-    row["search_text"] = _flatten_text(
+    row["search_text"] = flatten_text(
         [row.get("criterion"), entity_text, synonym_text]
     )
     return row
@@ -613,7 +614,7 @@ def _weighted_text_score(
     for term in clean_terms:
         field_score = 0.0
         for field, weight in fields:
-            field_score += weight * _lexical_score(term, _flatten_text(row.get(field)))
+            field_score += weight * _lexical_score(term, flatten_text(row.get(field)))
         best = max(best, field_score / max_weight)
     return min(best, 1.0)
 
@@ -750,24 +751,12 @@ def _flatten_entities(entities: Any) -> tuple[str, str]:
     for entity in entities:
         if not isinstance(entity, Mapping):
             continue
-        texts.append(_flatten_text([entity.get("text"), entity.get("entity")]))
-        synonyms.append(_flatten_text(entity.get("synonyms")))
+        texts.append(flatten_text([entity.get("text"), entity.get("entity")]))
+        synonyms.append(flatten_text(entity.get("synonyms")))
         for candidate in entity.get("concept_candidates") or []:
             if isinstance(candidate, Mapping):
-                synonyms.append(_flatten_text(candidate.get("concept_name")))
-    return _flatten_text(texts), _flatten_text(synonyms)
-
-
-def _flatten_text(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return " ".join(value.split())
-    if isinstance(value, Mapping):
-        return " ".join(_flatten_text(item) for item in value.values()).strip()
-    if isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray)):
-        return " ".join(_flatten_text(item) for item in value).strip()
-    return str(value)
+                synonyms.append(flatten_text(candidate.get("concept_name")))
+    return flatten_text(texts), flatten_text(synonyms)
 
 
 def _normalize_text(value: str) -> str:

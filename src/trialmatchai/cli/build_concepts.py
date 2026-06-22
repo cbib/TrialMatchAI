@@ -12,7 +12,7 @@ from trialmatchai.entities.builder import (
     concept_texts_for_embedding,
     write_lancedb_table,
 )
-from trialmatchai.models.embedding.text_embedder import TextEmbedder, TextEmbedderConfig
+from trialmatchai.models.embedding import build_embedder
 from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
@@ -59,7 +59,6 @@ def main() -> int:
 
     config = load_config(args.config)
     linker_cfg = config.get("concept_linker", {})
-    embedder_cfg = config.get("embedder", {})
     db_path = args.db_path or linker_cfg.get("db_path") or "data/concepts"
     table_name = args.table or linker_cfg.get("table") or "concepts"
 
@@ -81,19 +80,7 @@ def main() -> int:
 
     embeddings = None
     if not args.skip_embeddings:
-        embedder = TextEmbedder(
-            TextEmbedderConfig(
-                model_name=embedder_cfg.get("model_name", "BAAI/bge-m3"),
-                revision=embedder_cfg.get("revision"),
-                trust_remote_code=embedder_cfg.get("trust_remote_code", False),
-                pooling=embedder_cfg.get("pooling", "mean"),
-                max_length=embedder_cfg.get("max_length", 512),
-                batch_size=embedder_cfg.get("batch_size", 32),
-                use_gpu=embedder_cfg.get("use_gpu", True),
-                use_fp16=embedder_cfg.get("use_fp16", False),
-                normalize=embedder_cfg.get("normalize", True),
-            )
-        )
+        embedder = build_embedder(config)
         embeddings = embedder.embed_texts(concept_texts_for_embedding(rows))
 
     Path(db_path).mkdir(parents=True, exist_ok=True)

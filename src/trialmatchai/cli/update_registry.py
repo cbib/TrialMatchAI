@@ -126,22 +126,9 @@ class _NullEmbedder:
 
 
 def _build_embedder(config: dict[str, Any]):
-    from trialmatchai.models.embedding.text_embedder import TextEmbedder, TextEmbedderConfig
+    from trialmatchai.models.embedding import build_embedder
 
-    embedder_cfg = config.get("embedder", {})
-    return TextEmbedder(
-        TextEmbedderConfig(
-            model_name=embedder_cfg.get("model_name", "BAAI/bge-m3"),
-            revision=embedder_cfg.get("revision"),
-            trust_remote_code=embedder_cfg.get("trust_remote_code", False),
-            pooling=embedder_cfg.get("pooling", "mean"),
-            max_length=embedder_cfg.get("max_length", 512),
-            batch_size=embedder_cfg.get("batch_size", 32),
-            use_gpu=embedder_cfg.get("use_gpu", True),
-            use_fp16=embedder_cfg.get("use_fp16", False),
-            normalize=embedder_cfg.get("normalize", True),
-        )
-    )
+    return build_embedder(config)
 
 
 def _build_entity_annotator(config: dict[str, Any], embedder):

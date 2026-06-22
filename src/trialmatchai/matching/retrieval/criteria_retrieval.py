@@ -5,6 +5,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Dict, List, Optional
 
+from trialmatchai.matching.retrieval.synonyms import disease_synonyms
 from trialmatchai.search.lancedb_backend import TrialSearchBackend
 from trialmatchai.utils.file_utils import write_text_file
 from trialmatchai.utils.logging_config import setup_logging
@@ -39,21 +40,7 @@ class SecondStageRetriever:
         self.search_mode = search_mode.lower() if search_mode else "hybrid"
 
     def get_synonyms(self, condition: str) -> List[str]:
-        if self.entity_annotator is None:
-            logger.warning("Entity annotator not initialized; cannot extract synonyms.")
-            return []
-        raw_result = self.entity_annotator.annotate_texts_in_parallel(
-            [condition], max_workers=1
-        )
-        ner_results = raw_result
-        if ner_results and ner_results[0]:
-            synonyms = set()
-            for entity in ner_results[0]:
-                if entity.get("entity_group", "").lower() == "disease":
-                    synonyms.update(entity.get("synonyms", []))
-            return list(synonyms)
-        logger.warning(f"No annotations found for condition: {condition}")
-        return []
+        return disease_synonyms(self.entity_annotator, condition)
 
     def retrieve_criteria(
         self, nct_ids: List[str], queries: List[str]

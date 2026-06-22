@@ -129,7 +129,7 @@ def _prepare_from_trials_jsons(
     processed_criteria_folder: Path,
 ) -> None:
     from trialmatchai.entities import build_entity_annotator
-    from trialmatchai.models.embedding.text_embedder import TextEmbedder, TextEmbedderConfig
+    from trialmatchai.models.embedding import build_embedder
     from trialmatchai.registry.preparation import (
         prepare_criteria_documents,
         prepare_trial_document,
@@ -137,20 +137,7 @@ def _prepare_from_trials_jsons(
         write_prepared_trial,
     )
 
-    embedder_cfg = config.get("embedder", {})
-    embedder = TextEmbedder(
-        TextEmbedderConfig(
-            model_name=embedder_cfg.get("model_name", "BAAI/bge-m3"),
-            revision=embedder_cfg.get("revision"),
-            trust_remote_code=embedder_cfg.get("trust_remote_code", False),
-            pooling=embedder_cfg.get("pooling", "mean"),
-            max_length=embedder_cfg.get("max_length", 512),
-            batch_size=embedder_cfg.get("batch_size", 32),
-            use_gpu=embedder_cfg.get("use_gpu", True),
-            use_fp16=embedder_cfg.get("use_fp16", False),
-            normalize=embedder_cfg.get("normalize", True),
-        )
-    )
+    embedder = build_embedder(config)
     entity_annotator = build_entity_annotator(config, embedder=embedder)
     trial_docs = _load_flat_json_folder(trials_json_folder)
     for doc in trial_docs:

@@ -255,10 +255,7 @@ def main_pipeline(config_path: str | None = None) -> int:
         )
         return 1
 
-    from trialmatchai.models.embedding.text_embedder import (
-        TextEmbedder,
-        TextEmbedderConfig,
-    )
+    from trialmatchai.models.embedding import build_embedder
     from trialmatchai.models.llm.llm_loader import load_model_and_tokenizer
     from trialmatchai.models.llm.llm_reranker import LLMReranker
 
@@ -286,20 +283,7 @@ def main_pipeline(config_path: str | None = None) -> int:
         model = model.half()  # type: ignore
 
     # Initialize components
-    embedder_cfg = config.get("embedder", {})
-    embedder = TextEmbedder(
-        TextEmbedderConfig(
-            model_name=embedder_cfg.get("model_name", "BAAI/bge-m3"),
-            revision=embedder_cfg.get("revision"),
-            trust_remote_code=embedder_cfg.get("trust_remote_code", False),
-            pooling=embedder_cfg.get("pooling", "mean"),
-            max_length=embedder_cfg.get("max_length", 512),
-            batch_size=embedder_cfg.get("batch_size", 32),
-            use_gpu=embedder_cfg.get("use_gpu", True),
-            use_fp16=embedder_cfg.get("use_fp16", False),
-            normalize=embedder_cfg.get("normalize", True),
-        )
-    )
+    embedder = build_embedder(config)
     entity_annotator = build_entity_annotator(config, embedder=embedder)
 
     with warnings.catch_warnings():

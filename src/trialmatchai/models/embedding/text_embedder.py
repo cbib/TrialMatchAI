@@ -95,6 +95,28 @@ def _batched(items: Sequence[str], batch_size: int) -> Iterable[Sequence[str]]:
         yield items[i : i + batch_size]
 
 
+def build_embedder(config: dict) -> TextEmbedder:
+    """Construct a TextEmbedder from the ``embedder`` section of a config dict.
+
+    Single source for the embedder wiring previously copy-pasted across main.py
+    and the index/build-concepts/update-registry CLIs.
+    """
+    embedder_cfg = config.get("embedder", {}) or {}
+    return TextEmbedder(
+        TextEmbedderConfig(
+            model_name=embedder_cfg.get("model_name", "BAAI/bge-m3"),
+            revision=embedder_cfg.get("revision"),
+            trust_remote_code=embedder_cfg.get("trust_remote_code", False),
+            pooling=embedder_cfg.get("pooling", "mean"),
+            max_length=embedder_cfg.get("max_length", 512),
+            batch_size=embedder_cfg.get("batch_size", 32),
+            use_gpu=embedder_cfg.get("use_gpu", True),
+            use_fp16=embedder_cfg.get("use_fp16", False),
+            normalize=embedder_cfg.get("normalize", True),
+        )
+    )
+
+
 def _load_embedding_dependencies():
     try:
         import torch

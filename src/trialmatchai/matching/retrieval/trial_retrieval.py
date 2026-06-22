@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 from dateutil import parser as date_parser
+from trialmatchai.matching.retrieval.synonyms import disease_synonyms
 from trialmatchai.search.lancedb_backend import TrialSearchBackend
 from trialmatchai.utils.logging_config import setup_logging
 
@@ -26,24 +27,7 @@ class ClinicalTrialSearch:
         self.entity_annotator = entity_annotator or bio_med_ner
 
     def get_synonyms(self, condition: str) -> List[str]:
-        if not self.entity_annotator:
-            logger.info("Entity annotator disabled; skipping synonyms extraction.")
-            return []
-        try:
-            raw_result = self.entity_annotator.annotate_texts_in_parallel(
-                [condition], max_workers=1
-            )
-            ner_results = raw_result
-            if ner_results and ner_results[0]:
-                synonyms = set()
-                for entity in ner_results[0]:
-                    if entity.get("entity_group", "").lower() == "disease":
-                        synonyms.update(entity.get("synonyms", []))
-                return list(synonyms)
-            logger.warning(f"No annotations found for condition: {condition}")
-        except Exception as e:
-            logger.error(f"Entity synonym extraction failed for '{condition}': {e}")
-        return []
+        return disease_synonyms(self.entity_annotator, condition)
 
     def parse_age_input(self, age_input: Union[int, str]) -> Optional[int]:
         if isinstance(age_input, int):

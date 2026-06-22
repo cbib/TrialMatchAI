@@ -9,6 +9,8 @@ from typing import Any, Protocol
 
 import dateutil.parser
 
+from trialmatchai.utils.text import flatten_text
+
 
 class TextEmbeddingBackend(Protocol):
     def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
@@ -39,7 +41,7 @@ def prepare_trial_document(
     embedder: TextEmbeddingBackend,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {"nct_id": doc["nct_id"]}
-    texts = [_preprocess_text(_flatten_text(doc.get(field))) for field, _ in TRIAL_TEXT_FIELDS]
+    texts = [_preprocess_text(flatten_text(doc.get(field))) for field, _ in TRIAL_TEXT_FIELDS]
     vectors = _embed_texts(embedder, texts)
 
     for (field, vector_field), text, vector in zip(TRIAL_TEXT_FIELDS, texts, vectors):
@@ -48,7 +50,7 @@ def prepare_trial_document(
 
     # Text-only fields the backend scores on (TRIAL_TEXT_WEIGHTS) but does not embed.
     for text_field in ("detailed_description", "official_title"):
-        value = _preprocess_text(_flatten_text(doc.get(text_field)))
+        value = _preprocess_text(flatten_text(doc.get(text_field)))
         if value:
             out[text_field] = value
 
@@ -94,7 +96,7 @@ def prepare_criteria_documents(
         if not isinstance(criterion, dict):
             continue
         text = _preprocess_text(
-            _flatten_text(criterion.get("criterion") or criterion.get("sentence"))
+            flatten_text(criterion.get("criterion") or criterion.get("sentence"))
         )
         if not text:
             continue
@@ -205,18 +207,6 @@ def _entities_for_index(entities: Any) -> list[dict[str, Any]]:
 
 def _preprocess_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
-
-
-def _flatten_text(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        return " ".join(_flatten_text(item) for item in value.values())
-    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
-        return " ".join(_flatten_text(item) for item in value)
-    return str(value)
 
 
 def _to_iso_date(value: Any) -> str | None:
