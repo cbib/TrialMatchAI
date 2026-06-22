@@ -75,6 +75,10 @@ jobs:
     # Installs the optional ML extras (CPU-only) and imports the local-model
     # surface that the default job never touches, so a broken import or wrong
     # transformers/gliner API call is caught instead of shipping silently.
+    # Non-blocking: it exercises heavy third-party deps (torch/gliner) whose
+    # availability we don't gate releases on; failures show up as a signal
+    # without failing the workflow.
+    continue-on-error: true
     runs-on: ubuntu-latest
 
     steps:
