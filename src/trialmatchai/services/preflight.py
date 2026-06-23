@@ -50,6 +50,10 @@ def run_preflight_checks(
         )
 
     if require_models:
+        reranker_enabled = _reranker_enabled(config)
+        rag_enabled = _rag_enabled(config)
+        reranker_backend = _reranker_backend(config)
+        rag_backend = _rag_backend(config)
         if entity_cfg:
             backend = entity_cfg.get("backend", "gliner2")
             if backend == "gliner2" and importlib.util.find_spec("gliner2") is None:
@@ -68,35 +72,53 @@ def run_preflight_checks(
             )
 
         model_cfg = config.get("model", {})
-        _require_path(
-            issues,
-            "model.cot_adapter_path",
-            model_cfg.get("cot_adapter_path"),
-            required=True,
-        )
-        _require_path(
-            issues,
-            "model.reranker_adapter_path",
-            model_cfg.get("reranker_adapter_path"),
-            required=True,
-        )
-        # vLLM is the only LLM backend (CoT + reranker), so it is always required
-        # when running models.
-        vllm_available = importlib.util.find_spec("vllm") is not None
-        if not vllm_available:
-            issues.append(
-                "vLLM is required (`uv sync --extra llm --extra gpu`)."
+        if rag_enabled and rag_backend == "vllm":
+            _require_path(
+                issues,
+                "model.cot_adapter_path",
+                model_cfg.get("cot_adapter_path"),
+                required=True,
             )
-        else:
-            try:
-                import torch
-            except Exception:
+        if reranker_enabled and reranker_backend == "vllm":
+            _require_path(
+                issues,
+                "model.reranker_adapter_path",
+                model_cfg.get("reranker_adapter_path"),
+                required=True,
+            )
+        needs_vllm = (rag_enabled and rag_backend == "vllm") or (
+            reranker_enabled and reranker_backend == "vllm"
+        )
+        needs_transformers = (rag_enabled and rag_backend == "transformers") or (
+            reranker_enabled and reranker_backend == "transformers"
+        )
+        # vLLM is the production LLM backend. CPU smoke configs may use the
+        # Transformers backend to exercise model calls without CUDA.
+        if needs_vllm:
+            vllm_available = importlib.util.find_spec("vllm") is not None
+            if not vllm_available:
                 issues.append(
-                    "vLLM requires PyTorch (`uv sync --extra llm --extra gpu`)."
+                    "vLLM is required (`uv sync --extra llm --extra gpu`)."
                 )
             else:
-                if not torch.cuda.is_available():
-                    issues.append("vLLM requires a CUDA-capable runtime.")
+                try:
+                    import torch
+                except Exception:
+                    issues.append(
+                        "vLLM requires PyTorch (`uv sync --extra llm --extra gpu`)."
+                    )
+                else:
+                    if not torch.cuda.is_available():
+                        issues.append("vLLM requires a CUDA-capable runtime.")
+        if needs_transformers:
+            if importlib.util.find_spec("torch") is None:
+                issues.append(
+                    "Transformers CPU backend requires PyTorch (`uv sync --extra llm`)."
+                )
+            if importlib.util.find_spec("transformers") is None:
+                issues.append(
+                    "Transformers CPU backend requires transformers (`uv sync --extra llm`)."
+                )
 
     search_cfg = config.get("search_backend", {})
     if search_cfg:
@@ -162,3 +184,21 @@ def _require_patient_inputs(issues: List[str], config: Dict[str, Any]) -> None:
         return
     if profile_dir:
         issues.append(f"patient_inputs.profile_dir does not exist: {profile_dir}")
+
+
+def _reranker_enabled(config: Dict[str, Any]) -> bool:
+    return bool(config.get("LLM_reranker", {}).get("enabled", True))
+
+
+def _rag_enabled(config: Dict[str, Any]) -> bool:
+    if not bool(config.get("use_cot_reasoning", True)):
+        return False
+    return bool(config.get("rag", {}).get("enabled", True))
+
+
+def _reranker_backend(config: Dict[str, Any]) -> str:
+    return str(config.get("LLM_reranker", {}).get("backend", "vllm"))
+
+
+def _rag_backend(config: Dict[str, Any]) -> str:
+    return str(config.get("rag", {}).get("backend", "vllm"))

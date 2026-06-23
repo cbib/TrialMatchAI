@@ -112,6 +112,34 @@ def test_preflight_reports_missing_vllm_extra(tmp_path, monkeypatch):
     assert issues == ["vLLM is required (`uv sync --extra llm --extra gpu`)."]
 
 
+def test_preflight_allows_cpu_smoke_when_llm_stages_disabled(tmp_path, monkeypatch):
+    cfg = _base_config(tmp_path)
+    cfg["LLM_reranker"] = {"enabled": False}
+    cfg["rag"] = {"enabled": False}
+    cfg["use_cot_reasoning"] = False
+    monkeypatch.setattr(preflight.importlib.util, "find_spec", lambda name: None)
+
+    issues = run_preflight_checks(cfg, require_models=True)
+
+    assert issues == []
+
+
+def test_preflight_allows_transformers_cpu_llm_backend(tmp_path, monkeypatch):
+    cfg = _base_config(tmp_path)
+    cfg["LLM_reranker"] = {"enabled": True, "backend": "transformers"}
+    cfg["rag"] = {"enabled": True, "backend": "transformers"}
+    cfg["use_cot_reasoning"] = True
+    monkeypatch.setattr(
+        preflight.importlib.util,
+        "find_spec",
+        lambda name: object() if name in {"torch", "transformers"} else None,
+    )
+
+    issues = run_preflight_checks(cfg, require_models=True)
+
+    assert issues == []
+
+
 def test_preflight_reports_missing_entity_extra(tmp_path, monkeypatch):
     cfg = _entity_config(tmp_path)
     monkeypatch.setattr(preflight.importlib.util, "find_spec", lambda name: None)

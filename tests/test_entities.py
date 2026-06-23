@@ -10,7 +10,11 @@ from trialmatchai.entities.builder import (
     write_lancedb_table,
 )
 from trialmatchai.entities.linker import ConceptLinker, InMemoryConceptStore
-from trialmatchai.entities.recognizers import RegexSchemaRecognizer, resolve_overlaps
+from trialmatchai.entities.recognizers import (
+    RegexSchemaRecognizer,
+    _parse_model_entities,
+    resolve_overlaps,
+)
 from trialmatchai.entities.schemas import load_entity_schemas
 from trialmatchai.entities.types import ConceptCandidate, EntityAnnotation, NO_ENTITY_ID
 
@@ -37,6 +41,38 @@ def test_regex_backend_returns_current_output_shape():
     assert result[0][0]["text"] == "cancer"
     assert result[0][0]["normalized_id"] == [NO_ENTITY_ID]
     assert "concept_candidates" in result[0][0]
+
+
+def test_gliner2_entity_mapping_response_parses_to_annotations():
+    schemas = [
+        schema for schema in load_entity_schemas() if schema.id in {"disease", "gene"}
+    ]
+    label_map = {
+        label.casefold(): schema
+        for schema in schemas
+        for label in schema.recognizer_labels
+    }
+    text = "Patient has lung cancer with EGFR mutation."
+
+    annotations = _parse_model_entities(
+        {
+            "entities": {
+                "disease": [
+                    {
+                        "text": "lung cancer",
+                        "start": 12,
+                        "end": 23,
+                        "confidence": 0.99,
+                    }
+                ],
+                "gene": [{"text": "EGFR", "start": 29, "end": 33, "confidence": 0.99}],
+            }
+        },
+        text,
+        label_map,
+    )
+
+    assert [annotation.text for annotation in annotations] == ["lung cancer", "EGFR"]
 
 
 def test_overlap_resolution_keeps_higher_confidence_span():

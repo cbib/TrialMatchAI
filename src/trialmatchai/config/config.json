@@ -1,7 +1,7 @@
 {
   "entity_extraction": {
     "backend": "gliner2",
-    "model_name": "fastino/gliner2-base",
+    "model_name": "fastino/gliner2-base-v1",
     "model_revision": null,
     "schema_path": "entity_schemas/trialmatchai.yaml",
     "threshold": 0.8,

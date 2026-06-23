@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Dict, List
 
 from trialmatchai.utils.file_utils import read_json_file, write_json_file, write_text_file
@@ -24,6 +25,7 @@ class BaseTrialProcessor:
     tokenizer = None
     batch_size: int = 4
     use_cot: bool = True
+    no_think: bool = False
 
     # ---------------------- I/O helpers ----------------------
 
@@ -45,6 +47,8 @@ class BaseTrialProcessor:
             else "No eligibility criteria provided."
         )
 
+        no_think_prefix = "/no_think\n" if self.no_think else ""
+
         if self.use_cot:
             system_msg = (
                 "You are a medical expert with advanced knowledge in clinical reasoning, diagnostics, and treatment planning. "
@@ -55,7 +59,8 @@ class BaseTrialProcessor:
                 {
                     "role": "user",
                     "content": (
-                        "Assess the given patient's eligibility for a clinical trial by evaluating each and every criterion individually.\n\n"
+                        no_think_prefix
+                        + "Assess the given patient's eligibility for a clinical trial by evaluating each and every criterion individually.\n\n"
                         "### INCLUSION CRITERIA ASSESSMENT\n"
                         "For each inclusion criterion, classify it as one of:\n"
                         "- **Met:** The patient's data explicitly and unequivocally satisfies the criterion.\n"
@@ -108,7 +113,8 @@ class BaseTrialProcessor:
                 {
                     "role": "user",
                     "content": (
-                        "For each criterion, classify:\n"
+                        no_think_prefix
+                        + "For each criterion, classify:\n"
                         '- If Inclusion Criterion: "Met" | "Not Met" | "Unclear" | "Irrelevant"\n'
                         '- If Exclusion Criterion: "Violated" | "Not Violated" | "Unclear" | "Irrelevant"\n\n'
                         "Provide a justification for each classification based strictly on the provided data. "
@@ -129,9 +135,21 @@ class BaseTrialProcessor:
             ]
 
         if self.tokenizer is not None and hasattr(self.tokenizer, "apply_chat_template"):
-            return self.tokenizer.apply_chat_template(
-                chat, tokenize=False, add_generation_prompt=True
-            )
+            # Pass enable_thinking=False for reasoning models (e.g. Qwen3) when
+            # no_think is set. The kwarg is silently accepted or raises TypeError on
+            # models whose chat templates don't declare the variable — fall through.
+            template_kwargs: dict = {}
+            if self.no_think:
+                template_kwargs["enable_thinking"] = False
+            try:
+                return self.tokenizer.apply_chat_template(
+                    chat, tokenize=False, add_generation_prompt=True, **template_kwargs
+                )
+            except (TypeError, ValueError) as exc:
+                logger.warning(
+                    "Tokenizer chat template unavailable; using plain prompt: %s",
+                    exc,
+                )
         # Fallback: simple concatenation
         system_part = f"{chat[0]['content']}\n\n"
         user_part = f"{chat[1]['content']}\n\n"
@@ -139,13 +157,27 @@ class BaseTrialProcessor:
 
     # ---------------------- Persistence ----------------------
 
+    @staticmethod
+    def _strip_thinking_tags(text: str) -> str:
+        """Remove <think>…</think> blocks emitted by reasoning models (e.g. Qwen3).
+
+        The full response (with thinking) is still written to the .txt file so the
+        reasoning chain is not lost; only JSON extraction operates on the stripped text.
+        """
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+        # Trim incomplete block if the model was cut off mid-think
+        cut = text.find("<think>")
+        if cut != -1:
+            text = text[:cut]
+        return text.strip()
+
     def _save_outputs(self, nct_id: str, response: str, output_folder: str):
         try:
             os.makedirs(output_folder, exist_ok=True)
             txt_path = f"{output_folder}/{nct_id}.txt"
             write_text_file([response], txt_path)
             try:
-                json_data = extract_json_object(response)
+                json_data = extract_json_object(self._strip_thinking_tags(response))
                 write_json_file(json_data, f"{output_folder}/{nct_id}.json")
                 logger.info(f"Processed {nct_id} successfully")
             except (json.JSONDecodeError, ValueError) as e:
@@ -162,7 +194,11 @@ class BaseTrialProcessor:
     def _token_length(self, prompt: str, nct_id: str = "") -> int:
         """Token count used for length bucketing; char-based fallback on error."""
         try:
-            return len(self.tokenizer(prompt, add_special_tokens=False)["input_ids"])
+            kwargs = {"add_special_tokens": False}
+            max_input_tokens = getattr(self, "max_input_tokens", None)
+            if isinstance(max_input_tokens, int) and max_input_tokens > 0:
+                kwargs.update(truncation=True, max_length=max_input_tokens)
+            return len(self.tokenizer(prompt, **kwargs)["input_ids"])
         except Exception:
             return max(1, len(prompt) // 4)
 

@@ -73,7 +73,7 @@ pip install -e ".[finetune]"
 
 | Extra | Adds |
 | --- | --- |
-| `entity` | GLiNER2 biomedical NER |
+| `entity` | GLiNER2 biomedical extraction |
 | `llm` | local embedding and LLM dependencies |
 | `gpu` | vLLM and bitsandbytes; intended for Linux CUDA hosts |
 | `finetune` | training dependencies for `trialmatchai-finetune` |
@@ -148,7 +148,7 @@ Patient data (text / FHIR / Phenopacket / OMOP)
 Interop importers -> canonical PatientProfile
       |
       v
-GLiNER2 NER + deterministic variant patterns -> concept linking
+GLiNER2 entity extraction + deterministic variant patterns -> concept linking
       |
       v
 First-level trial retrieval in LanceDB (BM25 + embeddings)
@@ -265,7 +265,7 @@ adapters through config or environment variables.
 
 | Component | Default | Config key |
 | --- | --- | --- |
-| Biomedical NER | `fastino/gliner2-base` | `entity_extraction.model_name` |
+| Biomedical extraction | `fastino/gliner2-base-v1` | `entity_extraction.model_name` |
 | Reranker | `google/gemma-2-2b-it` | `model.reranker_adapter_path` |
 | CoT eligibility | configured CoT model | `model.cot_adapter_path` |
 

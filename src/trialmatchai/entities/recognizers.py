@@ -199,7 +199,7 @@ def build_recognizer(config: dict[str, Any]) -> EntityRecognizer:
         return RegexSchemaRecognizer()
     if backend == "gliner2":
         recognizer = GLiNER2Recognizer(
-            model_name=config.get("model_name", "fastino/gliner2-base"),
+            model_name=config.get("model_name", "fastino/gliner2-base-v1"),
             revision=config.get("model_revision"),
             device=config.get("device", "auto"),
             trust_remote_code=bool(config.get("trust_remote_code", False)),
@@ -252,6 +252,17 @@ def _call_extractor(
             schema.label: schema.description
             for schema in schemas
         }
+        try:
+            return _flatten_gliner2_entities(
+                model.extract_entities(
+                    text,
+                    schema_payload,
+                    include_confidence=True,
+                    include_spans=True,
+                )
+            )
+        except TypeError:
+            pass
         for kwargs in (
             {"schema": schema_payload},
             {"labels": labels},
@@ -267,12 +278,12 @@ def _call_extractor(
 
 
 def _parse_model_entities(
-    raw_entities: Sequence[dict[str, Any]],
+    raw_entities: Sequence[dict[str, Any]] | dict[str, Any],
     text: str,
     label_map: dict[str, EntitySchema],
 ) -> list[EntityAnnotation]:
     parsed: list[EntityAnnotation] = []
-    for raw in raw_entities or []:
+    for raw in _flatten_gliner2_entities(raw_entities):
         label = str(raw.get("label") or raw.get("entity_group") or raw.get("type") or "")
         schema = label_map.get(label.casefold())
         if schema is None:
@@ -300,6 +311,26 @@ def _parse_model_entities(
             )
         )
     return parsed
+
+
+def _flatten_gliner2_entities(raw_entities: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_entities, dict):
+        return list(raw_entities or [])
+    entities = raw_entities.get("entities")
+    if not isinstance(entities, dict):
+        return []
+    flattened: list[dict[str, Any]] = []
+    for label, values in entities.items():
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if isinstance(value, dict):
+                item = dict(value)
+            else:
+                item = {"text": str(value)}
+            item.setdefault("label", label)
+            flattened.append(item)
+    return flattened
 
 
 def _find_span(text: str, mention: str) -> tuple[int | None, int | None]:

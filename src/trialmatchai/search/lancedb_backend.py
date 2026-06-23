@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import re
 from dataclasses import dataclass
@@ -507,6 +508,7 @@ def build_trial_record(doc: Mapping[str, Any]) -> dict[str, Any]:
 def build_criteria_record(doc: Mapping[str, Any]) -> dict[str, Any]:
     row = dict(doc)
     entity_text, synonym_text = _flatten_entities(row.get("entities"))
+    row["entities"] = _json_payload(row.get("entities"))
     row["entity_text"] = entity_text
     row["entity_synonyms_text"] = synonym_text
     row["search_text"] = flatten_text(
@@ -746,6 +748,11 @@ def _gender_matches(value: Any, sex: str) -> bool:
 
 
 def _flatten_entities(entities: Any) -> tuple[str, str]:
+    if isinstance(entities, str):
+        try:
+            entities = json.loads(entities)
+        except json.JSONDecodeError:
+            return "", ""
     if not isinstance(entities, list):
         return "", ""
     texts: list[str] = []
@@ -759,6 +766,13 @@ def _flatten_entities(entities: Any) -> tuple[str, str]:
             if isinstance(candidate, Mapping):
                 synonyms.append(flatten_text(candidate.get("concept_name")))
     return flatten_text(texts), flatten_text(synonyms)
+
+
+def _json_payload(value: Any) -> str:
+    try:
+        return json.dumps(value or [], sort_keys=True)
+    except TypeError:
+        return "[]"
 
 
 def _normalize_text(value: str) -> str:

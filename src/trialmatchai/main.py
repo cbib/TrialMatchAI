@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
@@ -253,28 +254,52 @@ def run_rag_processing(
         logger.error("No patient narrative available for RAG processing.")
         return
 
-    # vLLM is the only LLM backend. A configured cot_adapter_path is served as a
-    # LoRA adapter (LoRARequest) by the engine loader.
-    from trialmatchai.matching.eligibility_reasoning_vllm import BatchTrialProcessorVLLM
-    from trialmatchai.models.llm.vllm_loader import load_vllm_engine
+    rag_cfg = config.get("rag", {})
+    rag_backend = str(rag_cfg.get("backend", "vllm"))
+    if rag_backend == "transformers":
+        from trialmatchai.matching.eligibility_reasoning_transformers import (
+            BatchTrialProcessorTransformers,
+        )
 
-    vllm_cfg = config.get("vllm", {})
-    vllm_engine, vllm_tokenizer, lora_request = load_vllm_engine(
-        model_config=config.get("model", {}),
-        vllm_cfg=vllm_cfg,
-    )
-    rag_processor = BatchTrialProcessorVLLM(
-        llm=vllm_engine,  # type: ignore
-        tokenizer=vllm_tokenizer,
-        batch_size=vllm_cfg.get("batch_size", 16),
-        use_cot=config.get("use_cot_reasoning", True),
-        max_new_tokens=vllm_cfg.get("max_new_tokens", 5000),
-        temperature=vllm_cfg.get("temperature", 0.0),
-        top_p=vllm_cfg.get("top_p", 1.0),
-        seed=vllm_cfg.get("seed", 1234),
-        length_bucket=vllm_cfg.get("length_bucket", True),
-        lora_request=lora_request,
-    )
+        vllm_cfg = config.get("vllm", {})
+        rag_processor = BatchTrialProcessorTransformers(
+            model_path=config["model"]["base_model"],
+            device=str(config.get("global", {}).get("device", "cpu")),
+            batch_size=rag_cfg.get("batch_size", 1),
+            use_cot=config.get("use_cot_reasoning", False),
+            max_new_tokens=vllm_cfg.get("max_new_tokens", 256),
+            temperature=vllm_cfg.get("temperature", 0.0),
+            top_p=vllm_cfg.get("top_p", 1.0),
+            revision=config["model"].get("base_model_revision"),
+            trust_remote_code=config["model"].get("trust_remote_code", False),
+            length_bucket=vllm_cfg.get("length_bucket", True),
+            no_think=rag_cfg.get("no_think", False),
+        )
+    elif rag_backend == "vllm":
+        from trialmatchai.matching.eligibility_reasoning_vllm import (
+            BatchTrialProcessorVLLM,
+        )
+        from trialmatchai.models.llm.vllm_loader import load_vllm_engine
+
+        vllm_cfg = config.get("vllm", {})
+        vllm_engine, vllm_tokenizer, lora_request = load_vllm_engine(
+            model_config=config.get("model", {}),
+            vllm_cfg=vllm_cfg,
+        )
+        rag_processor = BatchTrialProcessorVLLM(
+            llm=vllm_engine,  # type: ignore
+            tokenizer=vllm_tokenizer,
+            batch_size=vllm_cfg.get("batch_size", 16),
+            use_cot=config.get("use_cot_reasoning", True),
+            max_new_tokens=vllm_cfg.get("max_new_tokens", 5000),
+            temperature=vllm_cfg.get("temperature", 0.0),
+            top_p=vllm_cfg.get("top_p", 1.0),
+            seed=vllm_cfg.get("seed", 1234),
+            length_bucket=vllm_cfg.get("length_bucket", True),
+            lora_request=lora_request,
+        )
+    else:
+        raise ValueError(f"Unsupported rag.backend: {rag_backend}")
 
     rag_processor.process_trials(
         nct_ids=top_trials,
@@ -319,24 +344,18 @@ def main_pipeline(config_path: str | None = None) -> int:
     try:
         import torch
     except ImportError:
-        logger.error(
-            "PyTorch is required to run matching. Install the ML extras with "
-            "`uv sync --extra llm --extra entity`."
-        )
-        return 1
+        torch = None  # type: ignore
 
     from trialmatchai.models.embedding import build_embedder
-    from trialmatchai.models.llm.llm_reranker import LLMReranker
-
-    if torch.cuda.is_available():
+    if torch is not None and torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
         if hasattr(torch.backends.cuda, "enable_flash_sdp"):
             torch.backends.cuda.enable_flash_sdp(True)
 
     import warnings
 
-    # The CoT reasoning model is loaded lazily by run_rag_processing as a vLLM
-    # engine (the only LLM backend), so nothing to load here.
+    # The eligibility reasoning model is loaded lazily by run_rag_processing
+    # after the top-trial shortlist is known.
 
     # Initialize components
     embedder = build_embedder(config)
@@ -346,14 +365,36 @@ def main_pipeline(config_path: str | None = None) -> int:
         warnings.filterwarnings(
             "ignore", message=".*quantization_config.*", category=UserWarning
         )
-        llm_reranker = LLMReranker(
-            model_path=config["model"]["reranker_model_path"],
-            adapter_path=config["model"]["reranker_adapter_path"],
-            device=config["global"]["device"],
-            batch_size=config["rag"]["batch_size"] * 2,
-            revision=config["model"].get("reranker_model_revision"),
-            trust_remote_code=config["model"].get("trust_remote_code", False),
-        )
+        if _reranker_enabled(config):
+            if _reranker_backend(config) == "transformers":
+                from trialmatchai.models.llm.transformers_reranker import (
+                    TransformersReranker,
+                )
+
+                llm_reranker = TransformersReranker(
+                    model_path=config["model"]["reranker_model_path"],
+                    device=str(config["global"]["device"]),
+                    batch_size=config.get("LLM_reranker", {}).get("batch_size", 8),
+                    revision=config["model"].get("reranker_model_revision"),
+                    trust_remote_code=config["model"].get("trust_remote_code", False),
+                )
+            elif _reranker_backend(config) == "vllm":
+                from trialmatchai.models.llm.llm_reranker import LLMReranker
+
+                llm_reranker = LLMReranker(
+                    model_path=config["model"]["reranker_model_path"],
+                    adapter_path=config["model"]["reranker_adapter_path"],
+                    device=config["global"]["device"],
+                    batch_size=config["rag"]["batch_size"] * 2,
+                    revision=config["model"].get("reranker_model_revision"),
+                    trust_remote_code=config["model"].get("trust_remote_code", False),
+                )
+            else:
+                raise ValueError(
+                    f"Unsupported LLM_reranker.backend: {_reranker_backend(config)}"
+                )
+        else:
+            llm_reranker = None
 
     gemma_retriever = SecondStageRetriever(
         search_backend=search_backend,
@@ -362,6 +403,9 @@ def main_pipeline(config_path: str | None = None) -> int:
         entity_annotator=entity_annotator,
         search_mode=config["search"].get("mode", "hybrid"),
     )
+
+    completed_patients = 0
+    failed_patients = 0
 
     for profile, summary in patient_inputs:
         patient_id = profile.patient_id
@@ -382,7 +426,7 @@ def main_pipeline(config_path: str | None = None) -> int:
 
             # Run pipeline
             with log_timing(logger, "First-level search"):
-                with torch.no_grad():
+                with _inference_context(torch):
                     result = run_first_level_search(
                         keywords,
                         str(output_folder),
@@ -406,8 +450,8 @@ def main_pipeline(config_path: str | None = None) -> int:
             ) = result
 
             with log_timing(logger, "Second-level search"):
-                with torch.no_grad():
-                    _, top_trials_path = run_second_level_search(
+                with _inference_context(torch):
+                    semi_final_trials, top_trials_path = run_second_level_search(
                         str(output_folder),
                         nct_ids,
                         main_conditions,
@@ -419,29 +463,46 @@ def main_pipeline(config_path: str | None = None) -> int:
                         patient_context,
                     )
 
-            with log_timing(logger, "RAG processing"):
-                with torch.no_grad():
-                    run_rag_processing(
-                        str(output_folder),
-                        top_trials_path,
-                        patient_info,
-                        config,
-                    )
+            if _rag_enabled(config):
+                with log_timing(logger, "RAG processing"):
+                    with _inference_context(torch):
+                        run_rag_processing(
+                            str(output_folder),
+                            top_trials_path,
+                            patient_info,
+                            config,
+                        )
 
-            with log_timing(logger, "Final ranking"):
-                trial_data = load_trial_data(str(output_folder))
-                ranked_trials = rank_trials(trial_data)
+                with log_timing(logger, "Final ranking"):
+                    trial_data = load_trial_data(str(output_folder))
+                    ranked_trials = rank_trials(trial_data)
+                    save_ranked_trials(
+                        ranked_trials, str(output_folder / "ranked_trials.json")
+                    )
+            else:
+                logger.info("RAG processing disabled; ranking by retrieval scores.")
                 save_ranked_trials(
-                    ranked_trials, str(output_folder / "ranked_trials.json")
+                    [
+                        {"TrialID": trial_id, "Score": score}
+                        for trial_id, score in semi_final_trials
+                    ],
+                    str(output_folder / "ranked_trials.json"),
                 )
 
             logger.info("Pipeline completed for patient %s", patient_id)
+            completed_patients += 1
         except Exception:
             logger.exception("Pipeline failed for patient %s", patient_id)
+            failed_patients += 1
             continue
         finally:
             reset_request_id(token)
 
+    if completed_patients == 0:
+        logger.error("Pipeline failed for all %s patient(s).", len(patient_inputs))
+        return 1
+    if failed_patients:
+        logger.warning("Pipeline completed with %s patient failure(s).", failed_patients)
     return 0
 
 
@@ -503,6 +564,26 @@ def _dedupe_strings(values: list[str]) -> list[str]:
         seen.add(key)
         output.append(cleaned)
     return output
+
+
+def _reranker_enabled(config: Dict) -> bool:
+    return bool(config.get("LLM_reranker", {}).get("enabled", True))
+
+
+def _reranker_backend(config: Dict) -> str:
+    return str(config.get("LLM_reranker", {}).get("backend", "vllm"))
+
+
+def _rag_enabled(config: Dict) -> bool:
+    if not bool(config.get("use_cot_reasoning", True)):
+        return False
+    return bool(config.get("rag", {}).get("enabled", True))
+
+
+def _inference_context(torch_module):
+    if torch_module is None:
+        return nullcontext()
+    return torch_module.no_grad()
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 class EntityExtractionSettings(BaseModel):
     backend: Literal["gliner2", "regex", "disabled"] = "gliner2"
-    model_name: str = "fastino/gliner2-base"
+    model_name: str = "fastino/gliner2-base-v1"
     model_revision: str | None = None
     schema_path: str = "entity_schemas/trialmatchai.yaml"
     threshold: float = Field(0.8, ge=0.0, le=1.0)
@@ -100,6 +100,7 @@ class RegistrySettings(BaseModel):
 
 
 class EmbedderSettings(BaseModel):
+    backend: Literal["hf", "hashing"] = "hf"
     model_name: str = "BAAI/bge-m3"
     revision: str | None = None
     trust_remote_code: bool = False
@@ -109,6 +110,7 @@ class EmbedderSettings(BaseModel):
     use_gpu: bool = True
     use_fp16: bool = False
     normalize: bool = True
+    hashing_dimensions: int = Field(64, ge=1)
 
     @field_validator("pooling")
     @classmethod
@@ -167,6 +169,8 @@ class ConstraintSettings(BaseModel):
 
 
 class RagSettings(BaseModel):
+    enabled: bool = True
+    backend: Literal["vllm", "transformers"] = "vllm"
     batch_size: int = Field(4, ge=1)
     max_trials_rag: int = Field(20, ge=1)
 
@@ -188,6 +192,8 @@ class CotSettings(BaseModel):
 
 
 class LLMRerankerSettings(BaseModel):
+    enabled: bool = True
+    backend: Literal["vllm", "transformers"] = "vllm"
     batch_size: int = Field(20, ge=1)
 
 

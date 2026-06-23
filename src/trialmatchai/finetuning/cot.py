@@ -11,7 +11,15 @@ from trialmatchai.finetuning.config import FinetuneConfig
 from trialmatchai.finetuning.data import cot_row_to_messages, read_jsonl
 
 
+def _load_messages(path: str, max_examples: int | None):
+    return [cot_row_to_messages(row) for row in read_jsonl(path, max_examples)]
+
+
 def finetune_cot(config: FinetuneConfig) -> str:
-    rows = read_jsonl(config.train_data, config.max_examples)
-    message_lists = [cot_row_to_messages(row) for row in rows]
-    return run_sft(config, message_lists)
+    message_lists = _load_messages(config.train_data, config.max_examples)
+    eval_message_lists = (
+        _load_messages(config.eval_data, config.max_examples)
+        if config.eval_data is not None
+        else None
+    )
+    return run_sft(config, message_lists, eval_message_lists)

@@ -74,6 +74,44 @@ def test_prepare_trial_document_preserves_detailed_description_and_official_titl
     assert "official" in prepared["official_title"].lower()
 
 
+def test_prepare_documents_emit_lancedb_stable_fields():
+    from trialmatchai.registry.preparation import (
+        prepare_criteria_documents,
+        prepare_trial_document,
+    )
+
+    class _StubEmbedder:
+        def embed_texts(self, texts):
+            return [[0.0, 0.0] for _ in texts]
+
+    trial = prepare_trial_document(
+        {
+            "nct_id": "NCT00000010",
+            "brief_title": "Brief",
+            "condition": ["Lung cancer"],
+            "eligibility_criteria": "Adults",
+        },
+        _StubEmbedder(),
+    )
+    criteria = prepare_criteria_documents(
+        {
+            "nct_id": "NCT00000010",
+            "criteria": [
+                {"type": "inclusion", "criterion": "Female adults age 18 years or older"}
+            ],
+        },
+        _StubEmbedder(),
+    )
+
+    assert trial["location"] == [
+        {"facility": "", "city": "", "state": "", "country": "", "status": ""}
+    ]
+    assert trial["minimum_age"] == 0.0
+    assert trial["maximum_age"] == 999.0
+    assert isinstance(criteria[0]["constraints"], str)
+    assert json.loads(criteria[0]["constraints"])["nct_id"] == "NCT00000010"
+
+
 def test_normalize_study_maps_v2_modules_and_splits_criteria():
     normalized = normalize_study(_study("NCT00000004"))
 

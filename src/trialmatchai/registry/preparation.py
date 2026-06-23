@@ -52,8 +52,7 @@ def prepare_trial_document(
     # Text-only fields the backend scores on (TRIAL_TEXT_WEIGHTS) but does not embed.
     for text_field in ("detailed_description", "official_title"):
         value = _preprocess_text(flatten_text(doc.get(text_field)))
-        if value:
-            out[text_field] = value
+        out[text_field] = value
 
     for simple in (
         "overall_status",
@@ -64,22 +63,30 @@ def prepare_trial_document(
         "source_url",
         "last_update_posted",
     ):
-        if doc.get(simple) not in (None, ""):
-            out[simple] = doc[simple]
+        out[simple] = str(doc.get(simple) or "")
 
-    for date_field in ("start_date", "completion_date"):
-        iso = _to_iso_date(doc.get(date_field))
-        if iso:
-            out[date_field] = iso
+    out["start_date"] = _to_iso_date(doc.get("start_date")) or ""
+    out["completion_date"] = _to_iso_date(doc.get("completion_date")) or ""
 
-    for age_field in ("minimum_age", "maximum_age"):
-        years = _age_to_years(doc.get(age_field))
-        if years is not None:
-            out[age_field] = years
+    out["minimum_age"] = _age_to_years(doc.get("minimum_age"))
+    if out["minimum_age"] is None:
+        out["minimum_age"] = 0.0
+    out["maximum_age"] = _age_to_years(doc.get("maximum_age"))
+    if out["maximum_age"] is None:
+        out["maximum_age"] = 999.0
 
-    for nested in ("intervention", "location", "reference"):
-        if doc.get(nested):
-            out[nested] = doc[nested]
+    out["intervention"] = _stable_dict_list(
+        doc.get("intervention"),
+        keys=("name", "type", "description"),
+    )
+    out["location"] = _stable_dict_list(
+        doc.get("location"),
+        keys=("facility", "city", "state", "country", "status"),
+    )
+    out["reference"] = _stable_dict_list(
+        doc.get("reference"),
+        keys=("pmid", "citation", "type"),
+    )
 
     return out
 
@@ -134,7 +141,10 @@ def prepare_criteria_documents(
                 "entities": _entities_for_index(entry.get("entities")),
                 "eligibility_type": entry["eligibility_type"],
                 "criterion_vector": vector,
-                "constraints": constraint_set.model_dump(mode="json"),
+                "constraints": json.dumps(
+                    constraint_set.model_dump(mode="json"),
+                    sort_keys=True,
+                ),
             }
         )
     return rows
@@ -216,6 +226,18 @@ def _entities_for_index(entities: Any) -> list[dict[str, Any]]:
 
 def _preprocess_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
+
+
+def _stable_dict_list(value: Any, *, keys: Sequence[str]) -> list[dict[str, str]]:
+    rows = value if isinstance(value, list) else []
+    normalized: list[dict[str, str]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        normalized.append({key: str(row.get(key) or "") for key in keys})
+    if normalized:
+        return normalized
+    return [{key: "" for key in keys}]
 
 
 def _to_iso_date(value: Any) -> str | None:

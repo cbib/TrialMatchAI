@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from trialmatchai.search import LanceDBSearchBackend
@@ -112,3 +114,70 @@ def test_scan_rows_fallback_applies_nct_filter(tmp_path):
 
     assert rows
     assert {row["nct_id"] for row in rows} == {"N1"}
+
+
+def test_lancedb_backend_serializes_variable_entity_payloads(tmp_path):
+    backend = LanceDBSearchBackend(
+        tmp_path / "search",
+        trials_table="trials",
+        criteria_table="criteria",
+        candidate_limit=25,
+    )
+
+    backend.index_criteria(
+        [
+            {
+                "criteria_id": "C1",
+                "nct_id": "N1",
+                "criterion": "Confirmed EGFR mutation",
+                "criterion_vector": [1.0, 0.0],
+                "entities": [
+                    {
+                        "entity_group": "gene",
+                        "text": "EGFR",
+                        "start": 10,
+                        "end": 14,
+                        "score": 0.99,
+                        "normalized_id": ["CUI-less"],
+                        "synonyms": ["ERBB1"],
+                        "concept_candidates": [
+                            {
+                                "concept_id": "EntrezGene:1956",
+                                "concept_name": "epidermal growth factor receptor",
+                                "source_scores": {"fts": 1.0},
+                            }
+                        ],
+                        "linker_score": None,
+                        "linker_status": "not_linked",
+                    }
+                ],
+                "eligibility_type": "Inclusion Criteria",
+            },
+            {
+                "criteria_id": "C2",
+                "nct_id": "N1",
+                "criterion": "No active autoimmune disease",
+                "criterion_vector": [0.0, 1.0],
+                "entities": [
+                    {
+                        "entity_group": "disease",
+                        "text": "autoimmune disease",
+                        "start": 10,
+                        "end": 28,
+                        "score": 0.95,
+                    }
+                ],
+                "eligibility_type": "Exclusion Criteria",
+            },
+        ]
+    )
+
+    hits = backend.search_criteria(
+        query="ERBB1",
+        nct_ids=["N1"],
+        search_mode="bm25",
+        use_entity_synonyms=True,
+    )
+
+    assert hits[0]["_source"]["criteria_id"] == "C1"
+    assert json.loads(hits[0]["_source"]["entities"])[0]["text"] == "EGFR"

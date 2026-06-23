@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import math
+import re
 from typing import Iterable, List, Literal, Sequence, Any
 
 from trialmatchai.utils.logging_config import setup_logging
@@ -8,11 +11,13 @@ from trialmatchai.utils.logging_config import setup_logging
 logger = setup_logging(__name__)
 
 
+EmbedderBackend = Literal["hf", "hashing"]
 PoolingStrategy = Literal["cls", "mean"]
 
 
 @dataclass(frozen=True)
 class TextEmbedderConfig:
+    backend: EmbedderBackend = "hf"
     model_name: str = "BAAI/bge-m3"
     revision: str | None = None
     trust_remote_code: bool = False
@@ -22,6 +27,43 @@ class TextEmbedderConfig:
     use_gpu: bool = True
     use_fp16: bool = False
     normalize: bool = True
+    hashing_dimensions: int = 64
+
+
+class HashingTextEmbedder:
+    """Deterministic lightweight embedder for tests and CPU smoke runs."""
+
+    def __init__(self, dimensions: int = 64, normalize: bool = True):
+        if dimensions <= 0:
+            raise ValueError("hashing_dimensions must be positive.")
+        self.dimensions = dimensions
+        self.normalize = normalize
+        logger.info(
+            "Using deterministic hashing embedder with %d dimensions.", dimensions
+        )
+
+    def embed_text(self, text: str) -> List[float]:
+        vectors = self.embed_texts([text])
+        if not vectors:
+            raise ValueError("Cannot embed empty text.")
+        return vectors[0]
+
+    def embed_texts(self, texts: Sequence[str]) -> List[List[float]]:
+        return [self._embed(text) for text in texts if text and text.strip()]
+
+    def _embed(self, text: str) -> List[float]:
+        vector = [0.0] * self.dimensions
+        tokens = re.findall(r"[A-Za-z0-9]+", text.casefold())
+        for token in tokens:
+            digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+            bucket = int.from_bytes(digest[:4], "big") % self.dimensions
+            sign = 1.0 if digest[4] % 2 == 0 else -1.0
+            vector[bucket] += sign
+        if self.normalize:
+            norm = math.sqrt(sum(value * value for value in vector))
+            if norm:
+                vector = [value / norm for value in vector]
+        return vector
 
 
 class TextEmbedder:
@@ -102,8 +144,17 @@ def build_embedder(config: dict) -> TextEmbedder:
     and the index/build-concepts/update-registry CLIs.
     """
     embedder_cfg = config.get("embedder", {}) or {}
+    backend = embedder_cfg.get("backend", "hf")
+    if backend == "hashing":
+        return HashingTextEmbedder(
+            dimensions=int(embedder_cfg.get("hashing_dimensions", 64)),
+            normalize=bool(embedder_cfg.get("normalize", True)),
+        )
+    if backend != "hf":
+        raise ValueError(f"Unsupported embedder backend: {backend}")
     return TextEmbedder(
         TextEmbedderConfig(
+            backend="hf",
             model_name=embedder_cfg.get("model_name", "BAAI/bge-m3"),
             revision=embedder_cfg.get("revision"),
             trust_remote_code=embedder_cfg.get("trust_remote_code", False),
