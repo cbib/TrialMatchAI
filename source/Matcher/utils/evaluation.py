@@ -8,6 +8,8 @@ import os
 import re
 from typing import Any, Dict, Iterable, List, Tuple, Union
 
+import numpy as np
+
 # Strict NCT id pattern (case-insensitive on input; stored uppercase)
 _NCT_RE = re.compile(r"^NCT\d{8}$", re.IGNORECASE)
 
@@ -71,69 +73,79 @@ def load_ground_truth(trec_csv_path: str) -> Dict[str, Dict[str, int]]:
     return gt
 
 
-def _dcg(rels: Iterable[int], gain_scheme: str = "linear") -> float:
+def dcg_at_k(relevance_scores: Iterable[int], k: int) -> float:
     """
-    DCG with log2 discount. Two gain schemes:
-      - 'linear': gain = rel (default; typical for TREC ndcg)
-      - 'exp2'  : gain = 2^rel - 1
+    Discounted Cumulative Gain at rank K.
+      DCG@K = sum_{i=1..K} rel_i / log2(i + 1)
+    Linear gain (gain = rel), log2 discount.
     """
-    dcg = 0.0
-    for i, rel in enumerate(rels, start=1):
-        if gain_scheme == "exp2":
-            gain = (2**rel) - 1.0
-        else:
-            gain = float(rel)
-        dcg += gain / math.log2(i + 1)
-    return dcg
-
-
-def _idcg(ground_rels: List[int], k: int, gain_scheme: str = "linear") -> float:
-    ideal = sorted(ground_rels, reverse=True)[:k]
-    return _dcg(ideal, gain_scheme=gain_scheme)
+    relevance_scores = np.asarray(relevance_scores, dtype=float)[:k]
+    if relevance_scores.size:
+        return float(
+            np.sum(
+                relevance_scores
+                / np.log2(np.arange(2, relevance_scores.size + 2))
+            )
+        )
+    return 0.0
 
 
 def ndcg_at_k(
     pred_ids: List[str],
     ground_truth: Dict[str, int],
     k: int,
-    gain_scheme: str = "linear",
 ) -> float:
     """
     nDCG@K using graded labels (2 eligible, 1 excluded, 0 not relevant).
-    Assumes pred_ids already filtered to labelled trials (see evaluate_ranking).
+
+    IDCG is computed from the IDEAL ordering of the ranking model's own
+    relevance scores (the labels of the trials actually evaluated by the final CoT model). 
+    This matches the standard of "ideal re-ranking of the labelled-and-retrieved list" definition.
+
+    Assumes pred_ids already filtered to only labelled trials (see evaluate_ranking).
     """
     if k <= 0:
         return 0.0
     pred_rels = [int(ground_truth.get(nid, 0)) for nid in pred_ids[:k]]
-    dcg = _dcg(pred_rels, gain_scheme=gain_scheme)
-    ideal_rels = list(ground_truth.values())
-    if not ideal_rels:
+    if not pred_rels:
         return 0.0
-    idcg = _idcg(ideal_rels, k, gain_scheme=gain_scheme)
-    return dcg / idcg if idcg > 0 else 0.0
+    ideal_rels = sorted(pred_rels, reverse=True)
+    dcg_max = dcg_at_k(ideal_rels, k)
+    if not dcg_max:
+        return 0.0
+    return dcg_at_k(pred_rels, k) / dcg_max
 
 
 def precision_at_k(
     pred_ids: List[str],
     ground_truth: Dict[str, int],
     k: int,
-    eligible_threshold: int = 2,
+    max_grade: int = 2,
 ) -> float:
     """
-    Precision@K for TREC CT:
-      - Count ONLY 'eligible' trials as relevant (label >= eligible_threshold, default 2).
-      - Unlabelled trials are assumed removed by the caller (we don't count them).
-      - Denominator is the number of labelled predictions among the first K after filtering.
+    Graded-relevance Precision@K for TREC CT (3 labels: 0/1/2).
+
+      P@K = ( sum_{i=1..K} rel_i ) / ( max_grade * K )
+
+    Each retrieved trial contributes its graded label (0, 1, or 2).
+    The denominator (max_grade * K) is the maximum achievable score
+    if every one of the top-K trials had the highest label, so the
+    metric is bounded in [0, 1].
+
+    NOTE: K here is the requested cutoff, not len(topk). If fewer than
+    K trials are retrieved, the denominator still uses min(k, len) so
+    short lists are not unfairly penalised — adjust if you want a hard K.
     """
     if k <= 0:
         return 0.0
     topk = pred_ids[:k]
     if not topk:
         return 0.0
-    rels = [
-        1 if int(ground_truth.get(nid, 0)) >= eligible_threshold else 0 for nid in topk
-    ]
-    return sum(rels) / float(len(topk))
+    grades = [int(ground_truth.get(nid, 0)) for nid in topk]
+    denom = float(max_grade * len(topk))
+    if denom <= 0:
+        return 0.0
+    return sum(grades) / denom
 
 
 def _get_case_insensitive(d: Dict[str, Any], *keys: str) -> Any:
@@ -214,12 +226,11 @@ def evaluate_ranking(
     predicted_ranked: Any,
     ground_truth_for_query: Dict[str, int],
     ks: Tuple[int, ...] = (5, 10, 20),
-    gain_scheme: str = "linear",
 ) -> Dict[str, float]:
     """
     Compute metrics for a single patient/query:
       - nDCG@K with graded labels (0/1/2)
-      - Precision@K with 'eligible-only' relevance (label >= 2)
+      - Precision@K with graded relevance (sum of grades / (max_grade * K))
 
     IMPORTANT: Unlabelled trials are REMOVED before computing metrics, per your requirement.
     """
@@ -234,11 +245,9 @@ def evaluate_ranking(
 
     results: Dict[str, float] = {}
     for k in ks:
-        results[f"ndcg@{k}"] = ndcg_at_k(
-            pred_ids, ground_truth_for_query, k, gain_scheme=gain_scheme
-        )
+        results[f"ndcg@{k}"] = ndcg_at_k(pred_ids, ground_truth_for_query, k)
         results[f"precision@{k}"] = precision_at_k(
-            pred_ids, ground_truth_for_query, k, eligible_threshold=2
+            pred_ids, ground_truth_for_query, k, max_grade=2
         )
     return results
 
@@ -249,7 +258,6 @@ def evaluate_and_save_metrics(
     ground_truth_source: Union[str, Dict[str, Dict[str, int]]],
     output_folder: str,
     ks: Tuple[int, ...] = (5, 10, 20),
-    gain_scheme: str = "linear",
 ) -> Dict[str, float]:
     """
     Evaluate 'ranked_trials' for a patient using either:
@@ -268,7 +276,7 @@ def evaluate_and_save_metrics(
     if gt is None:
         metrics: Dict[str, float] = {"error": "no_ground_truth_for_patient"}  # type: ignore[assignment]
     else:
-        metrics = evaluate_ranking(ranked_trials, gt, ks=ks, gain_scheme=gain_scheme)  # type: ignore[assignment]
+        metrics = evaluate_ranking(ranked_trials, gt, ks=ks)  # type: ignore[assignment]
         metrics["patient_id"] = patient_qid  # type: ignore[index]
 
     os.makedirs(output_folder, exist_ok=True)
@@ -294,12 +302,6 @@ if __name__ == "__main__":
     ap.add_argument(
         "--out-dir", default=None, help="Output dir (default: folder of ranked)"
     )
-    ap.add_argument(
-        "--gain",
-        default="linear",
-        choices=["linear", "exp2"],
-        help="DCG gain scheme (default: linear)",
-    )
     args = ap.parse_args()
 
     # Lazy import to avoid package cycles
@@ -317,6 +319,5 @@ if __name__ == "__main__":
         ground_truth_source=args.ground_truth,
         output_folder=out_dir,
         ks=(5, 10, 20),
-        gain_scheme=args.gain,
     )
     print(json.dumps(res, indent=2))
