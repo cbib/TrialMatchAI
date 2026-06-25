@@ -109,7 +109,7 @@ def ndcg_at_k(
     pred_rels = [int(ground_truth.get(nid, 0)) for nid in pred_ids[:k]]
     if not pred_rels:
         return 0.0
-    ideal_rels = sorted(pred_rels, reverse=True)
+    ideal_rels = sorted([int(ground_truth.get(nid, 0)) for nid in pred_ids], reverse=True)
     dcg_max = dcg_at_k(ideal_rels, k)
     if not dcg_max:
         return 0.0
