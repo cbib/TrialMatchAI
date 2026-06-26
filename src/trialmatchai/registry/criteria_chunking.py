@@ -3,8 +3,9 @@
 Splits a free-text eligibility section into individual, typed criteria. This
 folds the domain knowledge from the legacy regex preprocessor — multi-level
 enumeration hierarchies, varied inclusion/exclusion headers, parenthetical
-protection, and decimal/abbreviation split-exceptions — into one streamlined
-pass over the text.
+protection, semicolon splitting, long-criterion full-stop re-splitting, and
+decimal/abbreviation split-exceptions — into one streamlined pass over the text,
+so chunk boundaries match the legacy pipeline.
 
 Public API: ``split_eligibility_criteria(text) -> list[{"type", "criterion"}]``
 where ``type`` is "inclusion", "exclusion", or "unknown".
@@ -128,6 +129,49 @@ def _is_useful(text: str) -> bool:
     return len(text) >= 3 and detect_header(text) is None
 
 
+# --- Secondary splits (faithful to the legacy preprocessor) -----------------
+# Each assembled criterion is further split on semicolons that fall outside
+# parentheses, and any resulting criterion longer than this many characters is
+# split into sentences on real full stops (decimal- and abbreviation-aware) —
+# matching the legacy split_lines_on_semicolon and split_large_sentences /
+# split_on_full_stops, so chunk boundaries stay identical to main.
+_LONG_CRITERION_CHARS = 200
+_FULLSTOP_SPLIT = re.compile(r"(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s")
+
+
+def _split_semicolons(text: str) -> list[str]:
+    """Split on semicolons not enclosed in parentheses/brackets."""
+    masked = _mask_parens(text)  # in-paren chars (incl. ';') become spaces
+    parts: list[str] = []
+    last = 0
+    for i, char in enumerate(masked):
+        if char == ";":
+            parts.append(text[last:i])
+            last = i + 1
+    parts.append(text[last:])
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _split_long_criterion(text: str) -> list[str]:
+    """Split a long (>200 char) criterion into sentences; short text passes through."""
+    if len(text) <= _LONG_CRITERION_CHARS:
+        return [text]
+    sentences = [s.strip() for s in _FULLSTOP_SPLIT.split(text) if s.strip()]
+    return sentences or [text]
+
+
+def _emit(text: str, criterion_type: str, entries: list[dict[str, str]]) -> None:
+    """Clean, semicolon-split, long-criterion-split, filter, and append criteria."""
+    cleaned = _clean(text)
+    if not cleaned:
+        return
+    for part in _split_semicolons(cleaned):
+        for sentence in _split_long_criterion(part):
+            sentence = sentence.strip(" :-\t")
+            if _is_useful(sentence):
+                entries.append({"type": criterion_type, "criterion": sentence})
+
+
 def split_eligibility_criteria(text: str) -> list[dict[str, str]]:
     if not text or not text.strip():
         return []
@@ -139,10 +183,9 @@ def split_eligibility_criteria(text: str) -> list[dict[str, str]]:
     def flush() -> None:
         if not buffered:
             return
-        criterion = _clean(" ".join(buffered))
+        text = " ".join(buffered)
         buffered.clear()
-        if _is_useful(criterion):
-            entries.append({"type": current_type, "criterion": criterion})
+        _emit(text, current_type, entries)
 
     for raw_line in text.splitlines():
         line = raw_line.strip()
@@ -181,5 +224,6 @@ def split_eligibility_criteria(text: str) -> list[dict[str, str]]:
     if entries:
         return entries
 
-    fallback = _clean(text)
-    return [{"type": "unknown", "criterion": fallback}] if fallback else []
+    # Unstructured text (no markers/headers): still semicolon/long-split it.
+    _emit(text, "unknown", entries)
+    return entries

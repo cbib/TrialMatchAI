@@ -311,9 +311,15 @@ def run_rag_processing(
     logger.info("RAG-based trial matching complete.")
 
 
-def main_pipeline(config_path: str | None = None) -> int:
+def main_pipeline(
+    config_path: str | None = None,
+    *,
+    config: Dict | None = None,
+    resume: bool = False,
+) -> int:
     logger.info("Starting TrialMatchAI pipeline...")
-    config = load_config(config_path)
+    if config is None:
+        config = load_config(config_path)
     paths = config["paths"]
     create_directory(paths["output_dir"])
 
@@ -334,6 +340,10 @@ def main_pipeline(config_path: str | None = None) -> int:
         require_search_tables=True,
     )
     if index_issues:
+        logger.error(
+            "The search system is not built. Run `trialmatchai build` to prepare "
+            "the corpus and build the index, then retry matching."
+        )
         return 1
 
     patient_inputs = _load_patient_inputs(config)
@@ -407,10 +417,17 @@ def main_pipeline(config_path: str | None = None) -> int:
     completed_patients = 0
     failed_patients = 0
 
+    skipped_patients = 0
     for profile, summary in patient_inputs:
         patient_id = profile.patient_id
-        token = set_request_id(patient_id)
         output_folder = Path(paths["output_dir"]) / patient_id
+        if resume:
+            ranked_path = output_folder / "ranked_trials.json"
+            if ranked_path.exists() and ranked_path.stat().st_size > 0:
+                logger.info("Resume: skipping already-matched patient %s", patient_id)
+                skipped_patients += 1
+                continue
+        token = set_request_id(patient_id)
         create_directory(str(output_folder))
 
         try:
@@ -498,9 +515,14 @@ def main_pipeline(config_path: str | None = None) -> int:
         finally:
             reset_request_id(token)
 
-    if completed_patients == 0:
+    if completed_patients == 0 and skipped_patients == 0:
         logger.error("Pipeline failed for all %s patient(s).", len(patient_inputs))
         return 1
+    if completed_patients == 0 and skipped_patients:
+        logger.info(
+            "Resume: all %s patient(s) already matched; nothing to do.",
+            skipped_patients,
+        )
     if failed_patients:
         logger.warning("Pipeline completed with %s patient failure(s).", failed_patients)
     return 0

@@ -37,7 +37,22 @@ def main() -> int:
         help="Import patient data profiles",
         add_help=False,
     )
+    subparsers.add_parser(
+        "build",
+        help="Build the system (prepare corpus + search index), resumable",
+        add_help=False,
+    )
     subparsers.add_parser("run", help="Run the matching pipeline", add_help=False)
+    subparsers.add_parser(
+        "e2e",
+        help="Run the whole pipeline end-to-end (ingest -> index -> match), idempotent",
+        add_help=False,
+    )
+    subparsers.add_parser(
+        "trec",
+        help="End-to-end TREC CT evaluation (preset over e2e)",
+        add_help=False,
+    )
 
     args, remainder = parser.parse_known_args()
     if args.command == "healthcheck":
@@ -52,8 +67,14 @@ def main() -> int:
         from trialmatchai.cli.update_registry import main as command
     elif args.command == "import-patient":
         from trialmatchai.cli.import_patient import main as command
+    elif args.command == "build":
+        from trialmatchai.cli.build import main as command
     elif args.command == "run":
         from trialmatchai.cli.run import main as command
+    elif args.command == "e2e":
+        from trialmatchai.cli.e2e import main as command
+    elif args.command == "trec":
+        from trialmatchai.cli.trec import main as command
     else:  # pragma: no cover - argparse enforces choices
         parser.error(f"Unknown command: {args.command}")
 

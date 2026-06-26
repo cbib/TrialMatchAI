@@ -15,6 +15,12 @@ logs/
 /Parser/
 
 # ============================
+# Local working dirs (large data stores / uncommitted code)
+# ============================
+/elasticsearch/
+/utils/
+
+# ============================
 # Generated indexing state
 # ============================
 *.lance

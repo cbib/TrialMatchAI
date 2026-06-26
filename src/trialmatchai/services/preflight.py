@@ -120,6 +120,14 @@ def run_preflight_checks(
                     "Transformers CPU backend requires transformers (`uv sync --extra llm`)."
                 )
 
+        # Verify gated base models (phi-4 / gemma-2) are authorized up front, so
+        # an HF auth failure surfaces here rather than after first-level search.
+        issues.extend(
+            check_hf_access(
+                [model_cfg.get("base_model"), model_cfg.get("reranker_model_path")]
+            )
+        )
+
     search_cfg = config.get("search_backend", {})
     if search_cfg:
         _require_path(
@@ -145,6 +153,86 @@ def run_preflight_checks(
 
     for issue in issues:
         logger.error("Preflight: %s", issue)
+    return issues
+
+
+def check_cuda(config: Dict[str, Any], *, required: bool) -> List[str]:
+    """Verify a CUDA GPU is present when the build/match needs one."""
+    issues: List[str] = []
+    if importlib.util.find_spec("torch") is None:
+        if required:
+            issues.append("PyTorch is not installed (`uv sync --extra gpu`).")
+        return issues
+    try:
+        import torch
+
+        available = bool(torch.cuda.is_available())
+    except Exception as exc:  # pragma: no cover - torch import edge cases
+        if required:
+            issues.append(f"Could not initialize PyTorch/CUDA: {exc}")
+        return issues
+    if not available:
+        message = "No CUDA GPU detected; embeddings/LLMs need a GPU host."
+        if required:
+            issues.append(message)
+        else:
+            logger.warning("Preflight: %s", message)
+    return issues
+
+
+def check_hf_access(model_ids: List[str | None]) -> List[str]:
+    """Fast pre-download check that HuggingFace models are reachable/authorized.
+
+    Calls the metadata API (no weight download). Local paths and non-hub ids are
+    skipped. Gated models without a token produce a clear, actionable error so
+    auth fails in seconds rather than after hours of other work; network/transient
+    errors only warn.
+    """
+    issues: List[str] = []
+    if importlib.util.find_spec("huggingface_hub") is None:
+        return issues  # dependency checks elsewhere cover a missing stack
+    import os
+
+    from huggingface_hub import HfApi
+    from huggingface_hub.utils import GatedRepoError, RepositoryNotFoundError
+
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    api = HfApi(token=token)
+    for model_id in model_ids:
+        if not model_id or Path(model_id).exists() or "/" not in str(model_id):
+            continue  # local model dir or not a hub repo id
+        try:
+            api.model_info(model_id)
+        except GatedRepoError:
+            issues.append(
+                f"HuggingFace model '{model_id}' is gated/unauthorized — accept its "
+                "license on huggingface.co and export HF_TOKEN."
+            )
+        except RepositoryNotFoundError:
+            issues.append(
+                f"HuggingFace model '{model_id}' was not found (check the id or your token)."
+            )
+        except Exception as exc:
+            logger.warning("Preflight: could not verify HF model '%s': %s", model_id, exc)
+    return issues
+
+
+def run_build_preflight(config: Dict[str, Any]) -> List[str]:
+    """Fail-fast checks for the build (setup) half before any heavy work."""
+    issues: List[str] = []
+    embedder_cfg = config.get("embedder", {})
+    issues += check_cuda(config, required=bool(embedder_cfg.get("use_gpu", True)))
+
+    entity_cfg = config.get("entity_extraction", {})
+    if (
+        entity_cfg.get("backend", "gliner2") == "gliner2"
+        and importlib.util.find_spec("gliner2") is None
+    ):
+        issues.append("entity_extraction.backend=gliner2 requires `uv sync --extra entity`.")
+
+    issues += check_hf_access([embedder_cfg.get("model_name"), entity_cfg.get("model_name")])
+    for issue in issues:
+        logger.error("Build preflight: %s", issue)
     return issues
 
 

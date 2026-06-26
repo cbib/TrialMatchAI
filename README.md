@@ -1,20 +1,37 @@
-# TrialMatchAI
+<div align="center">
 
-<img src="img/logo.png" alt="TrialMatchAI logo" align="right" width="170" height="170">
+<img src="img/logo.png" alt="TrialMatchAI" width="220"/>
 
-TrialMatchAI is an AI-driven clinical trial matching pipeline. It imports patient
-data, retrieves relevant trials from local LanceDB tables, and produces ranked
-trial recommendations with criterion-level eligibility explanations.
+<h1>TrialMatchAI</h1>
 
-The supported deployment is a single Python 3.11 GPU server. Trial search is
-embedded and file-backed; there is no Elasticsearch, hosted vector database, or
-separate search service to run.
+<p><b>AI-driven clinical trial matching.</b> Import a patient — text, FHIR, Phenopacket, or OMOP — and get ranked, eligible trials with criterion-level eligibility explanations. Local LanceDB search + vLLM reasoning on a single GPU server; no Elasticsearch or hosted vector database to run.</p>
 
-[Install](#install) | [Quickstart](#quickstart) | [How It Works](#how-it-works) | [Configuration](#configuration) | [CLI](#cli-reference)
+<p>
+  <a href="#install">Install</a> ·
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#cli-reference">CLI</a>
+</p>
 
-> For research and informational use only. TrialMatchAI is not medical advice,
-> not a medical device, and must not replace review by qualified healthcare
-> professionals.
+</div>
+
+> **⚕️ For research and informational use only.** TrialMatchAI is not medical
+> advice, not a medical device, and must not replace review by qualified
+> healthcare professionals.
+
+## TL;DR
+
+TrialMatchAI runs in **two halves**: **build the system once**, then **match
+patients many times**. Both commands are idempotent and resume after disruption.
+
+```bash
+uv sync --extra llm --extra gpu --extra entity   # GPU host + HuggingFace access
+uv run trialmatchai-bootstrap-data               # fetch prepared corpus + adapters
+uv run trialmatchai build                        # 1) BUILD: prepare + index (once)
+uv run trialmatchai e2e --input patient.txt      # 2) MATCH: ingest + match a patient
+# -> results/<patient_id>/ranked_trials.json
+```
 
 ## Requirements
 
@@ -78,68 +95,78 @@ pip install -e ".[finetune]"
 | `gpu` | vLLM and bitsandbytes; intended for Linux CUDA hosts |
 | `finetune` | training dependencies for `trialmatchai-finetune` |
 
-Installing the package is only the first step. Real matching also needs runtime
-data, model artifacts, a concept table, normalized trials, and LanceDB search
-tables.
+Installing the package only gives you the CLI. Real matching also needs the
+trial corpus, model artifacts, and LanceDB search tables — all produced by the
+**build** step below.
 
 ## Quickstart
 
-Copy the environment template if you need local overrides:
+The pipeline has two halves. **Build** is the heavy, one-time setup (GPU); it is
+resumable and only does work that is not already done. **Match** is fast and
+repeatable against the built system.
+
+### 0. Set up the runtime (GPU host)
 
 ```bash
-cp .env.example .env
+uv sync --extra llm --extra gpu --extra entity   # model-backed runtime
+cp .env.example .env                             # optional local overrides
+export HF_TOKEN=<token>                           # required for gated models (phi-4, gemma-2)
 ```
 
-Check the installation and configured paths:
+### 1. Build the system — once
 
 ```bash
-uv run trialmatchai-healthcheck
+uv run trialmatchai-bootstrap-data   # download the prepared corpus + LoRA adapters
+uv run trialmatchai build            # prepare embeddings/entities + build the index
+uv run trialmatchai build --status   # see exactly what is built (and what isn't)
 ```
 
-Download packaged artifacts:
+`build` fails fast if a GPU, an extra, or model access is missing — and resumes
+from where it left off if interrupted. Bringing your **own** trials instead of
+bootstrapping? Put normalized JSON in `data/trials_jsons/` and `build` will
+prepare them. To also enable concept linking, pass an OMOP vocabulary:
 
 ```bash
-uv run trialmatchai-bootstrap-data
+uv run trialmatchai build --concepts-csv data/omop/CONCEPT.csv --synonym-csv data/omop/CONCEPT_SYNONYM.csv
 ```
 
-Build the concept-linking table from OMOP vocabulary files:
+### 2. Match patients — repeatably
+
+`e2e` ingests the patient (format auto-detected) and matches in one command:
 
 ```bash
-uv run trialmatchai-build-concepts \
-  --concept-csv data/omop/CONCEPT.csv \
-  --synonym-csv data/omop/CONCEPT_SYNONYM.csv
+uv run trialmatchai e2e --input data/patients/raw/patient-1.txt
+uv run trialmatchai e2e --input data/patients/raw/patient-1.fhir.json
+uv run trialmatchai e2e --input data/patients/omop_extract
 ```
 
-Fetch recent ClinicalTrials.gov studies and update local trial JSON plus
-LanceDB:
+Results land in `results/<patient_id>/` (ranked trials + eligibility
+explanations). Re-running skips patients already matched.
+
+### Health and maintenance
 
 ```bash
-uv run trialmatchai-update-registry --since 2026-06-01 --max-studies 100
+uv run trialmatchai-healthcheck                              # validate config/paths/deps
+uv run trialmatchai-update-registry --since 2026-06-01       # pull new ClinicalTrials.gov studies
 ```
 
-Build or rebuild search tables from normalized trial JSON:
+<details>
+<summary>Manual / advanced control (the steps <code>build</code> and <code>e2e</code> wrap)</summary>
 
 ```bash
-uv run trialmatchai-index --prepare
+uv run trialmatchai-index --prepare                          # prepare + index from trials_jsons (what `build` runs)
+uv run trialmatchai-import-patient --input patient.txt       # stage a profile only
+uv run trialmatchai-run                                      # match already-staged profiles
+uv run trialmatchai trec --tracks "21 22"                    # benchmark: official TREC CT eval
 ```
 
-Import patients into canonical TrialMatchAI profiles:
-
-```bash
-uv run trialmatchai-import-patient --input data/patients/raw/patient-1.txt --format text
-uv run trialmatchai-import-patient --input data/patients/raw/patient-1.fhir.json
-uv run trialmatchai-import-patient --input data/patients/omop_extract --format omop
-```
-
-Run batch matching:
-
-```bash
-uv run trialmatchai-run
-```
-
-Results are written under `results/<patient_id>/`.
+</details>
 
 ## How It Works
+
+The diagram below is the **match** path. The one-time **build** step produces the
+LanceDB index it queries — trial and criterion embeddings, entity annotations,
+and parsed eligibility constraints.
 
 ```text
 Patient data (text / FHIR / Phenopacket / OMOP)
@@ -323,23 +350,38 @@ The full override list is in [`.env.example`](.env.example).
 
 ## CLI Reference
 
+Every command is available both as a flat script (`trialmatchai-build`) and as a
+subcommand (`trialmatchai build`); they are equivalent.
+
+**Build the system (setup half)**
+
 | Command | Purpose |
 | --- | --- |
-| `trialmatchai` | Command group for the main subcommands |
-| `trialmatchai-healthcheck` | Validate config, paths, optional model deps, and LanceDB tables |
-| `trialmatchai-bootstrap-data` | Download and extract runtime data/model artifacts |
-| `trialmatchai-build-concepts` | Build the LanceDB concept table for entity normalization |
-| `trialmatchai-update-registry` | Fetch changed ClinicalTrials.gov studies and upsert LanceDB |
-| `trialmatchai-index` | Prepare/index trial and criteria search tables |
-| `trialmatchai-import-patient` | Import text, FHIR, Phenopacket, or OMOP patient data |
-| `trialmatchai-run` | Run the batch matching pipeline |
+| `trialmatchai build` | Prepare the corpus (embeddings + entities) and build the search index — resumable, with `--status` |
+| `trialmatchai-bootstrap-data` | Download and extract the prepared corpus + model adapters |
+| `trialmatchai build-concepts` | Build the LanceDB concept table for entity normalization (optional, OMOP) |
+| `trialmatchai update-registry` | Fetch changed ClinicalTrials.gov studies and upsert LanceDB |
+
+**Match patients (run half)**
+
+| Command | Purpose |
+| --- | --- |
+| `trialmatchai e2e` | Ingest a patient and match end-to-end (idempotent, per-patient resume) |
+| `trialmatchai import-patient` | Import text, FHIR, Phenopacket, or OMOP patient data into a profile |
+| `trialmatchai run` | Match already-staged patient profiles |
+| `trialmatchai trec` | Benchmark: end-to-end evaluation on the official TREC Clinical Trials tracks |
+
+**Utility**
+
+| Command | Purpose |
+| --- | --- |
+| `trialmatchai healthcheck` | Validate config, paths, optional model deps, and LanceDB tables |
+| `trialmatchai index` | Lower-level prepare/index of trial and criteria search tables |
 | `trialmatchai-finetune` | Fine-tune NER, reranker, or eligibility reasoning models |
 
-The first seven commands are also available as subcommands:
-
 ```bash
-uv run trialmatchai healthcheck
-uv run python -m trialmatchai healthcheck
+uv run trialmatchai build --status      # what is built
+uv run python -m trialmatchai e2e --input patient.txt
 ```
 
 ## Deployment
@@ -385,17 +427,20 @@ upgrading vLLM or Torch.
 If you use TrialMatchAI in your research, please cite the Nature Communications
 paper:
 
-> Abdallah, M. _et al._ TrialMatchAI. _Nature Communications_ (2026).
-> <https://www.nature.com/articles/s41467-026-70509-w>
+> Abdallah, M. _et al._ TrialMatchAI: an end-to-end AI-powered clinical trial
+> recommendation system to streamline patient-to-trial matching. _Nature
+> Communications_ **17**, 4472 (2026). <https://doi.org/10.1038/s41467-026-70509-w>
 
 ```bibtex
-@article{trialmatchai,
-  title   = {TrialMatchAI},
-  author  = {Abdallah, Majd and others},
+@article{abdallah2026trialmatchai,
+  title   = {TrialMatchAI: an end-to-end AI-powered clinical trial recommendation system to streamline patient-to-trial matching},
+  author  = {Abdallah, Majd and Nakken, Sigve and Georges, Mikael and Bierkens, Mariska and Galvis, Johanna and Groppi, Alexis and Karkar, Slim and Meiqari, Lana and Rujano, Maria Alexandra and Canham, Steve and Dienstmann, Rodrigo and Fijneman, Remond and Hovig, Eivind and Meijer, Gerrit and Nikolski, Macha},
   journal = {Nature Communications},
+  volume  = {17},
+  pages   = {4472},
   year    = {2026},
   doi     = {10.1038/s41467-026-70509-w},
-  url     = {https://www.nature.com/articles/s41467-026-70509-w}
+  url     = {https://doi.org/10.1038/s41467-026-70509-w}
 }
 ```
 

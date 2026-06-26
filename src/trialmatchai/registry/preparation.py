@@ -10,6 +10,7 @@ from typing import Any, Protocol
 import dateutil.parser
 
 from trialmatchai.constraints import extract_constraint_set
+from trialmatchai.registry.criteria_chunking import split_eligibility_criteria
 from trialmatchai.utils.text import flatten_text
 
 
@@ -100,7 +101,14 @@ def prepare_criteria_documents(
     nct_id = str(doc["nct_id"])
     entries: list[dict[str, Any]] = []
     texts: list[str] = []
-    for criterion in doc.get("criteria") or []:
+    criteria = doc.get("criteria")
+    if not criteria:
+        # Trial doc carries only raw eligibility text (e.g. normalized JSON that
+        # predates in-normalizer chunking): chunk it here, on the unflattened
+        # text so line structure is preserved, keeping preparation self-sufficient.
+        raw = doc.get("eligibility_criteria")
+        criteria = split_eligibility_criteria(raw) if isinstance(raw, str) else []
+    for criterion in criteria or []:
         if not isinstance(criterion, dict):
             continue
         text = _preprocess_text(

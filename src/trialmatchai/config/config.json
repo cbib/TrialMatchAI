@@ -113,6 +113,15 @@
     "unknown_is_neutral": true,
     "write_reports": true
   },
+  "query_expansion": {
+    "enabled": false,
+    "backend": null,
+    "model": null,
+    "adapter": null,
+    "max_new_tokens": 2048,
+    "max_main_conditions": 11,
+    "max_other_conditions": 50
+  },
   "use_cot_reasoning": true,
   "rag": {
     "batch_size": 4,

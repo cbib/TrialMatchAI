@@ -197,6 +197,19 @@ class LLMRerankerSettings(BaseModel):
     batch_size: int = Field(20, ge=1)
 
 
+class QueryExpansionSettings(BaseModel):
+    """Runtime CoT query expansion (legacy keywords.json behaviour)."""
+
+    enabled: bool = False
+    backend: Literal["vllm", "transformers"] | None = None
+    model: str | None = None
+    adapter: str | None = None
+    max_new_tokens: int = Field(2048, ge=1)
+    max_main_conditions: int = Field(11, ge=1)
+    max_other_conditions: int = Field(50, ge=1)
+    trust_remote_code: bool = False
+
+
 class TrialMatchSettings(BaseModel):
     entity_extraction: EntityExtractionSettings = Field(
         default_factory=EntityExtractionSettings
@@ -214,6 +227,9 @@ class TrialMatchSettings(BaseModel):
     LLM_reranker: LLMRerankerSettings
     search: SearchSettings
     constraints: ConstraintSettings = Field(default_factory=ConstraintSettings)
+    query_expansion: QueryExpansionSettings = Field(
+        default_factory=QueryExpansionSettings
+    )
     use_cot_reasoning: bool = True
     rag: RagSettings
     vllm: VllmSettings
@@ -246,6 +262,9 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
             "base_model_revision",
         ),
         "TRIALMATCHAI_MODEL_COT_ADAPTER_PATH": ("model", "cot_adapter_path"),
+        "TRIALMATCHAI_QUERY_EXPANSION_MODEL": ("query_expansion", "model"),
+        "TRIALMATCHAI_QUERY_EXPANSION_BACKEND": ("query_expansion", "backend"),
+        "TRIALMATCHAI_QUERY_EXPANSION_ADAPTER": ("query_expansion", "adapter"),
         "TRIALMATCHAI_MODEL_RERANKER_MODEL_PATH": (
             "model",
             "reranker_model_path",
@@ -308,6 +327,7 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
             "unknown_is_neutral",
         ),
         "TRIALMATCHAI_CONSTRAINTS_WRITE_REPORTS": ("constraints", "write_reports"),
+        "TRIALMATCHAI_QUERY_EXPANSION_ENABLED": ("query_expansion", "enabled"),
         "TRIALMATCHAI_FIRST_LEVEL_ENABLED": ("search", "first_level", "enabled"),
         "TRIALMATCHAI_FIRST_LEVEL_LLM_EXPANSION_ENABLED": (
             "search",
