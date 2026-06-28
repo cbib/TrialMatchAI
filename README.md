@@ -226,31 +226,16 @@ The generative LLM stages, reranker and eligibility reasoning, run on vLLM.
 LoRA adapters are served natively through vLLM. NER, reranker, and eligibility
 reasoning are configurable and fine-tunable.
 
-## Data And Storage
+## Data and storage
 
-TrialMatchAI uses embedded LanceDB tables by default:
-
-- Search DB: `data/search`
-- Trial table: `trials`
-- Criteria table: `criteria`
-- Concept-linking DB: `data/concepts`
-- Concept table: `concepts`
-
-ClinicalTrials.gov records are normalized to JSON files under
-`data/trials_jsons/<NCT_ID>.json`. During indexing, TrialMatchAI prepares:
-
-- one trial row per NCT ID, including text fields, metadata filters, date/age
-  fields, and embedding vectors
-- one criteria row per eligibility criterion, including criterion text,
-  criterion embedding, eligibility type, entity annotations, and parsed
-  eligibility constraints
-
-The trial and criteria tables each get full-text search fields and vector
-columns, so retrieval can run in `bm25`, `vector`, or `hybrid` mode.
-
-Patient inputs are imported before matching. Each imported patient is stored as
-a canonical profile under `data/patients/profiles/<patient_id>.json`, with a
-matching summary under `data/patients/summaries/<patient_id>.json`.
+Everything is **embedded LanceDB** — no external services. A search DB
+(`data/search`, with `trials` + `criteria` tables) and a concept-linking DB
+(`data/concepts`). ClinicalTrials.gov records are normalized to
+`data/trials_jsons/<NCT_ID>.json`, then prepared into one trial row and one
+criteria row per eligibility criterion (text + embeddings + entity annotations +
+parsed constraints). Both tables carry full-text and vector columns, so retrieval
+runs in `bm25`, `vector`, or `hybrid` mode. Imported patients live under
+`data/patients/{profiles,summaries}/`.
 
 ## Patient Inputs
 
@@ -268,80 +253,21 @@ The matching summary is rendered deterministically from the canonical
 
 See [docs/interoperability.md](docs/interoperability.md) for format details.
 
-## First-Level Retrieval
+## Learn more
 
-First-level retrieval is recall-oriented. It builds a multi-channel query plan
-from the canonical `PatientProfile` and matching summary, then searches each
-channel separately and fuses candidates with reciprocal rank fusion.
+Deeper guides live in the **[documentation site](https://cbib.github.io/TrialMatchAI/)**:
 
-Channels include primary conditions, linked concept synonyms, broader disease
-terms, patient narrative text, biomarkers, prior therapy or procedures, and
-optional LLM-generated expansions. LLM expansion is off by default; deterministic
-concept and patient-profile expansion are the default path.
+- **[Pipeline &amp; CLI](https://cbib.github.io/TrialMatchAI/pipeline/)** — the stage registry, `--only/--skip/--from/--to/--force`, ablation, and presets.
+- **[Architecture](https://cbib.github.io/TrialMatchAI/architecture/)** — multi-channel first-level retrieval, constraint-aware ranking, and the LanceDB tables.
+- **[Patient interoperability](https://cbib.github.io/TrialMatchAI/interoperability/)** — text / FHIR / Phenopacket / OMOP importers.
+- **[Fine-tuning &amp; custom models](https://cbib.github.io/TrialMatchAI/finetuning/)** — swap the NER, reranker, and CoT models; training-data formats.
+- **[Registry updater](https://cbib.github.io/TrialMatchAI/registry-updater/)** — keep trials current from ClinicalTrials.gov.
+- **[API reference](https://cbib.github.io/TrialMatchAI/api/)** — the Python API.
 
-By default the first level hard-filters by age, sex/gender, and recruitment
-status (`search.first_level.hard_filters`). Geographic **location** is an opt-in
-hard filter: add `"location"` to `hard_filters` to keep only trials with a
-recruiting site in the patient's country (country-level, site-aware, and
-recall-safe — trials with unknown site countries are never dropped; patient
-location is populated by the FHIR and OMOP importers). Biomarkers, phase, prior
-therapy, and eligibility constraints remain soft signals for later stages.
-
-When enabled, first-level artifacts are written under `results/<patient_id>/`:
-
-- `first_level_query_plan.json`
-- `first_level_candidates.json`
-
-## Constraint-Aware Retrieval
-
-TrialMatchAI parses common eligibility logic from criteria rows and compares it
-with the canonical `PatientProfile` during second-stage retrieval. V1 supports
-age, sex or gender, conditions, medications and prior therapy, procedures, labs,
-biomarkers, ECOG/Karnofsky-style performance status, temporal phrases, and
-inclusion/exclusion polarity.
-
-Constraints are a soft ranking signal. They can boost matching inclusion
-criteria, penalize violated inclusion or exclusion criteria, and leave unknown
-facts neutral. They do not hard-exclude trials and they are not medical advice;
-the final vLLM eligibility reasoning remains the final judge.
-
-When enabled, per-patient reports are written under `results/<patient_id>/`:
-
-- `constraint_evaluations.json`
-- `constraint_summary.md`
-- `top_trials_explained.json`
-
-## Bring Your Own Models
-
-Defaults are starting points. Point the pipeline at your own checkpoints or
-adapters through config or environment variables.
-
-| Component | Default | Config key |
-| --- | --- | --- |
-| Biomedical extraction | `fastino/gliner2-base-v1` | `entity_extraction.model_name` |
-| Reranker | `google/gemma-2-2b-it` | `model.reranker_adapter_path` |
-| CoT eligibility | configured CoT model | `model.cot_adapter_path` |
-
-Fine-tune model components with:
-
-```bash
-uv sync --extra finetune
-uv run trialmatchai finetune cot \
-  --base-model microsoft/phi-4 \
-  --train-data data/finetune/cot.jsonl \
-  --output-dir models/cot-adapter
-uv run trialmatchai finetune reranker \
-  --base-model google/gemma-2-2b-it \
-  --train-data data/finetune/reranker.jsonl \
-  --output-dir models/reranker-adapter
-uv run trialmatchai finetune ner \
-  --base-model fastino/gliner2-base-v1 \
-  --train-data data/finetune/ner.jsonl \
-  --output-dir models/ner
-```
-
-See [docs/finetuning.md](docs/finetuning.md) for accepted training formats and
-adapter configuration.
+To bring your own models, point `entity_extraction.model_name`,
+`model.reranker_adapter_path`, and `model.cot_adapter_path` at your checkpoints /
+adapters, or train them with `trialmatchai finetune {cot,reranker,ner}` — see the
+[fine-tuning guide](https://cbib.github.io/TrialMatchAI/finetuning/).
 
 ## Configuration
 
