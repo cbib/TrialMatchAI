@@ -81,13 +81,13 @@ def free_vllm_engines() -> None:
         try:
             del engine
         except Exception:
-            pass
+            logger.debug("vLLM teardown: engine del failed (ignored)", exc_info=True)
     try:
         import gc
 
         gc.collect()
     except Exception:
-        pass
+        logger.debug("vLLM teardown: gc.collect failed (ignored)", exc_info=True)
     try:
         from vllm.distributed.parallel_state import (  # type: ignore
             destroy_model_parallel,
@@ -95,14 +95,14 @@ def free_vllm_engines() -> None:
 
         destroy_model_parallel()
     except Exception:
-        pass
+        logger.debug("vLLM teardown: destroy_model_parallel failed (ignored)", exc_info=True)
     try:
         import torch
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     except Exception:
-        pass
+        logger.debug("vLLM teardown: cuda.empty_cache failed (ignored)", exc_info=True)
 
 
 def load_vllm_engine(
