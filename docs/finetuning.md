@@ -39,8 +39,9 @@ trialmatchai-finetune merge \
   --output-dir models/reranker-merged
 ```
 
-Then point the config at the merged directory (`reranker_model_path` /
-`cot model`) and leave the adapter path empty.
+Then point the config at the merged directory (`model.reranker_model_path` for
+the reranker, `model.base_model` for the merged CoT model) and leave the matching
+adapter path (`model.reranker_adapter_path` / `model.cot_adapter_path`) empty.
 
 ## 2. Fine-tuning
 

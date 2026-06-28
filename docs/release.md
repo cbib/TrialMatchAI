@@ -18,10 +18,16 @@ Smoke test console commands:
 ```bash
 uv run trialmatchai --help
 uv run trialmatchai-healthcheck --help
+uv run trialmatchai-bootstrap-data --help
+uv run trialmatchai-build --help
 uv run trialmatchai-index --help
 uv run trialmatchai-build-concepts --help
 uv run trialmatchai-update-registry --help
+uv run trialmatchai-import-patient --help
 uv run trialmatchai-run --help
+uv run trialmatchai-e2e --help
+uv run trialmatchai-trec --help
+uv run trialmatchai-finetune --help
 ```
 
 Wheel install smoke:

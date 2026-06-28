@@ -141,12 +141,23 @@ uv run trialmatchai e2e --input data/patients/omop_extract
 Results land in `results/<patient_id>/` (ranked trials + eligibility
 explanations). Re-running skips patients already matched.
 
-### Health and maintenance
+### Health and keeping trials current
 
 ```bash
-uv run trialmatchai-healthcheck                              # validate config/paths/deps
-uv run trialmatchai-update-registry --since 2026-06-01       # pull new ClinicalTrials.gov studies
+uv run trialmatchai-healthcheck                          # validate config/paths/deps
 ```
+
+Fold new/changed ClinicalTrials.gov studies into the **live index** — fetch →
+embed + entity-annotate → upsert, incremental and idempotent (unchanged studies
+are skipped via a manifest, so it is safe to re-run):
+
+```bash
+uv run trialmatchai update-registry --since 2026-06-01   # one-shot
+uv run trialmatchai update-registry --watch --interval 86400   # server: update daily
+```
+
+For a one-shot cadence you can also drive `update-registry` from cron, a systemd
+timer, or GitHub Actions — see [docs/registry-updater.md](docs/registry-updater.md).
 
 <details>
 <summary>Manual / advanced control (the steps <code>build</code> and <code>e2e</code> wrap)</summary>
