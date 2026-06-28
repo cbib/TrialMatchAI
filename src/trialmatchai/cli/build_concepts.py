@@ -71,10 +71,10 @@ def main() -> int:
         help="Create an FTS-only table without model embeddings.",
     )
     parser.add_argument(
-        "--recreate",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Overwrite the target table if it exists.",
+        "--force",
+        action="store_true",
+        help="Rebuild (re-embed) the concept table even if it already exists "
+        "(default: skip if present).",
     )
     args = parser.parse_args()
 
@@ -85,6 +85,20 @@ def main() -> int:
 
     if not args.concept_csv and not args.dictionary and not args.sources:
         parser.error("provide --concept-csv, --sources, and/or at least one --dictionary")
+
+    # Idempotent: skip the (expensive) re-embed if the table is already built,
+    # unless --force or a new OMOP vocab (--concept-csv) is being folded in.
+    if not args.force and not args.concept_csv:
+        ready, rows_present = _concept_table_ready(db_path, table_name)
+        if ready:
+            logger.info(
+                "Concept store already present at %s/%s (%s concepts); skipping. "
+                "Use --force to rebuild.",
+                db_path,
+                table_name,
+                rows_present,
+            )
+            return 0
 
     # Collect dictionary specs from explicit --dictionary flags and bundled --sources.
     dictionary_specs: list[tuple[str, str, str]] = [
@@ -126,7 +140,7 @@ def main() -> int:
         db_path=db_path,
         table_name=table_name,
         embeddings=embeddings,
-        recreate=args.recreate,
+        recreate=True,
     )
     logger.info("Wrote %s concepts to %s/%s", len(rows), db_path, table_name)
     return 0
@@ -140,6 +154,20 @@ def _parse_dictionary_spec(spec: str) -> tuple[str, str, str]:
             f"received: {spec}"
         )
     return parts[0], parts[1], parts[2]
+
+
+def _concept_table_ready(db_path: str, table_name: str) -> tuple[bool, int]:
+    """Return (table exists and is non-empty, row count) for the concept table."""
+    try:
+        import lancedb
+
+        db = lancedb.connect(str(db_path))
+        if table_name not in db.table_names():
+            return False, 0
+        count = db.open_table(table_name).count_rows()
+        return count > 0, count
+    except Exception:
+        return False, 0
 
 
 if __name__ == "__main__":

@@ -376,7 +376,8 @@ def prepare_corpus(
     pending = [
         p
         for p in all_paths
-        if force or not (processed_trials_folder / f"{p.stem}.json").exists()
+        if force
+        or not is_valid_json_file(str(processed_trials_folder / f"{p.stem}.json"))
     ]
     skipped = len(all_paths) - len(pending)
     logger.info(
