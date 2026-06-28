@@ -20,6 +20,21 @@ from tqdm import tqdm
 logger = setup_logging(__name__)
 
 
+def _is_error_output(path: str) -> bool:
+    """True if a per-trial output is a recorded processing failure or unparseable.
+
+    Used by the resume worklist so a transiently-failed trial (written as
+    ``{"error": ...}``) is retried on the next run instead of being treated as
+    done and locked into the ranking.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception:
+        return True
+    return isinstance(data, dict) and "error" in data
+
+
 class BaseTrialProcessor:
     # Subclasses set these in __init__.
     tokenizer = None
@@ -30,13 +45,18 @@ class BaseTrialProcessor:
     # ---------------------- I/O helpers ----------------------
 
     def _load_trial_data(self, nct_id: str, json_folder: str) -> str:
+        path = f"{json_folder}/{nct_id}.json"
         try:
-            path = f"{json_folder}/{nct_id}.json"
             trial_data = read_json_file(path)
-            return trial_data.get("eligibility_criteria", "")
         except Exception as e:
-            logger.error(f"Error loading {nct_id}: {str(e)}")
+            # Fail loud: a missing/unreadable trial file means the eligibility
+            # model would silently reason over "no criteria" and score 0.
+            logger.error("Cannot load criteria for %s from %s: %s", nct_id, path, e)
             return ""
+        criteria = trial_data.get("eligibility_criteria", "")
+        if not criteria:
+            logger.warning("Trial %s has empty eligibility_criteria at %s", nct_id, path)
+        return criteria
 
     # ---------------------- Prompting ----------------------
 
@@ -225,7 +245,10 @@ class BaseTrialProcessor:
 
         items: List[Dict] = []
         for nct_id in nct_ids:
-            if os.path.exists(f"{output_folder}/{nct_id}.json"):
+            existing = f"{output_folder}/{nct_id}.json"
+            # Skip only genuinely-completed trials; a recorded processing failure
+            # ({"error": ...}) or an unparseable file is retried, not locked in.
+            if os.path.exists(existing) and not _is_error_output(existing):
                 logger.info(f"Skipping existing: {nct_id}")
                 continue
             criteria_text = self._load_trial_data(nct_id, json_folder)

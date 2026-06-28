@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -188,6 +189,12 @@ def write_prepared_criteria(rows: Sequence[dict[str, Any]], folder: str | Path) 
     if not rows:
         return 0
     trial_folder = Path(folder) / str(rows[0]["nct_id"])
+    # Clear stale criteria from a prior prepare first: criteria_id = sha256(nct:text),
+    # so changed chunking/text yields new files while orphaning the old ones, which
+    # the index would then ingest as duplicates. The trial-completion marker is
+    # written only after this, so a crash here is simply re-prepared on resume.
+    if trial_folder.exists():
+        shutil.rmtree(trial_folder, ignore_errors=True)
     for row in rows:
         _atomic_write_text(
             trial_folder / f"{row['criteria_id']}.json",

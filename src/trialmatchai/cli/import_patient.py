@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -9,6 +8,7 @@ from typing import Any
 from trialmatchai.config.config_loader import load_config
 from trialmatchai.interop.exporters import profile_to_matching_summary
 from trialmatchai.interop.importers import import_patient_path
+from trialmatchai.utils.file_utils import write_json_file
 from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
@@ -73,8 +73,11 @@ def main() -> int:
     for profile in profiles:
         profile_path = output_dir / f"{profile.patient_id}.json"
         summary_path = summary_dir / f"{profile.patient_id}.json"
-        _write_json(profile.model_dump(mode="json", exclude_none=True), profile_path)
-        _write_json(profile_to_matching_summary(profile), summary_path)
+        # Atomic writes, summary before profile: the profile is the completion
+        # marker downstream resume keys on, so it must land last (matches
+        # orchestration.ingest_inputs).
+        write_json_file(profile_to_matching_summary(profile), str(summary_path))
+        write_json_file(profile.model_dump(mode="json", exclude_none=True), str(profile_path))
         logger.info("Imported patient profile %s -> %s", profile.patient_id, profile_path)
     return 0
 
@@ -91,13 +94,6 @@ def _try_build_entity_annotator(config: dict[str, Any]):
     except Exception as exc:
         logger.warning("Entity annotation unavailable; importing without entities: %s", exc)
         return None
-
-
-def _write_json(payload: dict, path: Path) -> None:
-    path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False),
-        encoding="utf-8",
-    )
 
 
 if __name__ == "__main__":

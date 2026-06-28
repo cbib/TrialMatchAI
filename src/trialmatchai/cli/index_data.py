@@ -140,16 +140,29 @@ def _prepare_from_trials_jsons(
     embedder = build_embedder(config)
     entity_annotator = build_entity_annotator(config, embedder=embedder)
     trial_docs = _load_flat_json_folder(trials_json_folder)
+    prepared = failed = 0
     for doc in trial_docs:
-        trial_row = prepare_trial_document(doc, embedder)
-        criteria_rows = prepare_criteria_documents(
-            doc,
-            embedder,
-            entity_annotator=entity_annotator,
-        )
-        write_prepared_trial(trial_row, processed_trials_folder)
-        write_prepared_criteria(criteria_rows, processed_criteria_folder)
-    logger.info("Prepared %s trial JSON files from %s.", len(trial_docs), trials_json_folder)
+        nct_id = doc.get("nct_id", "<unknown>")
+        try:
+            trial_row = prepare_trial_document(doc, embedder)
+            criteria_rows = prepare_criteria_documents(
+                doc,
+                embedder,
+                entity_annotator=entity_annotator,
+            )
+            # Criteria before the trial marker so a crash mid-trial re-prepares it.
+            write_prepared_criteria(criteria_rows, processed_criteria_folder)
+            write_prepared_trial(trial_row, processed_trials_folder)
+            prepared += 1
+        except Exception:
+            logger.exception("Failed to prepare trial %s; skipping", nct_id)
+            failed += 1
+    logger.info(
+        "Prepared %s trial JSON files from %s (%s failed).",
+        prepared,
+        trials_json_folder,
+        failed,
+    )
 
 
 def _resolve_path(value: str, root: Path) -> Path:

@@ -238,6 +238,21 @@ def run_second_level_search(
     return semi_final_trials, top_trials_path
 
 
+def _criteria_source_folder(config: Dict) -> str:
+    """Folder the eligibility model reads each trial's criteria text from.
+
+    Prefer ``processed_trials`` — always produced by ``build``/``bootstrap-data``
+    and carrying the ``eligibility_criteria`` text — over the raw ``trials_jsons``,
+    which ``bootstrap-data`` does not download. Sourcing from the latter would make
+    the model silently reason over "no criteria" and score every trial 0.
+    """
+    paths = config.get("paths", {})
+    processed = paths.get("processed_trials_folder") or "data/processed_trials"
+    if Path(processed).is_dir():
+        return str(processed)
+    return paths.get("trials_json_folder", "data/trials_jsons")
+
+
 def run_rag_processing(
     output_folder: str,
     top_trials_file: str,
@@ -304,7 +319,7 @@ def run_rag_processing(
 
     rag_processor.process_trials(
         nct_ids=top_trials,
-        json_folder=config["paths"]["trials_json_folder"],
+        json_folder=_criteria_source_folder(config),
         output_folder=output_folder,
         patient_narrative=patient_narrative,
     )
@@ -495,11 +510,16 @@ def main_pipeline(
                         )
 
                 with log_timing(logger, "Final ranking"):
-                    trial_data = load_trial_data(str(output_folder))
+                    # Scope to this run's shortlist so stale per-trial files from a
+                    # prior run with a different shortlist are not ranked.
+                    second_level = dict(semi_final_trials)
+                    trial_data = load_trial_data(
+                        str(output_folder), allowed_ids=set(second_level)
+                    )
                     ranked_trials = rank_trials(
                         trial_data,
                         first_level_scores=first_level_scores,
-                        second_level_scores=dict(semi_final_trials),
+                        second_level_scores=second_level,
                     )
                     save_ranked_trials(
                         ranked_trials, str(output_folder / "ranked_trials.json")

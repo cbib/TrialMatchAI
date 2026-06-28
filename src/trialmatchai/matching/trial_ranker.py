@@ -7,7 +7,15 @@ from trialmatchai.utils.logging_config import setup_logging
 logger = setup_logging(__name__)
 
 
-def load_trial_data(json_folder: str) -> List[Dict]:
+def load_trial_data(
+    json_folder: str, allowed_ids: set[str] | None = None
+) -> List[Dict]:
+    """Load per-trial eligibility outputs from a patient's result folder.
+
+    ``allowed_ids`` scopes loading to the current shortlist, so per-trial files
+    left over from a prior run with a different shortlist (e.g. after the index
+    changed) are ignored instead of being scored into the final ranking.
+    """
     trial_data = []
     for file_name in os.listdir(json_folder):
         # Only NCT-named files are trials; skip run sidecars written to the same
@@ -16,6 +24,8 @@ def load_trial_data(json_folder: str) -> List[Dict]:
         if file_name.endswith(".json") and file_name.upper().startswith("NCT"):
             file_path = os.path.join(json_folder, file_name)
             trial_id = os.path.splitext(file_name)[0]
+            if allowed_ids is not None and trial_id not in allowed_ids:
+                continue
             try:
                 trial = read_json_file(file_path)
                 trial["TrialID"] = trial_id
