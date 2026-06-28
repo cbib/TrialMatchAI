@@ -295,7 +295,7 @@ def run_e2e(
     force_reindex: bool = False,
     force_rematch: bool = False,
 ) -> int:
-    """Ingest -> index -> match: the run-half slice of the unified pipeline.
+    """Run-half of the unified pipeline (slice index -> ingest -> expand -> match).
 
     A thin preset over ``run_pipeline`` (index..match): index/ingest/expand/match
     are idempotent so this resumes from any state, and GPU models are freed once.

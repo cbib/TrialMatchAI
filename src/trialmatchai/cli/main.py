@@ -50,7 +50,7 @@ def main() -> int:
     subparsers.add_parser("run", help="Run the matching pipeline", add_help=False)
     subparsers.add_parser(
         "e2e",
-        help="Run the whole pipeline end-to-end (ingest -> index -> match), idempotent",
+        help="Match a patient end-to-end (pipeline slice index -> ingest -> expand -> match), idempotent",
         add_help=False,
     )
     subparsers.add_parser(

@@ -56,7 +56,7 @@ jobs:
         run: |
           WHEEL="$(ls dist/trialmatchai-*.whl | head -n 1)"
           uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai --help
-          for cmd in healthcheck bootstrap-data index build-concepts update-registry \
+          for cmd in pipeline healthcheck bootstrap-data index build-concepts update-registry \
                      import-patient build run e2e trec finetune; do
             uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai "$cmd" --help
           done

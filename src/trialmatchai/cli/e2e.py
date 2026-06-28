@@ -1,8 +1,9 @@
-"""``trialmatchai e2e`` — run the whole pipeline end-to-end in one command.
+"""``trialmatchai e2e`` — match a patient end-to-end in one command.
 
-Ingest patient inputs (any supported format, auto-detected) -> build the search
-index -> match. Every stage is idempotent: re-running skips already-imported
-patients, an existing index, and already-matched patients.
+A preset over the unified pipeline (the slice index -> ingest -> expand -> match):
+imports patient inputs (any supported format, auto-detected), ensures the search
+index, and matches. Every stage is idempotent: re-running skips an existing index,
+already-imported patients, and already-matched patients.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ logger = setup_logging(__name__)
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run the TrialMatchAI pipeline end-to-end (ingest -> index -> match)."
+        description="Match a patient end-to-end (pipeline slice: index -> ingest -> expand -> match)."
     )
     parser.add_argument("--config", default=None, help="Path to TrialMatchAI config JSON")
     parser.add_argument(
