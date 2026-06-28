@@ -36,8 +36,8 @@ faithful evaluation, professional docs, and PyPI-ready packaging.
   workflow; `gitleaks` pre-commit and Dependabot.
 
 ### Changed
-- **LanceDB** embedded hybrid search replaces Elasticsearch; **vLLM** is the only
-  LLM backend (LoRA adapters served natively) with a single shared engine.
+- **LanceDB** provides embedded hybrid search (no external search service); **vLLM**
+  is the only LLM backend (LoRA adapters served natively) with a single shared engine.
 - **GLiNER2** in-process NER replaces the BERN2 socket daemons; concept linking
   moves to a LanceDB FTS+vector store.
 - **Crash-safe resume everywhere** — atomic writes (`tmp + fsync + os.replace`),

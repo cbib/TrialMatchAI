@@ -1,9 +1,12 @@
 # TrialMatchAI
 
-**AI-driven patient-to-clinical-trial matching.** Import a patient — free text,
-FHIR, Phenopacket, or OMOP — and get ranked, eligible trials with criterion-level
-eligibility explanations. Local LanceDB hybrid search + vLLM reasoning on a single
-GPU server; no Elasticsearch or hosted vector database to run.
+**TrialMatchAI matches patients to the clinical trials they're eligible for.** Give
+it a patient — clinical notes, FHIR, Phenopacket, or OMOP — and it returns a ranked
+shortlist of trials, each with a transparent, criterion-by-criterion explanation of
+why the patient does or doesn't qualify. Everything runs on your own infrastructure:
+hybrid retrieval over a local LanceDB index paired with chain-of-thought LLM
+reasoning served by vLLM on a single GPU, so sensitive patient data never leaves
+your environment.
 
 !!! warning "Research and informational use only"
     TrialMatchAI is not medical advice, not a medical device, and must not replace

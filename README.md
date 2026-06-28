@@ -2,7 +2,7 @@
 
 <img src="img/logo.png" alt="TrialMatchAI" width="480"/>
 
-<p><b>AI-driven clinical trial matching.</b> Import a patient — text, FHIR, Phenopacket, or OMOP — and get ranked, eligible trials with criterion-level eligibility explanations. Local LanceDB search + vLLM reasoning on a single GPU server; no Elasticsearch or hosted vector database to run.</p>
+<p><b>TrialMatchAI matches patients to the clinical trials they're eligible for.</b> Give it a patient — clinical notes, FHIR, Phenopacket, or OMOP — and it returns a ranked shortlist of trials, each with a transparent, criterion-by-criterion explanation of why the patient does or doesn't qualify. Everything runs on your own infrastructure: hybrid retrieval over a local LanceDB index paired with chain-of-thought LLM reasoning served by vLLM on a single GPU, so sensitive patient data never leaves your environment.</p>
 
 <p>
   <a href="#install">Install</a> ·
@@ -24,17 +24,17 @@ TrialMatchAI runs in **two halves**: **build the system once**, then **match
 patients many times**. Both commands are idempotent and resume after disruption.
 
 ```bash
-uv sync --extra llm --extra gpu --extra entity   # GPU host + HuggingFace access
-uv run trialmatchai bootstrap-data               # fetch prepared corpus + adapters
-uv run trialmatchai build                        # 1) BUILD: prepare + index (once)
-uv run trialmatchai e2e --input patient.txt      # 2) MATCH: ingest + match a patient
+pip install "trialmatchai[llm,gpu,entity]"   # GPU host + HuggingFace access
+trialmatchai bootstrap-data                  # fetch prepared corpus + adapters
+trialmatchai build                           # 1) BUILD: prepare + index (once)
+trialmatchai e2e --input patient.txt         # 2) MATCH: ingest + match a patient
 # -> results/<patient_id>/ranked_trials.json
 ```
 
 ## Requirements
 
 - Python 3.11 (`pyproject.toml` requires `>=3.11,<3.12`)
-- `uv` recommended, or `pip` with an editable install
+- `pip` or `uv` — install from PyPI, or a source checkout for development
 - NVIDIA GPU for vLLM-backed matching and fine-tuning
 - Around 100 GB disk for datasets, model artifacts, LanceDB tables, manifests,
   and run outputs
@@ -42,48 +42,19 @@ uv run trialmatchai e2e --input patient.txt      # 2) MATCH: ingest + match a pa
 
 ## Install
 
-Clone the repository and install from the project root:
+### From PyPI (recommended)
 
 ```bash
-git clone <repo-url>
-cd TrialMatchAI
+pip install trialmatchai          # or: uv pip install trialmatchai
+trialmatchai --help
 ```
 
-Base install with `uv` gives the package and CLI entry points without the heavy
-model stack:
+That installs the package and the `trialmatchai` CLI with its base dependencies.
+For model-backed matching, add the runtime extras:
 
 ```bash
-uv sync
-uv run trialmatchai --help
-```
-
-Install the full model-backed runtime:
-
-```bash
-uv sync --extra llm --extra gpu --extra entity
-```
-
-Install the fine-tuning stack:
-
-```bash
-uv sync --extra finetune
-```
-
-Editable install with `pip` is also supported:
-
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
-
-Optional extras with `pip`:
-
-```bash
-pip install -e ".[entity]"
-pip install -e ".[llm,entity]"
-pip install -e ".[llm,gpu,entity]"
-pip install -e ".[finetune]"
+pip install "trialmatchai[llm,gpu,entity]"   # full GPU runtime (Linux CUDA host)
+pip install "trialmatchai[finetune]"         # fine-tuning stack
 ```
 
 | Extra | Adds |
@@ -92,6 +63,19 @@ pip install -e ".[finetune]"
 | `llm` | local embedding and LLM dependencies |
 | `gpu` | vLLM and bitsandbytes; intended for Linux CUDA hosts |
 | `finetune` | training dependencies for `trialmatchai finetune` |
+
+### From source (for development)
+
+```bash
+git clone https://github.com/cbib/TrialMatchAI.git
+cd TrialMatchAI
+uv sync                                       # base; add --extra llm --extra gpu --extra entity
+uv run trialmatchai --help
+```
+
+> **Calling the CLI:** installed from PyPI, run it directly — `trialmatchai ...`.
+> From a `uv` source checkout, prefix with `uv run` — `uv run trialmatchai ...`.
+> The examples below use the `uv run` form; drop the prefix if you installed from PyPI.
 
 Installing the package only gives you the CLI. Real matching also needs the
 trial corpus, model artifacts, and LanceDB search tables — all produced by the
