@@ -36,7 +36,7 @@ dependencies = [
   "pandas==2.2.3",
   "python-dateutil==2.9.0.post0",
   "requests==2.34.2",
-  "tenacity==9.0.0",
+  "tenacity==9.1.4",
   "tqdm==4.67.1",
   "PyYAML==6.0.2",
   "lancedb>=0.25.0,<0.26",
