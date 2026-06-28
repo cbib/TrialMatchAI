@@ -65,7 +65,7 @@ jobs:
           uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-finetune --help
 
       - name: Secret scan
-        run: uv run python scripts/scan_secrets.py
+        run: uv run pre-commit run gitleaks --all-files
 
       - name: Dependency audit
         # vLLM 0.23 pins torch 2.11.0; CVE-2025-3000 has no fixed version listed.
