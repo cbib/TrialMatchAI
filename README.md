@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="img/logo.png" alt="TrialMatchAI" width="220"/>
+<img src="img/logo.png" alt="TrialMatchAI" width="480"/>
 
 <p><b>AI-driven clinical trial matching.</b> Import a patient — text, FHIR, Phenopacket, or OMOP — and get ranked, eligible trials with criterion-level eligibility explanations. Local LanceDB search + vLLM reasoning on a single GPU server; no Elasticsearch or hosted vector database to run.</p>
 
