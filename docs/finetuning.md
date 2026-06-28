@@ -11,6 +11,13 @@ checkpoints/adapters via config, and train those adapters with the built-in
 | Reranker | `google/gemma-2-2b-it` | `model.reranker_adapter_path` | LoRA adapter |
 | CoT eligibility | configured CoT model | `model.cot_adapter_path` | LoRA adapter |
 
+> **Where does the training data come from?** Fine-tuning is **optional** — the
+> ready-to-use CoT and reranker adapters are downloaded by `trialmatchai-bootstrap-data`,
+> so most deployments never need to train. The **raw training datasets are not
+> published**; to re-train, bring your own JSONL in the schemas shown below
+> (`data/finetune/*.jsonl`). Each line is a self-contained example, so you can
+> assemble a dataset from your own annotated patient–trial pairs.
+
 Install the training dependencies:
 
 ```bash

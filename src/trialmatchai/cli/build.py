@@ -7,7 +7,8 @@ the last completed work — and records a manifest so you can see what is done.
 
   trialmatchai build                 # prepare (resumable) + index
   trialmatchai build --status        # report what is already built, then exit
-  trialmatchai build --concepts-csv data/omop/CONCEPT.csv   # also build concept DB
+  trialmatchai build --concepts      # also build the open concept-linking DB
+  trialmatchai build --concepts --concepts-csv data/omop/CONCEPT.csv  # + OMOP vocab
 """
 
 from __future__ import annotations
@@ -37,9 +38,15 @@ def main() -> int:
     parser.add_argument("--processed-trials-folder", default="data/processed_trials")
     parser.add_argument("--processed-criteria-folder", default="data/processed_criteria")
     parser.add_argument(
+        "--concepts",
+        action="store_true",
+        help="Also build the concept-linking DB from open vocabularies "
+        "(genes, diseases, chemicals, cell lines, cell types, phenotypes; auto-downloaded).",
+    )
+    parser.add_argument(
         "--concepts-csv",
         default=None,
-        help="OMOP CONCEPT.csv to also build the concept-linking DB (optional).",
+        help="OMOP CONCEPT.csv to add SNOMED/LOINC/RxNorm to the concept DB (optional).",
     )
     parser.add_argument("--synonym-csv", default=None, help="OMOP CONCEPT_SYNONYM.csv (optional).")
     parser.add_argument("--force-prepare", action="store_true", help="Re-prepare all trials.")
@@ -77,14 +84,19 @@ def main() -> int:
         force_reindex=args.reindex,
     )
 
-    # Optional: chain concept-DB build (needs user-supplied OMOP CSV).
-    if args.concepts_csv:
+    # Optional: chain the concept-DB build. --concepts pulls the open vocabularies
+    # (auto-downloaded); --concepts-csv adds the licensed OMOP vocab on top.
+    if args.concepts or args.concepts_csv:
         logger.info("=== build: concepts stage ===")
         from trialmatchai.cli.build_concepts import main as build_concepts_main
 
-        argv = ["--concept-csv", args.concepts_csv]
-        if args.synonym_csv:
-            argv += ["--synonym-csv", args.synonym_csv]
+        argv: list[str] = []
+        if args.concepts:
+            argv += ["--sources", "open"]
+        if args.concepts_csv:
+            argv += ["--concept-csv", args.concepts_csv]
+            if args.synonym_csv:
+                argv += ["--synonym-csv", args.synonym_csv]
         if args.config:
             argv += ["--config", args.config]
         saved = sys.argv
@@ -95,8 +107,9 @@ def main() -> int:
             sys.argv = saved
     else:
         logger.warning(
-            "Concept DB not built (no --concepts-csv): entity->concept linking will "
-            "degrade gracefully. Supply an OMOP CONCEPT.csv to enable it."
+            "Concept DB not built: entity->concept linking will degrade gracefully. "
+            "Run `trialmatchai build --concepts` to enable it (open vocabularies, "
+            "auto-downloaded); add --concepts-csv for OMOP SNOMED/LOINC/RxNorm."
         )
 
     state = build_state(

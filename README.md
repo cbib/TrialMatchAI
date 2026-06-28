@@ -122,11 +122,27 @@ uv run trialmatchai build --status   # see exactly what is built (and what isn't
 `build` fails fast if a GPU, an extra, or model access is missing — and resumes
 from where it left off if interrupted. Bringing your **own** trials instead of
 bootstrapping? Put normalized JSON in `data/trials_jsons/` and `build` will
-prepare them. To also enable concept linking, pass an OMOP vocabulary:
+prepare them. To enable entity→concept linking, add `--concepts` (open
+vocabularies, **auto-downloaded**) — and optionally an OMOP `CONCEPT.csv` for
+SNOMED/LOINC/RxNorm on top:
 
 ```bash
-uv run trialmatchai build --concepts-csv data/omop/CONCEPT.csv --synonym-csv data/omop/CONCEPT_SYNONYM.csv
+uv run trialmatchai build --concepts                          # genes, diseases, chemicals, cells, phenotypes
+uv run trialmatchai build --concepts --concepts-csv data/omop/CONCEPT.csv --synonym-csv data/omop/CONCEPT_SYNONYM.csv
 ```
+
+#### What gets fetched, and how
+
+| Resource | How you get it | Automatic? |
+| --- | --- | --- |
+| Trial corpus (`processed_trials` + criteria) | `trialmatchai-bootstrap-data` (Zenodo) | ✅ automatic |
+| Fine-tuned LoRA adapters (CoT + reranker) | `trialmatchai-bootstrap-data` (Zenodo) | ✅ automatic |
+| Embedder (`BAAI/bge-m3`) | downloaded from HuggingFace on first use | ✅ automatic |
+| Concept-linking vocabularies (genes, diseases, …) | `trialmatchai build --concepts` | ✅ automatic |
+| Base LLMs (`microsoft/phi-4`, `google/gemma-2-2b-it`) | HuggingFace on first use | ⚠️ automatic, but **gated** models need a **one-time** `hf auth login` + accepting the model licence |
+| OMOP clinical vocab (SNOMED/LOINC/RxNorm) | download `CONCEPT.csv` from [OHDSI Athena](https://athena.ohdsi.org/) | ❌ manual (licensed); linking works without it |
+
+So a from-scratch user runs **two commands** (`bootstrap-data`, then `build --concepts`) after a one-time `hf auth login`. Everything else is pulled on demand.
 
 ### 2. Match patients — repeatably
 
