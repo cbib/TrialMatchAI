@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, Sequence
 
 from trialmatchai.search import LanceDBSearchBackend
+from trialmatchai.utils.file_utils import is_valid_json_file, write_json_file
 from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
@@ -61,20 +62,19 @@ def ingest_inputs(
         )
         for profile in profiles:
             profile_path = profile_dir / f"{profile.patient_id}.json"
-            if not force and profile_path.exists():
+            if not force and is_valid_json_file(str(profile_path)):
                 logger.info("Ingest skipped (exists): %s", profile.patient_id)
                 continue
-            profile_path.write_text(
-                json.dumps(
-                    profile.model_dump(mode="json", exclude_none=True),
-                    indent=2,
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
+            # Summary first; the profile JSON is written last (atomically) as the
+            # completion marker, so a crash between them re-imports rather than
+            # leaving a profile with no summary.
+            write_json_file(
+                profile_to_matching_summary(profile),
+                str(summary_dir / f"{profile.patient_id}.json"),
             )
-            (summary_dir / f"{profile.patient_id}.json").write_text(
-                json.dumps(profile_to_matching_summary(profile), indent=2),
-                encoding="utf-8",
+            write_json_file(
+                profile.model_dump(mode="json", exclude_none=True),
+                str(profile_path),
             )
             imported += 1
             logger.info("Ingested patient %s", profile.patient_id)
@@ -132,19 +132,13 @@ def expand_queries(config: Dict[str, Any], *, force: bool = False) -> int:
         expansion = expander.expand(narrative)
         merged = enrich_summary(summary, expansion)
         merged["query_expanded"] = True
-        summary_path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+        write_json_file(merged, str(summary_path))
         enriched += 1
         logger.info("Query-expanded %s", pid)
 
-    # Free the expander's model before the match stage loads its own.
+    # Release the expander wrapper; its CoT engine stays in the vLLM engine cache
+    # and is reused by the match stage (shared — a single load, not two).
     del expander
-    try:
-        import torch
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except Exception:
-        pass
     logger.info("Query-expansion stage: enriched %s summaries.", enriched)
     return enriched
 
@@ -212,12 +206,17 @@ def build_index(
     logger.info("Indexed %s trial documents.", n_trials)
 
     criteria_docs = list(_iter_criteria_docs(Path(processed_criteria_folder), nct_set))
-    n_criteria = 0
-    if criteria_docs:
-        n_criteria = backend.index_criteria(criteria_docs, recreate=True)
-        logger.info("Indexed %s criteria documents.", n_criteria)
-    else:
-        logger.warning("No criteria documents found; criteria channel will be empty.")
+    if not criteria_docs:
+        # Refuse to leave an inconsistent index (trials table but no criteria
+        # table) where `ready_to_match` can never become true. An empty corpus is
+        # a data error — the corpus is unprepared.
+        raise RuntimeError(
+            f"No criteria documents found in {processed_criteria_folder}"
+            + (f" for the {len(nct_set)} filtered NCT ids" if nct_set else "")
+            + ". The corpus appears unprepared — run `trialmatchai build` (prepare) first."
+        )
+    n_criteria = backend.index_criteria(criteria_docs, recreate=True)
+    logger.info("Indexed %s criteria documents.", n_criteria)
 
     return {
         "skipped": False,
@@ -238,7 +237,7 @@ def count_pending(config: Dict[str, Any]) -> tuple[int, int]:
     pending = done = 0
     for profile_path in sorted(profile_dir.glob("*.json")):
         ranked = output_dir / profile_path.stem / "ranked_trials.json"
-        if ranked.exists() and ranked.stat().st_size > 0:
+        if is_valid_json_file(str(ranked)):
             done += 1
         else:
             pending += 1
@@ -273,6 +272,16 @@ def run_matching(
 # --------------------------------------------------------------------------- #
 # Full e2e
 # --------------------------------------------------------------------------- #
+def free_models() -> None:
+    """Release cached GPU model engines. Call at the end of a top-level run."""
+    try:
+        from trialmatchai.models.llm.vllm_loader import free_vllm_engines
+
+        free_vllm_engines()
+    except Exception as exc:  # pragma: no cover - teardown is best-effort
+        logger.debug("free_models: %s", exc)
+
+
 def run_e2e(
     config: Dict[str, Any],
     inputs: Sequence[str | Path],
@@ -295,7 +304,7 @@ def run_e2e(
             with_entities=with_entities,
             force=force_reingest,
         )
-    expand_queries(config)
+    expand_queries(config, force=force_rematch)
     build_index(
         config,
         processed_trials_folder=processed_trials_folder,
@@ -303,7 +312,10 @@ def run_e2e(
         nct_filter=nct_filter,
         force=force_reindex,
     )
-    return run_matching(config, resume=True, force=force_rematch)
+    try:
+        return run_matching(config, resume=True, force=force_rematch)
+    finally:
+        free_models()
 
 
 # --------------------------------------------------------------------------- #
@@ -327,8 +339,7 @@ def _load_manifest(path: Path) -> dict:
 
 
 def _save_manifest(path: Path, manifest: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    write_json_file(manifest, str(path))
 
 
 def _count_json(folder: Path) -> int:
@@ -399,8 +410,12 @@ def prepare_corpus(
             criteria_rows = prepare_criteria_documents(
                 doc, embedder, entity_annotator=entity_annotator
             )
-            write_prepared_trial(trial_row, processed_trials_folder)
+            # Write criteria first; the trial JSON is written last and is the
+            # per-trial completion marker the resume check keys on — so an
+            # interrupted trial (criteria written, trial not) is re-processed
+            # rather than wrongly skipped.
             write_prepared_criteria(criteria_rows, processed_criteria_folder)
+            write_prepared_trial(trial_row, processed_trials_folder)
             prepared += 1
         except Exception:
             failed += 1

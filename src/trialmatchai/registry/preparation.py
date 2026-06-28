@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol
@@ -158,10 +160,27 @@ def prepare_criteria_documents(
     return rows
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write text via a temp file + os.replace so readers never see a partial file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=path.suffix)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def write_prepared_trial(row: dict[str, Any], folder: str | Path) -> Path:
     path = Path(folder) / f"{row['nct_id']}.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(row, indent=2, sort_keys=True), encoding="utf-8")
+    _atomic_write_text(path, json.dumps(row, indent=2, sort_keys=True))
     return path
 
 
@@ -169,10 +188,11 @@ def write_prepared_criteria(rows: Sequence[dict[str, Any]], folder: str | Path) 
     if not rows:
         return 0
     trial_folder = Path(folder) / str(rows[0]["nct_id"])
-    trial_folder.mkdir(parents=True, exist_ok=True)
     for row in rows:
-        path = trial_folder / f"{row['criteria_id']}.json"
-        path.write_text(json.dumps(row, indent=2, sort_keys=True), encoding="utf-8")
+        _atomic_write_text(
+            trial_folder / f"{row['criteria_id']}.json",
+            json.dumps(row, indent=2, sort_keys=True),
+        )
     return len(rows)
 
 

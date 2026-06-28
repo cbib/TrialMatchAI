@@ -27,6 +27,7 @@ from trialmatchai.interop.exporters import profile_to_matching_summary
 from trialmatchai.interop.models import PatientProfile
 from trialmatchai.utils.file_utils import (
     create_directory,
+    is_valid_json_file,
     read_json_file,
     read_text_file,
     write_json_file,
@@ -423,7 +424,10 @@ def main_pipeline(
         output_folder = Path(paths["output_dir"]) / patient_id
         if resume:
             ranked_path = output_folder / "ranked_trials.json"
-            if ranked_path.exists() and ranked_path.stat().st_size > 0:
+            # Parseable (not just non-empty) so a truncated/partial marker is
+            # treated as incomplete and re-run, while an empty-but-valid result
+            # is correctly recognized as completed.
+            if is_valid_json_file(str(ranked_path)):
                 logger.info("Resume: skipping already-matched patient %s", patient_id)
                 skipped_patients += 1
                 continue

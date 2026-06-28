@@ -54,13 +54,13 @@ TOPIC_SOURCES: dict[str, TopicSource] = {
         track="21",
         id_prefix="trec-2021",
         kind="nist_xml",
-        topics_url="https://trec.nist.gov/data/clinical/trials/topics2021.xml",
+        topics_url="https://trec.nist.gov/data/trials/topics2021.xml",
     ),
     "22": TopicSource(
         track="22",
         id_prefix="trec-2022",
         kind="nist_xml",
-        topics_url="https://trec.nist.gov/data/clinical/trials/topics2022.xml",
+        topics_url="https://trec.nist.gov/data/trials/topics2022.xml",
     ),
     # The SIGIR-2016 collection (Koopman & Zuccon) is hosted on the CSIRO Data
     # Access Portal (no stable direct-download URL), so sigir topics are sourced

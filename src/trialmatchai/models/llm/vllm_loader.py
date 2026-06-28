@@ -61,6 +61,50 @@ def _as_float(x, name: str) -> Optional[float]:
         raise TypeError(f"{name} must be float-compatible, got {type(x)}: {x!r}") from e
 
 
+# Process-level cache of built vLLM engines, keyed by the resolved model/adapter
+# and engine parameters. The RAG eligibility path builds an engine per patient and
+# the query expander builds one too — without this they would each rebuild the
+# (multi-GB) CoT engine repeatedly, wasting minutes and risking GPU OOM. With the
+# cache, identical (model, adapter, params) requests share a single engine.
+_ENGINE_CACHE: dict = {}
+
+
+def free_vllm_engines() -> None:
+    """Tear down all cached vLLM engines and release GPU memory.
+
+    Call once at the end of a top-level run (after all patients/tracks). Idempotent.
+    """
+    global _ENGINE_CACHE
+    engines = list(_ENGINE_CACHE.values())
+    _ENGINE_CACHE = {}
+    for engine, _tok, _lora in engines:
+        try:
+            del engine
+        except Exception:
+            pass
+    try:
+        import gc
+
+        gc.collect()
+    except Exception:
+        pass
+    try:
+        from vllm.distributed.parallel_state import (  # type: ignore
+            destroy_model_parallel,
+        )
+
+        destroy_model_parallel()
+    except Exception:
+        pass
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
 def load_vllm_engine(
     model_config: dict, vllm_cfg: dict | None = None
 ) -> Tuple[object, Optional[object], Optional[object]]:
@@ -131,6 +175,25 @@ def load_vllm_engine(
         engine_kwargs["revision"] = _as_str(revision, "revision")
     if requested_len is not None:
         engine_kwargs["max_model_len"] = requested_len
+
+    # Return a cached engine when the same model/adapter/params were already built.
+    cache_adapter = _as_str(
+        vllm_cfg.get("adapter_path") or model_config.get("cot_adapter_path"),
+        "adapter_path",
+    ) or ""
+    cache_key = (
+        model_path,
+        cache_adapter,
+        dtype,
+        tp,
+        round(gmu, 4),
+        str(engine_kwargs.get("max_model_len", "default")),
+        str(engine_kwargs.get("revision", "")),
+    )
+    cached = _ENGINE_CACHE.get(cache_key)
+    if cached is not None:
+        logger.info("[vLLM] Reusing cached engine for model=%s", model_path)
+        return cached
 
     logger.info(
         "[vLLM] Initializing engine: model=%s dtype=%s tp=%s max_len=%s gmu=%.2f",
@@ -240,4 +303,6 @@ def load_vllm_engine(
                         f"[vLLM] Preload adapter failed (safe to ignore): {e}"
                     )
 
-    return engine, tokenizer, lora_request
+    result = (engine, tokenizer, lora_request)
+    _ENGINE_CACHE[cache_key] = result
+    return result

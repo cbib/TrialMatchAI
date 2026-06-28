@@ -70,8 +70,8 @@ def rank_trials(trial_data: List[Dict]) -> List[Dict]:
 
 
 def save_ranked_trials(ranked_trials: List[Dict], output_file: str):
-    try:
-        write_json_file({"RankedTrials": ranked_trials}, output_file)
-        logger.info(f"Ranked trials saved to {output_file}")
-    except Exception as e:
-        logger.error(f"Failed to save ranked trials: {e}")
+    # Do NOT swallow write failures: the caller treats a returned-without-raising
+    # call as a completed patient. A failed final write must surface so the
+    # patient is counted as failed (and retried), not marked done with no marker.
+    write_json_file({"RankedTrials": ranked_trials}, output_file)
+    logger.info(f"Ranked trials saved to {output_file}")

@@ -7,16 +7,22 @@ per-patient resume. Every step is idempotent (skips already-done work).
 
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict
 
 from trialmatchai.config.config_loader import load_config
-from trialmatchai.orchestration import build_index, count_pending, expand_queries, run_matching
+from trialmatchai.orchestration import (
+    build_index,
+    count_pending,
+    expand_queries,
+    free_models,
+    run_matching,
+)
 from trialmatchai.trec import qrels as qrels_mod
 from trialmatchai.trec.corpus import TrackSpec, resolve_tracks
 from trialmatchai.trec.topics import import_topics
+from trialmatchai.utils.file_utils import write_json_file
 from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
@@ -128,7 +134,7 @@ def run_tracks(
             try:
                 metrics = qrels_mod.evaluate(qrels, spec.output_dir)
                 metrics_path = Path(spec.output_dir) / "evaluation_metrics.json"
-                metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+                write_json_file(metrics, str(metrics_path))
                 logger.info(
                     "Track %s recall: %s -> %s",
                     spec.key,
@@ -139,6 +145,8 @@ def run_tracks(
                 logger.exception("Evaluation failed for track %s", spec.key)
         logger.info("Track %s done -> %s", spec.key, spec.output_dir)
 
+    # All tracks done — release the shared GPU engines once.
+    free_models()
     if failures:
         logger.warning("TREC run completed with %s track failure(s).", failures)
         return 1

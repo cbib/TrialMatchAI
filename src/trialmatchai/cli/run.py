@@ -9,8 +9,12 @@ def main() -> int:
     parser.add_argument("--config", default=None, help="Path to config.json")
     args = parser.parse_args()
     from trialmatchai.main import main_pipeline
+    from trialmatchai.orchestration import free_models
 
-    return main_pipeline(args.config)
+    try:
+        return main_pipeline(args.config)
+    finally:
+        free_models()
 
 
 if __name__ == "__main__":

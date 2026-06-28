@@ -60,7 +60,9 @@ def _resolve_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     qe = dict(config.get("query_expansion") or {})
     model_cfg = config.get("model", {})
     return {
-        "backend": qe.get("backend") or config.get("cot_backend") or "transformers",
+        # Default to the RAG/eligibility backend so the expander shares the cached
+        # CoT engine with the matching stage instead of loading a second copy.
+        "backend": qe.get("backend") or config.get("rag", {}).get("backend") or "vllm",
         "model": qe.get("model") or model_cfg.get("base_model"),
         "adapter": qe.get("adapter", model_cfg.get("cot_adapter_path")),
         "device": str(config.get("global", {}).get("device", 0)),
@@ -76,8 +78,9 @@ def _resolve_settings(config: Dict[str, Any]) -> Dict[str, Any]:
 class QueryExpander:
     """CoT expander; loads its model lazily so import stays base-deps safe."""
 
-    def __init__(self, settings: Dict[str, Any]):
+    def __init__(self, settings: Dict[str, Any], config: Dict[str, Any]):
         self.settings = settings
+        self.config = config
         self.backend = settings["backend"]
         if not settings.get("model"):
             raise ValueError("query_expansion requires a model (set query_expansion.model or model.base_model)")
@@ -114,8 +117,16 @@ class QueryExpander:
         from trialmatchai.models.llm.vllm_loader import load_vllm_engine
 
         s = self.settings
+        # Same model_config/vllm_cfg shape as the RAG eligibility path so an
+        # identical (model, adapter, params) request hits the engine cache and
+        # shares ONE engine rather than loading a second CoT copy.
+        model_config = {
+            **self.config.get("model", {}),
+            "base_model": s["model"],
+            "cot_adapter_path": s.get("adapter"),
+        }
         self.engine, self.tokenizer, self.lora_request = load_vllm_engine(
-            s["model"], adapter_path=s.get("adapter")
+            model_config=model_config, vllm_cfg=self.config.get("vllm", {})
         )
 
     # -- generation -------------------------------------------------------- #
@@ -170,7 +181,7 @@ def build_query_expander(config: Dict[str, Any]) -> QueryExpander | None:
     qe = config.get("query_expansion") or {}
     if not qe.get("enabled"):
         return None
-    return QueryExpander(_resolve_settings(config))
+    return QueryExpander(_resolve_settings(config), config)
 
 
 def enrich_summary(

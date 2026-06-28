@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 from typing import Dict, List
 
 
@@ -13,12 +14,45 @@ def read_json_file(file_path: str) -> Dict:
 
 
 def write_json_file(data: Dict, file_path: str):
-    """Write data to a JSON file."""
+    """Atomically write data to a JSON file.
+
+    Writes to a temp file in the same directory, fsyncs, then os.replace()s it
+    into place — so a crash mid-write can never leave a truncated/partial file
+    that resume logic would mistake for a completed artifact.
+    """
     try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+        path = str(file_path)
+        directory = os.path.dirname(path) or "."
+        os.makedirs(directory, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=directory, prefix=".tmp-", suffix=".json")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
     except Exception as e:
         raise ValueError(f"Failed to write {file_path}: {str(e)}")
+
+
+def is_valid_json_file(file_path: str) -> bool:
+    """True only if the path exists and contains parseable JSON.
+
+    Used by resume gates so a present-but-corrupt/partial marker is treated as
+    incomplete (re-run) rather than done.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            json.load(f)
+        return True
+    except Exception:
+        return False
 
 
 def read_text_file(file_path: str) -> List[str]:
