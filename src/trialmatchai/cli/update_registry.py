@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -57,13 +59,25 @@ def main() -> int:
         default=None,
         help="Optional exact path for a copy of the run report JSON.",
     )
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Run continuously (server mode): update every --interval seconds.",
+    )
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=86400.0,
+        help="Seconds between updates in --watch mode (default 24h).",
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
     registry_cfg = config.get("registry", {})
     paths_cfg = config.get("paths", {})
 
-    since = _resolve_since(args.since, int(registry_cfg.get("since_days", 7)))
+    since_days = int(registry_cfg.get("since_days", 7))
+    since = _resolve_since(args.since, since_days)
     keywords = normalize_keywords(
         [
             *args.keyword,
@@ -111,11 +125,31 @@ def main() -> int:
         embedder=embedder,
         entity_annotator=entity_annotator,
     )
+    if not args.watch:
+        return _run_and_report(updater, update_config, args.report_path)
+
+    logger.info(
+        "Registry watch mode: updating every %.0fs (Ctrl-C to stop).", args.interval
+    )
+    while True:
+        # Slide the lookback window forward each cycle (unless --since is pinned);
+        # unchanged studies are deduped by the manifest, so overlap is cheap.
+        cycle_config = replace(update_config, since=_resolve_since(args.since, since_days))
+        try:
+            _run_and_report(updater, cycle_config, args.report_path)
+        except Exception:
+            logger.exception("Registry update cycle failed; retrying next interval")
+        try:
+            time.sleep(args.interval)
+        except KeyboardInterrupt:
+            logger.info("Registry watch stopped.")
+            return 0
+
+
+def _run_and_report(updater: RegistryUpdater, update_config, report_path) -> int:
     report = updater.run(update_config)
-
-    if args.report_path:
-        _write_report_copy(Path(args.report_path), report.to_dict())
-
+    if report_path:
+        _write_report_copy(Path(report_path), report.to_dict())
     logger.info("Registry update report: %s", json.dumps(report.to_dict(), sort_keys=True))
     return 1 if report.failure_rate > update_config.failure_threshold else 0
 

@@ -238,19 +238,23 @@ def run_second_level_search(
     return semi_final_trials, top_trials_path
 
 
-def _criteria_source_folder(config: Dict) -> str:
-    """Folder the eligibility model reads each trial's criteria text from.
+def _criteria_source_folders(config: Dict) -> list[str]:
+    """Folders to read each trial's criteria text from, in priority order.
 
-    Prefer ``processed_trials`` — always produced by ``build``/``bootstrap-data``
-    and carrying the ``eligibility_criteria`` text — over the raw ``trials_jsons``,
-    which ``bootstrap-data`` does not download. Sourcing from the latter would make
-    the model silently reason over "no criteria" and score every trial 0.
+    Both carry the ``eligibility_criteria`` text but cover different provenance,
+    so trying both makes every trial resolve regardless of how it was added:
+      * ``processed_trials`` — written by ``build``/``bootstrap-data``.
+      * ``trials_jsons``     — written by ``build`` and the registry updater.
+    Sourcing from only one would make the eligibility model silently reason over
+    "no criteria" (and score 0) for the trials that folder is missing.
     """
     paths = config.get("paths", {})
-    processed = paths.get("processed_trials_folder") or "data/processed_trials"
-    if Path(processed).is_dir():
-        return str(processed)
-    return paths.get("trials_json_folder", "data/trials_jsons")
+    candidates = [
+        paths.get("processed_trials_folder") or "data/processed_trials",
+        paths.get("trials_json_folder", "data/trials_jsons"),
+    ]
+    folders = [str(c) for c in candidates if Path(c).is_dir()]
+    return folders or [str(candidates[-1])]
 
 
 def run_rag_processing(
@@ -319,7 +323,7 @@ def run_rag_processing(
 
     rag_processor.process_trials(
         nct_ids=top_trials,
-        json_folder=_criteria_source_folder(config),
+        json_folder=_criteria_source_folders(config),
         output_folder=output_folder,
         patient_narrative=patient_narrative,
     )

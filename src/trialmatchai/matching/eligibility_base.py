@@ -44,19 +44,23 @@ class BaseTrialProcessor:
 
     # ---------------------- I/O helpers ----------------------
 
-    def _load_trial_data(self, nct_id: str, json_folder: str) -> str:
-        path = f"{json_folder}/{nct_id}.json"
-        try:
-            trial_data = read_json_file(path)
-        except Exception as e:
-            # Fail loud: a missing/unreadable trial file means the eligibility
-            # model would silently reason over "no criteria" and score 0.
-            logger.error("Cannot load criteria for %s from %s: %s", nct_id, path, e)
-            return ""
-        criteria = trial_data.get("eligibility_criteria", "")
-        if not criteria:
-            logger.warning("Trial %s has empty eligibility_criteria at %s", nct_id, path)
-        return criteria
+    def _load_trial_data(self, nct_id: str, json_folder) -> str:
+        # json_folder may be a single folder or an ordered list of fallbacks
+        # (processed_trials, then trials_jsons) so built, bootstrapped, and
+        # newly-updated trials all resolve.
+        folders = [json_folder] if isinstance(json_folder, str) else list(json_folder)
+        for folder in folders:
+            try:
+                trial_data = read_json_file(f"{folder}/{nct_id}.json")
+            except Exception:
+                continue
+            criteria = trial_data.get("eligibility_criteria", "")
+            if criteria:
+                return criteria
+        # Fail loud: no source had criteria text, so the model would otherwise
+        # silently reason over "no criteria" and score this trial 0.
+        logger.error("No eligibility criteria found for %s in %s", nct_id, folders)
+        return ""
 
     # ---------------------- Prompting ----------------------
 
