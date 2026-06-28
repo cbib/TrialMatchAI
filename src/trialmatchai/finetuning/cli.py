@@ -1,11 +1,11 @@
-"""``trialmatchai-finetune`` — train custom GLiNER2 / reranker / CoT models.
+"""``trialmatchai finetune`` — train custom GLiNER2 / reranker / CoT models.
 
 Examples:
-  trialmatchai-finetune cot      --base-model microsoft/phi-4 \
+  trialmatchai finetune cot      --base-model microsoft/phi-4 \
       --train-data data/cot.jsonl --output-dir models/cot-adapter
-  trialmatchai-finetune reranker --base-model google/gemma-2-2b-it \
+  trialmatchai finetune reranker --base-model google/gemma-2-2b-it \
       --train-data data/reranker.jsonl --output-dir models/reranker-adapter
-  trialmatchai-finetune ner      --base-model fastino/gliner2-base-v1 \
+  trialmatchai finetune ner      --base-model fastino/gliner2-base-v1 \
       --train-data data/ner.jsonl --output-dir models/ner
 
 Plug the result back into config: entity_extraction.model_name (NER),
@@ -108,7 +108,7 @@ def _lora_config_from_args(args: argparse.Namespace) -> FinetuneConfig:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="trialmatchai-finetune",
+        prog="trialmatchai finetune",
         description="Fine-tune TrialMatchAI's GLiNER2, reranker, or CoT models.",
     )
     sub = parser.add_subparsers(dest="component", required=True)

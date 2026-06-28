@@ -25,7 +25,7 @@ patients many times**. Both commands are idempotent and resume after disruption.
 
 ```bash
 uv sync --extra llm --extra gpu --extra entity   # GPU host + HuggingFace access
-uv run trialmatchai-bootstrap-data               # fetch prepared corpus + adapters
+uv run trialmatchai bootstrap-data               # fetch prepared corpus + adapters
 uv run trialmatchai build                        # 1) BUILD: prepare + index (once)
 uv run trialmatchai e2e --input patient.txt      # 2) MATCH: ingest + match a patient
 # -> results/<patient_id>/ranked_trials.json
@@ -91,7 +91,7 @@ pip install -e ".[finetune]"
 | `entity` | GLiNER2 biomedical extraction |
 | `llm` | local embedding and LLM dependencies |
 | `gpu` | vLLM and bitsandbytes; intended for Linux CUDA hosts |
-| `finetune` | training dependencies for `trialmatchai-finetune` |
+| `finetune` | training dependencies for `trialmatchai finetune` |
 
 Installing the package only gives you the CLI. Real matching also needs the
 trial corpus, model artifacts, and LanceDB search tables — all produced by the
@@ -114,7 +114,7 @@ export HF_TOKEN=<token>                           # required for gated models (p
 ### 1. Build the system — once
 
 ```bash
-uv run trialmatchai-bootstrap-data   # download the prepared corpus + LoRA adapters
+uv run trialmatchai bootstrap-data   # download the prepared corpus + LoRA adapters
 uv run trialmatchai build            # prepare embeddings/entities + build the index
 uv run trialmatchai build --status   # see exactly what is built (and what isn't)
 ```
@@ -135,9 +135,9 @@ uv run trialmatchai build --concepts --concepts-csv data/omop/CONCEPT.csv --syno
 
 | Resource | How you get it | Automatic? |
 | --- | --- | --- |
-| Trial corpus (`processed_trials` + criteria) | `trialmatchai-bootstrap-data` (Zenodo) | ✅ automatic |
-| Fine-tuned LoRA adapters (CoT + reranker) | `trialmatchai-bootstrap-data` (Zenodo) | ✅ automatic |
-| Fine-tuning datasets (only if you re-train) | `trialmatchai-bootstrap-data --finetune-data` (Zenodo) | ✅ automatic (opt-in) |
+| Trial corpus (`processed_trials` + criteria) | `trialmatchai bootstrap-data` (Zenodo) | ✅ automatic |
+| Fine-tuned LoRA adapters (CoT + reranker) | `trialmatchai bootstrap-data` (Zenodo) | ✅ automatic |
+| Fine-tuning datasets (only if you re-train) | `trialmatchai bootstrap-data --finetune-data` (Zenodo) | ✅ automatic (opt-in) |
 | Embedder (`BAAI/bge-m3`) | downloaded from HuggingFace on first use | ✅ automatic |
 | Concept-linking vocabularies (genes, diseases, …) | `trialmatchai build --concepts` | ✅ automatic |
 | Base LLMs (`microsoft/phi-4`, `google/gemma-2-2b-it`) | HuggingFace on first use | ⚠️ automatic, but **gated** models need a **one-time** `hf auth login` + accepting the model licence |
@@ -161,7 +161,7 @@ explanations). Re-running skips patients already matched.
 ### Health and keeping trials current
 
 ```bash
-uv run trialmatchai-healthcheck                          # validate config/paths/deps
+uv run trialmatchai healthcheck                          # validate config/paths/deps
 ```
 
 Fold new/changed ClinicalTrials.gov studies into the **live index** — fetch →
@@ -180,9 +180,9 @@ timer, or GitHub Actions — see [docs/registry-updater.md](docs/registry-update
 <summary>Manual / advanced control (the steps <code>build</code> and <code>e2e</code> wrap)</summary>
 
 ```bash
-uv run trialmatchai-index --prepare                          # prepare + index from trials_jsons (what `build` runs)
-uv run trialmatchai-import-patient --input patient.txt       # stage a profile only
-uv run trialmatchai-run                                      # match already-staged profiles
+uv run trialmatchai index --prepare                          # prepare + index from trials_jsons (what `build` runs)
+uv run trialmatchai import-patient --input patient.txt       # stage a profile only
+uv run trialmatchai run                                      # match already-staged profiles
 uv run trialmatchai trec --tracks "21 22"                    # benchmark: official TREC CT eval
 ```
 
@@ -264,7 +264,7 @@ The importer supports:
 Importers preserve provenance and unsupported source elements where possible.
 The matching summary is rendered deterministically from the canonical
 `PatientProfile`; raw patient files are not consumed directly by
-`trialmatchai-run`.
+`trialmatchai run`.
 
 See [docs/interoperability.md](docs/interoperability.md) for format details.
 
@@ -326,15 +326,15 @@ Fine-tune model components with:
 
 ```bash
 uv sync --extra finetune
-uv run trialmatchai-finetune cot \
+uv run trialmatchai finetune cot \
   --base-model microsoft/phi-4 \
   --train-data data/finetune/cot.jsonl \
   --output-dir models/cot-adapter
-uv run trialmatchai-finetune reranker \
+uv run trialmatchai finetune reranker \
   --base-model google/gemma-2-2b-it \
   --train-data data/finetune/reranker.jsonl \
   --output-dir models/reranker-adapter
-uv run trialmatchai-finetune ner \
+uv run trialmatchai finetune ner \
   --base-model fastino/gliner2-base-v1 \
   --train-data data/finetune/ner.jsonl \
   --output-dir models/ner
@@ -376,7 +376,7 @@ The full override list is in [`.env.example`](.env.example).
 
 ## CLI Reference
 
-Every command is available both as a flat script (`trialmatchai-build`) and as a
+Every command is available both as a flat script (`trialmatchai build`) and as a
 subcommand (`trialmatchai build`); they are equivalent.
 
 **Build the system (setup half)**
@@ -384,7 +384,7 @@ subcommand (`trialmatchai build`); they are equivalent.
 | Command | Purpose |
 | --- | --- |
 | `trialmatchai build` | Prepare the corpus (embeddings + entities) and build the search index — resumable, with `--status` |
-| `trialmatchai-bootstrap-data` | Download and extract the prepared corpus + model adapters |
+| `trialmatchai bootstrap-data` | Download and extract the prepared corpus + model adapters |
 | `trialmatchai build-concepts` | Build the LanceDB concept table for entity normalization (optional, OMOP) |
 | `trialmatchai update-registry` | Fetch changed ClinicalTrials.gov studies and upsert LanceDB |
 
@@ -403,7 +403,7 @@ subcommand (`trialmatchai build`); they are equivalent.
 | --- | --- |
 | `trialmatchai healthcheck` | Validate config, paths, optional model deps, and LanceDB tables |
 | `trialmatchai index` | Lower-level prepare/index of trial and criteria search tables |
-| `trialmatchai-finetune` | Fine-tune NER, reranker, or eligibility reasoning models |
+| `trialmatchai finetune` | Fine-tune NER, reranker, or eligibility reasoning models |
 
 ```bash
 uv run trialmatchai build --status      # what is built

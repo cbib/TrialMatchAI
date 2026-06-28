@@ -1,4 +1,4 @@
-"""``trialmatchai-index`` — prepare + build the LanceDB search tables.
+"""``trialmatchai index`` — prepare + build the LanceDB search tables.
 
 A thin entry point over the SAME idempotent orchestration stages `build` uses
 (`prepare_corpus` + `build_index`), so there is one prepare implementation and one

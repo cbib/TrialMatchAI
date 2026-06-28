@@ -54,18 +54,10 @@ finetune = [
 ]
 
 [project.scripts]
-trialmatchai-finetune = "trialmatchai.finetuning.cli:main"
+# Single entry point. Every capability is a subcommand: `trialmatchai <cmd>`
+# (healthcheck, bootstrap-data, index, build-concepts, update-registry,
+# import-patient, build, run, e2e, trec, finetune).
 trialmatchai = "trialmatchai.cli.main:main"
-trialmatchai-healthcheck = "trialmatchai.cli.healthcheck:main"
-trialmatchai-build = "trialmatchai.cli.build:main"
-trialmatchai-run = "trialmatchai.cli.run:main"
-trialmatchai-e2e = "trialmatchai.cli.e2e:main"
-trialmatchai-trec = "trialmatchai.cli.trec:main"
-trialmatchai-bootstrap-data = "trialmatchai.cli.bootstrap_data:main"
-trialmatchai-index = "trialmatchai.cli.index_data:main"
-trialmatchai-build-concepts = "trialmatchai.cli.build_concepts:main"
-trialmatchai-update-registry = "trialmatchai.cli.update_registry:main"
-trialmatchai-import-patient = "trialmatchai.cli.import_patient:main"
 
 [dependency-groups]
 dev = [

@@ -1,11 +1,11 @@
 # Registry Updater
 
-`trialmatchai-update-registry` updates the local LanceDB-backed trial registry from ClinicalTrials.gov v2. It is command-based and safe to run from cron, systemd timers, or GitHub Actions.
+`trialmatchai update-registry` updates the local LanceDB-backed trial registry from ClinicalTrials.gov v2. It is command-based and safe to run from cron, systemd timers, or GitHub Actions.
 
 ## Basic Usage
 
 ```bash
-uv run trialmatchai-update-registry --max-studies 500
+uv run trialmatchai update-registry --max-studies 500
 ```
 
 When no keyword is provided, TrialMatchAI uses broad default keyword queries covering oncology, cardiology, neurology, rare disease, immunology, infectious disease, metabolic disease, hematology, pediatrics, and precision medicine.
@@ -13,7 +13,7 @@ When no keyword is provided, TrialMatchAI uses broad default keyword queries cov
 Use explicit keywords:
 
 ```bash
-uv run trialmatchai-update-registry \
+uv run trialmatchai update-registry \
   --keyword "lung cancer" \
   --keyword "EGFR" \
   --since 2026-06-01 \
@@ -23,13 +23,13 @@ uv run trialmatchai-update-registry \
 Use a keyword file:
 
 ```bash
-uv run trialmatchai-update-registry --keywords-file data/registry/keywords.txt
+uv run trialmatchai update-registry --keywords-file data/registry/keywords.txt
 ```
 
 Dry-run:
 
 ```bash
-uv run trialmatchai-update-registry --dry-run --max-studies 25
+uv run trialmatchai update-registry --dry-run --max-studies 25
 ```
 
 Dry-runs do not write raw JSON, normalized trial JSON, manifests, reports, or LanceDB tables unless an explicit `--report-path` is provided.
@@ -49,7 +49,7 @@ Changed studies are written and then upserted:
 Run daily at 02:30:
 
 ```cron
-30 2 * * * cd /opt/TrialMatchAI && /usr/local/bin/uv run trialmatchai-update-registry --max-studies 1000 >> logs/registry-update.log 2>&1
+30 2 * * * cd /opt/TrialMatchAI && /usr/local/bin/uv run trialmatchai update-registry --max-studies 1000 >> logs/registry-update.log 2>&1
 ```
 
 ## systemd
@@ -63,7 +63,7 @@ Description=TrialMatchAI registry update
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/TrialMatchAI
-ExecStart=/usr/local/bin/uv run trialmatchai-update-registry --max-studies 1000
+ExecStart=/usr/local/bin/uv run trialmatchai update-registry --max-studies 1000
 ```
 
 Timer:
@@ -83,7 +83,7 @@ WantedBy=timers.target
 ## Healthcheck
 
 ```bash
-uv run trialmatchai-healthcheck --registry --require-tables
+uv run trialmatchai healthcheck --registry --require-tables
 ```
 
 Use `--require-tables` after the first successful update or indexing run.

@@ -14,7 +14,7 @@ def test_import_patient_cli_writes_profile_and_summary(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "sys.argv",
         [
-            "trialmatchai-import-patient",
+            "trialmatchai import-patient",
             "--input",
             str(note),
             "--format",

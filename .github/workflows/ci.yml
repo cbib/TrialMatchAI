@@ -56,13 +56,10 @@ jobs:
         run: |
           WHEEL="$(ls dist/trialmatchai-*.whl | head -n 1)"
           uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai --help
-          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-healthcheck --help
-          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-index --help
-          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-build-concepts --help
-          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-update-registry --help
-          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-import-patient --help
-          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-run --help
-          uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai-finetune --help
+          for cmd in healthcheck bootstrap-data index build-concepts update-registry \
+                     import-patient build run e2e trec finetune; do
+            uv run --python 3.11 --isolated --with "$WHEEL" trialmatchai "$cmd" --help
+          done
 
       - name: Secret scan
         run: uv run pre-commit run gitleaks --all-files

@@ -55,8 +55,8 @@ runtime summary fields:
 - `gender`
 - `provenance`
 
-`trialmatchai-run` consumes canonical profiles from `patient_inputs.profile_dir`.
-Import source files explicitly with `trialmatchai-import-patient` before running
+`trialmatchai run` consumes canonical profiles from `patient_inputs.profile_dir`.
+Import source files explicitly with `trialmatchai import-patient` before running
 matching.
 
 ## Commands
@@ -64,7 +64,7 @@ matching.
 Import a free text note:
 
 ```bash
-uv run trialmatchai-import-patient \
+uv run trialmatchai import-patient \
   --input data/patients/raw/patient-1.txt \
   --format text
 ```
@@ -79,14 +79,14 @@ uv run trialmatchai import-patient \
 Import a FHIR Bundle:
 
 ```bash
-uv run trialmatchai-import-patient \
+uv run trialmatchai import-patient \
   --input data/patients/raw/patient-1.fhir.json
 ```
 
 Import an OMOP extract folder:
 
 ```bash
-uv run trialmatchai-import-patient \
+uv run trialmatchai import-patient \
   --input data/patients/omop_extract \
   --format omop
 ```
@@ -94,7 +94,7 @@ uv run trialmatchai-import-patient \
 Then run matching:
 
 ```bash
-uv run trialmatchai-run
+uv run trialmatchai run
 ```
 
 ## Conversion Limits

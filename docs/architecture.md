@@ -14,11 +14,11 @@ TrialMatchAI is an installable Python package exposed as `trialmatchai`. The sup
 
 ## Data Flow
 
-1. `trialmatchai-update-registry` fetches studies from ClinicalTrials.gov v2.
+1. `trialmatchai update-registry` fetches studies from ClinicalTrials.gov v2.
 2. Raw source JSON is written to `data/registry/raw/<NCT_ID>.json`.
 3. Normalized trial JSON is written to `data/trials_jsons/<NCT_ID>.json`.
 4. Changed studies are embedded, criteria are optionally entity annotated, and LanceDB trial/criteria tables are upserted.
-5. `trialmatchai-run` matches already-imported patient profiles against LanceDB, reranks candidate criteria/trials, and writes results. (Ingest raw patient inputs first with `trialmatchai-import-patient`, or use `trialmatchai-e2e` to ingest and match in one step.)
+5. `trialmatchai run` matches already-imported patient profiles against LanceDB, reranks candidate criteria/trials, and writes results. (Ingest raw patient inputs first with `trialmatchai import-patient`, or use `trialmatchai e2e` to ingest and match in one step.)
 
 ## Storage
 

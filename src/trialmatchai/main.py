@@ -568,7 +568,7 @@ def _load_patient_inputs(config: Dict) -> list[tuple[PatientProfile, Dict]]:
     if not profile_files:
         logger.error(
             "No canonical patient profiles found in %s. Run "
-            "`trialmatchai-import-patient` first.",
+            "`trialmatchai import-patient` first.",
             profile_dir,
         )
         return []

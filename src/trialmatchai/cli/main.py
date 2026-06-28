@@ -53,6 +53,11 @@ def main() -> int:
         help="End-to-end TREC CT evaluation (preset over e2e)",
         add_help=False,
     )
+    subparsers.add_parser(
+        "finetune",
+        help="Fine-tune the CoT / reranker / NER models",
+        add_help=False,
+    )
 
     args, remainder = parser.parse_known_args()
     if args.command == "healthcheck":
@@ -75,6 +80,8 @@ def main() -> int:
         from trialmatchai.cli.e2e import main as command
     elif args.command == "trec":
         from trialmatchai.cli.trec import main as command
+    elif args.command == "finetune":
+        from trialmatchai.finetuning.cli import main as command
     else:  # pragma: no cover - argparse enforces choices
         parser.error(f"Unknown command: {args.command}")
 

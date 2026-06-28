@@ -503,7 +503,7 @@ def build_system(
     else:
         raise RuntimeError(
             f"Nothing to prepare: {pt} is empty and no trial JSONs at "
-            f"{trials_json_folder}. Run `trialmatchai-bootstrap-data` or provide "
+            f"{trials_json_folder}. Run `trialmatchai bootstrap-data` or provide "
             "normalized trial JSONs."
         )
     _save_manifest(manifest_path, manifest)

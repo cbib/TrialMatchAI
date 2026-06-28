@@ -3,7 +3,7 @@
 TrialMatchAI ships with capable default models, but every model in the pipeline
 is **swappable** and **fine-tunable**. You can point the pipeline at your own
 checkpoints/adapters via config, and train those adapters with the built-in
-`trialmatchai-finetune` command.
+`trialmatchai finetune` command.
 
 | Component | Default | Config key | Fine-tune target |
 |-----------|---------|------------|------------------|
@@ -12,12 +12,12 @@ checkpoints/adapters via config, and train those adapters with the built-in
 | CoT eligibility | configured CoT model | `model.cot_adapter_path` | LoRA adapter |
 
 > **Where does the training data come from?** Fine-tuning is **optional** — the
-> ready-to-use CoT and reranker adapters are downloaded by `trialmatchai-bootstrap-data`,
+> ready-to-use CoT and reranker adapters are downloaded by `trialmatchai bootstrap-data`,
 > so most deployments never need to train. The **published training datasets** are
 > available too — fetch them into `data/finetune/`:
 >
 > ```bash
-> trialmatchai-bootstrap-data --finetune-data
+> trialmatchai bootstrap-data --finetune-data
 > ```
 >
 > (Source: the paper's Zenodo deposit, <https://zenodo.org/records/15045515>.)
@@ -46,7 +46,7 @@ the LoRA adapter natively via `LoRARequest` — no merge step required. If you
 prefer a single self-contained model instead of base + adapter, merge them:
 
 ```bash
-trialmatchai-finetune merge \
+trialmatchai finetune merge \
   --base-model google/gemma-2-2b-it \
   --adapter models/reranker-adapter \
   --output-dir models/reranker-merged
@@ -70,7 +70,7 @@ Data — JSONL, one example per line, either chat or instruct form:
 ```
 
 ```bash
-trialmatchai-finetune cot \
+trialmatchai finetune cot \
   --base-model microsoft/phi-4 \
   --train-data data/finetune/cot.jsonl \
   --eval-data data/finetune/cot.eval.jsonl \
@@ -98,7 +98,7 @@ Data — JSONL:
 ```
 
 ```bash
-trialmatchai-finetune reranker \
+trialmatchai finetune reranker \
   --base-model google/gemma-2-2b-it \
   --train-data data/finetune/reranker.jsonl \
   --eval-data data/finetune/reranker.eval.jsonl \
@@ -137,7 +137,7 @@ structured JSON training data is useful for GLiNER2 adapters you call directly
 or for future structured extraction integration.
 
 ```bash
-trialmatchai-finetune ner \
+trialmatchai finetune ner \
   --base-model fastino/gliner2-base-v1 \
   --train-data data/finetune/ner.jsonl \
   --output-dir models/ner \
@@ -160,6 +160,6 @@ trialmatchai-finetune ner \
   `--eval-steps` (defaults align at 500).
 - 4-bit quantized loading is on by default (`--no-4bit` to disable) and requires
   bitsandbytes on a CUDA-capable machine; `bf16` is default (`--fp16` to switch).
-  See `trialmatchai-finetune <component> --help` for all flags.
+  See `trialmatchai finetune <component> --help` for all flags.
 - GLiNER2's training API can vary by version; if your installed `gliner2` exposes
   a different interface, adapt `src/trialmatchai/finetuning/ner.py`.
