@@ -88,23 +88,14 @@ def main() -> int:
     # (auto-downloaded); --concepts-csv adds the licensed OMOP vocab on top.
     if args.concepts or args.concepts_csv:
         logger.info("=== build: concepts stage ===")
-        from trialmatchai.cli.build_concepts import main as build_concepts_main
+        from trialmatchai.cli.build_concepts import run_build_concepts
 
-        argv: list[str] = []
-        if args.concepts:
-            argv += ["--sources", "open"]
-        if args.concepts_csv:
-            argv += ["--concept-csv", args.concepts_csv]
-            if args.synonym_csv:
-                argv += ["--synonym-csv", args.synonym_csv]
-        if args.config:
-            argv += ["--config", args.config]
-        saved = sys.argv
-        try:
-            sys.argv = ["trialmatchai build-concepts", *argv]
-            build_concepts_main()
-        finally:
-            sys.argv = saved
+        run_build_concepts(
+            config,
+            sources="open" if args.concepts else None,
+            concept_csv=args.concepts_csv,
+            synonym_csv=args.synonym_csv,
+        )
     else:
         logger.warning(
             "Concept DB not built: entity->concept linking will degrade gracefully. "

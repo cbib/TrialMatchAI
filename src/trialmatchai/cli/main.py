@@ -12,6 +12,11 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser(
+        "pipeline",
+        help="Run the unified e2e pipeline, or any slice (--only/--from/--to/--skip/--force)",
+        add_help=False,
+    )
+    subparsers.add_parser(
         "healthcheck",
         help="Run deployment health checks",
         add_help=False,
@@ -60,7 +65,9 @@ def main() -> int:
     )
 
     args, remainder = parser.parse_known_args()
-    if args.command == "healthcheck":
+    if args.command == "pipeline":
+        from trialmatchai.cli.pipeline import main as command
+    elif args.command == "healthcheck":
         from trialmatchai.cli.healthcheck import main as command
     elif args.command == "bootstrap-data":
         from trialmatchai.cli.bootstrap_data import main as command

@@ -79,58 +79,92 @@ def main() -> int:
     args = parser.parse_args()
 
     config = load_config(args.config)
-    linker_cfg = config.get("concept_linker", {})
-    db_path = args.db_path or linker_cfg.get("db_path") or "data/concepts"
-    table_name = args.table or linker_cfg.get("table") or "concepts"
-
     if not args.concept_csv and not args.dictionary and not args.sources:
         parser.error("provide --concept-csv, --sources, and/or at least one --dictionary")
+    try:
+        return run_build_concepts(
+            config,
+            db_path=args.db_path,
+            table=args.table,
+            sources=args.sources,
+            dictionary=args.dictionary,
+            concept_csv=args.concept_csv,
+            synonym_csv=args.synonym_csv,
+            vocabulary=args.vocabulary,
+            concept_cache=args.concept_cache,
+            force_download=args.force_download,
+            skip_embeddings=args.skip_embeddings,
+            force=args.force,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+        return 2  # pragma: no cover - parser.error exits
 
-    # Idempotent: skip the (expensive) re-embed if the table is already built,
-    # unless --force or a new OMOP vocab (--concept-csv) is being folded in.
-    if not args.force and not args.concept_csv:
+
+def run_build_concepts(
+    config: dict,
+    *,
+    db_path: str | None = None,
+    table: str | None = None,
+    sources: str | None = None,
+    dictionary: list[str] | tuple[str, ...] = (),
+    concept_csv: str | None = None,
+    synonym_csv: str | None = None,
+    vocabulary: list[str] | tuple[str, ...] = (),
+    concept_cache: str = "data/concept_dicts",
+    force_download: bool = False,
+    skip_embeddings: bool = False,
+    force: bool = False,
+) -> int:
+    """Build the LanceDB concept table (the entity-linking store). Idempotent.
+
+    Importable so the unified pipeline can invoke the concepts stage directly,
+    rather than re-entering the CLI. Skips the expensive re-embed if the table is
+    already present, unless ``force`` (or a new OMOP vocab via ``concept_csv``).
+    """
+    linker_cfg = config.get("concept_linker", {})
+    db_path = db_path or linker_cfg.get("db_path") or "data/concepts"
+    table_name = table or linker_cfg.get("table") or "concepts"
+
+    if not concept_csv and not dictionary and not sources:
+        raise ValueError("provide concept_csv, sources, and/or at least one dictionary")
+
+    if not force and not concept_csv:
         ready, rows_present = _concept_table_ready(db_path, table_name)
         if ready:
             logger.info(
                 "Concept store already present at %s/%s (%s concepts); skipping. "
-                "Use --force to rebuild.",
+                "Pass force=True to rebuild.",
                 db_path,
                 table_name,
                 rows_present,
             )
             return 0
 
-    # Collect dictionary specs from explicit --dictionary flags and bundled --sources.
     dictionary_specs: list[tuple[str, str, str]] = [
-        _parse_dictionary_spec(spec) for spec in args.dictionary
+        _parse_dictionary_spec(spec) for spec in dictionary
     ]
-    if args.sources == "open":
+    if sources == "open":
         from trialmatchai.entities.concept_sources import build_open_dictionaries
 
         for source, dict_path in build_open_dictionaries(
-            Path(args.concept_cache), force=args.force_download
+            Path(concept_cache), force=force_download
         ):
             dictionary_specs.append(
                 (source.vocabulary_id, source.domain_id, str(dict_path))
             )
-        if not dictionary_specs and not args.concept_csv:
-            parser.error("no concept sources were built (all downloads failed?)")
+        if not dictionary_specs and not concept_csv:
+            raise ValueError("no concept sources were built (all downloads failed?)")
 
-    vocabularies = tuple(args.vocabulary or DEFAULT_OMOP_VOCABULARIES)
+    vocabularies = tuple(vocabulary or DEFAULT_OMOP_VOCABULARIES)
     rows: list = []
-    if args.concept_csv:
-        rows = build_omop_concept_rows(
-            args.concept_csv,
-            args.synonym_csv,
-            vocabularies=vocabularies,
-        )
+    if concept_csv:
+        rows = build_omop_concept_rows(concept_csv, synonym_csv, vocabularies=vocabularies)
     for vocab, domain, path in dictionary_specs:
-        rows.extend(
-            build_dictionary_rows(path, vocabulary_id=vocab, domain_id=domain)
-        )
+        rows.extend(build_dictionary_rows(path, vocabulary_id=vocab, domain_id=domain))
 
     embeddings = None
-    if not args.skip_embeddings:
+    if not skip_embeddings:
         embedder = build_embedder(config)
         embeddings = embedder.embed_texts(concept_texts_for_embedding(rows))
 
