@@ -399,8 +399,14 @@ See [docs/registry-updater.md](docs/registry-updater.md).
 uv sync
 uv run ruff check .
 uv run pytest
-uv run python scripts/scan_secrets.py
+uv run pre-commit run --all-files   # ruff + gitleaks secret scan + hygiene
 uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
+```
+
+Install the git hooks once so secret scanning and linting run on every commit:
+
+```bash
+uv run pre-commit install
 ```
 
 ## Security

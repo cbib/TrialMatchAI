@@ -45,6 +45,7 @@ dist/
 *.bak
 *.swp
 *.slurm
+scripts/*.sh
 **/tmp/
 .DS_Store
 Thumbs.db

@@ -9,7 +9,7 @@ uv lock --check
 uv run ruff check .
 uv run pytest
 uv build
-uv run python scripts/scan_secrets.py
+uv run pre-commit run --all-files
 uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
 ```
 
