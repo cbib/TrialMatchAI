@@ -18,6 +18,7 @@ from pathlib import Path
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from trialmatchai.trec.metrics import condensed_ndcg, precision_at_k
 from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
@@ -28,6 +29,8 @@ QRELS_URLS: dict[str, str] = {
 }
 
 DEFAULT_CUTOFFS = (10, 50, 100, 200, 300, 500, 1000)
+NDCG_CUTOFFS = (5, 10, 20)
+P_CUTOFF = 10
 
 
 @retry(
@@ -122,6 +125,31 @@ def recall_at_k(retrieved: list[str], relevant: set[str], k: int) -> float | Non
     return hits / len(relevant)
 
 
+def _ranked_with_scores(patient_dir: Path) -> tuple[list[str], dict[str, float]]:
+    """Final ranked NCT ids (in order) + their eligibility scores from ranked_trials.json."""
+    ranked = patient_dir / "ranked_trials.json"
+    if not ranked.exists():
+        return [], {}
+    try:
+        data = json.loads(ranked.read_text())
+    except Exception:
+        return [], {}
+    items = data.get("RankedTrials", []) if isinstance(data, dict) else data
+    order: list[str] = []
+    score_of: dict[str, float] = {}
+    for item in items or []:
+        if not isinstance(item, dict) or item.get("TrialID") is None:
+            continue
+        nid = str(item["TrialID"])
+        order.append(nid)
+        score_of[nid] = float(item.get("Score", 0.0))
+    return order, score_of
+
+
+def _mean(sums: dict, counts: dict) -> dict:
+    return {key: (sums[key] / counts[key] if counts[key] else None) for key in sums}
+
+
 def evaluate(
     qrels: dict[str, dict[str, int]],
     results_dir: Path,
@@ -129,31 +157,67 @@ def evaluate(
     cutoffs: tuple[int, ...] = DEFAULT_CUTOFFS,
     threshold: int = 1,
 ) -> dict:
-    """Compute per-query and mean recall@k over the patients in ``results_dir``."""
+    """Per-query and mean metrics over the patients in ``results_dir``.
+
+    Two complementary families:
+      * recall@k       — retrieval quality (first-level candidate list).
+      * tie-aware nDCG@{5,10,20} + P@10 — ranking quality of the final
+        ranked_trials.json, condensed to labeled-and-retrieved trials. nDCG is
+        order-invariant on ties (McSherry-Najork); P@10 is reported for both
+        "relevant" (grade>=1) and "eligible" (grade==2).
+    """
     results_dir = Path(results_dir)
     relevant = relevant_ncts(qrels, threshold=threshold)
+    eligible = relevant_ncts(qrels, threshold=2)
     per_query: dict[str, dict] = {}
-    sums = {k: 0.0 for k in cutoffs}
-    counts = {k: 0 for k in cutoffs}
 
-    for query_id, rel_set in relevant.items():
+    rec_sums = {f"recall@{k}": 0.0 for k in cutoffs}
+    rec_counts = {f"recall@{k}": 0 for k in cutoffs}
+    rank_sums = {f"ndcg@{k}": 0.0 for k in NDCG_CUTOFFS}
+    rank_sums[f"P@{P_CUTOFF}(rel>=1)"] = 0.0
+    rank_sums[f"P@{P_CUTOFF}(eligible)"] = 0.0
+    rank_counts = {key: 0 for key in rank_sums}
+
+    for query_id, judgments in qrels.items():
         patient_dir = results_dir / query_id
+        rel_set = relevant.get(query_id, set())
         if not patient_dir.is_dir() or not rel_set:
             continue
         retrieved = _retrieved_for_patient(patient_dir)
-        row = {"num_relevant": len(rel_set), "num_retrieved": len(retrieved)}
+        ranked, score_of = _ranked_with_scores(patient_dir)
+        row = {
+            "num_relevant": len(rel_set),
+            "num_retrieved": len(retrieved),
+            "num_ranked": len(ranked),
+        }
         for k in cutoffs:
             r = recall_at_k(retrieved, rel_set, k)
             row[f"recall@{k}"] = r
             if r is not None:
-                sums[k] += r
-                counts[k] += 1
+                rec_sums[f"recall@{k}"] += r
+                rec_counts[f"recall@{k}"] += 1
+
+        if ranked:
+            ndcg = condensed_ndcg(ranked, score_of, judgments, NDCG_CUTOFFS)
+            for k in NDCG_CUTOFFS:
+                row[f"ndcg@{k}"] = ndcg[k]
+                rank_sums[f"ndcg@{k}"] += ndcg[k]
+                rank_counts[f"ndcg@{k}"] += 1
+            p_rel = precision_at_k(ranked, rel_set, P_CUTOFF)
+            p_elig = precision_at_k(ranked, eligible.get(query_id, set()), P_CUTOFF)
+            row[f"P@{P_CUTOFF}(rel>=1)"] = p_rel
+            row[f"P@{P_CUTOFF}(eligible)"] = p_elig
+            rank_sums[f"P@{P_CUTOFF}(rel>=1)"] += p_rel
+            rank_sums[f"P@{P_CUTOFF}(eligible)"] += p_elig
+            rank_counts[f"P@{P_CUTOFF}(rel>=1)"] += 1
+            rank_counts[f"P@{P_CUTOFF}(eligible)"] += 1
         per_query[query_id] = row
 
-    mean = {f"recall@{k}": (sums[k] / counts[k] if counts[k] else None) for k in cutoffs}
+    mean = {**_mean(rec_sums, rec_counts), **_mean(rank_sums, rank_counts)}
     return {
-        "threshold": threshold,
+        "recall_relevance_threshold": threshold,
         "num_queries_scored": len(per_query),
-        "mean_recall": mean,
+        "num_queries_ranked": rank_counts[f"ndcg@{NDCG_CUTOFFS[0]}"],
+        "mean": mean,
         "per_query": per_query,
     }

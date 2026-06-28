@@ -136,9 +136,9 @@ def run_tracks(
                 metrics_path = Path(spec.output_dir) / "evaluation_metrics.json"
                 write_json_file(metrics, str(metrics_path))
                 logger.info(
-                    "Track %s recall: %s -> %s",
+                    "Track %s metrics: %s -> %s",
                     spec.key,
-                    metrics["mean_recall"],
+                    metrics["mean"],
                     metrics_path,
                 )
             except Exception:

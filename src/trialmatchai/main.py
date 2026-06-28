@@ -496,7 +496,11 @@ def main_pipeline(
 
                 with log_timing(logger, "Final ranking"):
                     trial_data = load_trial_data(str(output_folder))
-                    ranked_trials = rank_trials(trial_data)
+                    ranked_trials = rank_trials(
+                        trial_data,
+                        first_level_scores=first_level_scores,
+                        second_level_scores=dict(semi_final_trials),
+                    )
                     save_ranked_trials(
                         ranked_trials, str(output_folder / "ranked_trials.json")
                     )

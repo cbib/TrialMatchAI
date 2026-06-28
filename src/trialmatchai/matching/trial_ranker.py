@@ -59,13 +59,45 @@ def score_trial(trial: Dict) -> float:
     return met / len(decided)
 
 
-def rank_trials(trial_data: List[Dict]) -> List[Dict]:
+def rank_trials(
+    trial_data: List[Dict],
+    *,
+    first_level_scores: Dict[str, float] | None = None,
+    second_level_scores: Dict[str, float] | None = None,
+) -> List[Dict]:
+    """Rank trials by eligibility, breaking ties deterministically.
+
+    The eligibility score is coarse (small rationals), so many trials tie. Rather
+    than let ties resolve by arbitrary filesystem order, break them by the
+    continuous second-level reranker probability, then the first-level retrieval
+    score, then the NCT id — a meaningful order within each eligibility bucket
+    that is fully reproducible. (Tie-aware nDCG further ensures genuine ties are
+    scored fairly regardless of this order.)
+    """
+    first_level_scores = first_level_scores or {}
+    second_level_scores = second_level_scores or {}
     ranked_trials = []
     for trial in trial_data:
         trial_id = trial.get("TrialID", "Unknown")
-        score = score_trial(trial)
-        ranked_trials.append({"TrialID": trial_id, "Score": score})
-    ranked_trials.sort(key=lambda x: x["Score"], reverse=True)
+        ranked_trials.append(
+            {
+                "TrialID": trial_id,
+                "Score": score_trial(trial),
+                "RerankerScore": float(second_level_scores.get(trial_id, 0.0)),
+                "FirstLevelScore": float(first_level_scores.get(trial_id, 0.0)),
+            }
+        )
+    # Descending eligibility -> reranker -> first-level; ascending NCT id last
+    # (negate numeric keys so a single ascending sort gives the right order and
+    # the NCT-id tie-break stays ascending).
+    ranked_trials.sort(
+        key=lambda x: (
+            -x["Score"],
+            -x["RerankerScore"],
+            -x["FirstLevelScore"],
+            x["TrialID"],
+        )
+    )
     return ranked_trials
 
 
