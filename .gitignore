@@ -49,3 +49,4 @@ scripts/*.sh
 **/tmp/
 .DS_Store
 Thumbs.db
+site/

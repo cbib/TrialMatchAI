@@ -92,6 +92,10 @@ dev = [
   "pip-audit>=2.7.3",
   "pre-commit>=4.0",
 ]
+docs = [
+  "mkdocs-material>=9.5",
+  "mkdocstrings[python]>=0.26",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
