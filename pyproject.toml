@@ -5,11 +5,31 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trialmatchai"
 version = "0.2.0"
-description = "AI-driven clinical trial matching pipeline."
+description = "AI-driven patient-to-clinical-trial matching: hybrid retrieval + LLM eligibility reasoning."
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 license = "MIT"
 license-files = ["LICENSE"]
+authors = [{ name = "Majd Abdallah", email = "majd@physight.com" }]
+keywords = [
+  "clinical-trials",
+  "patient-trial-matching",
+  "biomedical-nlp",
+  "information-retrieval",
+  "large-language-models",
+  "eligibility",
+  "healthcare",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Healthcare Industry",
+  "Intended Audience :: Science/Research",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
   "numpy>=2.0,<3",
   "pandas==2.2.3",
@@ -55,9 +75,15 @@ finetune = [
 
 [project.scripts]
 # Single entry point. Every capability is a subcommand: `trialmatchai <cmd>`
-# (healthcheck, bootstrap-data, index, build-concepts, update-registry,
+# (pipeline, healthcheck, bootstrap-data, index, build-concepts, update-registry,
 # import-patient, build, run, e2e, trec, finetune).
 trialmatchai = "trialmatchai.cli.main:main"
+
+[project.urls]
+Homepage = "https://github.com/cbib/TrialMatchAI"
+Repository = "https://github.com/cbib/TrialMatchAI"
+Issues = "https://github.com/cbib/TrialMatchAI/issues"
+Paper = "https://doi.org/10.1038/s41467-026-70509-w"
 
 [dependency-groups]
 dev = [
