@@ -1,3 +1,11 @@
+"""``trialmatchai-index`` — prepare + build the LanceDB search tables.
+
+A thin entry point over the SAME idempotent orchestration stages `build` uses
+(`prepare_corpus` + `build_index`), so there is one prepare implementation and one
+index implementation, both resumable/skip-if-done. (Historically this command had
+its own non-resumable prepare and an always-overwrite index; those are gone.)
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -5,7 +13,7 @@ import sys
 from pathlib import Path
 
 from trialmatchai.config.config_loader import load_config
-from trialmatchai.search import LanceDBSearchBackend
+from trialmatchai.orchestration import build_index, prepare_corpus
 from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
@@ -13,7 +21,7 @@ logger = setup_logging(__name__)
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build TrialMatchAI LanceDB search tables."
+        description="Prepare + build TrialMatchAI LanceDB search tables (idempotent)."
     )
     parser.add_argument("--config", default=None, help="Path to TrialMatchAI config JSON")
     parser.add_argument(
@@ -24,145 +32,46 @@ def main() -> int:
     parser.add_argument(
         "--trials-json-folder",
         default=None,
-        help="Folder containing normalized trial JSON files. Defaults to config paths.trials_json_folder.",
+        help="Normalized trial JSONs. Defaults to config paths.trials_json_folder.",
     )
+    parser.add_argument("--processed-trials-folder", default="data/processed_trials")
+    parser.add_argument("--processed-criteria-folder", default="data/processed_criteria")
     parser.add_argument(
-        "--processed-trials-folder",
-        default="data/processed_trials",
-        help="Folder containing prepared trial JSON files.",
-    )
-    parser.add_argument(
-        "--processed-criteria-folder",
-        default="data/processed_criteria",
-        help="Folder containing prepared criteria subfolders.",
-    )
-    parser.add_argument(
-        "--skip-trials",
+        "--force-prepare",
         action="store_true",
-        help="Do not build the trial table.",
+        help="Re-prepare every trial even if already prepared.",
     )
     parser.add_argument(
-        "--skip-criteria",
+        "--reindex",
         action="store_true",
-        help="Do not build the criteria table.",
-    )
-    parser.add_argument(
-        "--recreate",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Overwrite target tables before writing.",
+        help="Rebuild the search tables even if they already exist.",
     )
     args = parser.parse_args()
 
     config = load_config(args.config)
-    backend = LanceDBSearchBackend.from_config(config)
     root = _repo_root()
-    failures = 0
+    processed_trials = _resolve_path(args.processed_trials_folder, root)
+    processed_criteria = _resolve_path(args.processed_criteria_folder, root)
+
     if args.prepare:
-        _prepare_from_trials_jsons(
-            config=config,
+        prepare_corpus(
+            config,
             trials_json_folder=_resolve_path(
-                args.trials_json_folder or config["paths"]["trials_json_folder"],
-                root,
+                args.trials_json_folder or config["paths"]["trials_json_folder"], root
             ),
-            processed_trials_folder=_resolve_path(args.processed_trials_folder, root),
-            processed_criteria_folder=_resolve_path(args.processed_criteria_folder, root),
+            processed_trials_folder=processed_trials,
+            processed_criteria_folder=processed_criteria,
+            force=args.force_prepare,
         )
 
-    if not args.skip_trials:
-        trials_folder = _resolve_path(args.processed_trials_folder, root)
-        trial_docs = _load_flat_json_folder(trials_folder)
-        if not trial_docs:
-            logger.error("No prepared trial JSON files found in %s.", trials_folder)
-            failures += 1
-        else:
-            count = backend.index_trials(trial_docs, recreate=args.recreate)
-            logger.info("Indexed %s trial documents.", count)
-
-    if not args.skip_criteria:
-        criteria_folder = _resolve_path(args.processed_criteria_folder, root)
-        criteria_docs = _load_nested_json_folder(criteria_folder)
-        if not criteria_docs:
-            logger.error("No prepared criteria JSON files found in %s.", criteria_folder)
-            failures += 1
-        else:
-            count = backend.index_criteria(criteria_docs, recreate=args.recreate)
-            logger.info("Indexed %s criteria documents.", count)
-
-    if failures:
-        return 1
-    logger.info("Search tables ready at %s.", backend.db_path)
+    build_index(
+        config,
+        processed_trials_folder=processed_trials,
+        processed_criteria_folder=processed_criteria,
+        force=args.reindex,
+    )
+    logger.info("Search tables ready.")
     return 0
-
-
-def _load_flat_json_folder(folder: Path) -> list[dict]:
-    if not folder.exists():
-        return []
-    return [
-        _read_json(path)
-        for path in sorted(folder.glob("*.json"))
-        if path.is_file()
-    ]
-
-
-def _load_nested_json_folder(folder: Path) -> list[dict]:
-    if not folder.exists():
-        return []
-    return [
-        _read_json(path)
-        for path in sorted(folder.glob("*/*.json"))
-        if path.is_file()
-    ]
-
-
-def _read_json(path: Path) -> dict:
-    import json
-
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _prepare_from_trials_jsons(
-    *,
-    config: dict,
-    trials_json_folder: Path,
-    processed_trials_folder: Path,
-    processed_criteria_folder: Path,
-) -> None:
-    from trialmatchai.entities import build_entity_annotator
-    from trialmatchai.models.embedding import build_embedder
-    from trialmatchai.registry.preparation import (
-        prepare_criteria_documents,
-        prepare_trial_document,
-        write_prepared_criteria,
-        write_prepared_trial,
-    )
-
-    embedder = build_embedder(config)
-    entity_annotator = build_entity_annotator(config, embedder=embedder)
-    trial_docs = _load_flat_json_folder(trials_json_folder)
-    prepared = failed = 0
-    for doc in trial_docs:
-        nct_id = doc.get("nct_id", "<unknown>")
-        try:
-            trial_row = prepare_trial_document(doc, embedder)
-            criteria_rows = prepare_criteria_documents(
-                doc,
-                embedder,
-                entity_annotator=entity_annotator,
-            )
-            # Criteria before the trial marker so a crash mid-trial re-prepares it.
-            write_prepared_criteria(criteria_rows, processed_criteria_folder)
-            write_prepared_trial(trial_row, processed_trials_folder)
-            prepared += 1
-        except Exception:
-            logger.exception("Failed to prepare trial %s; skipping", nct_id)
-            failed += 1
-    logger.info(
-        "Prepared %s trial JSON files from %s (%s failed).",
-        prepared,
-        trials_json_folder,
-        failed,
-    )
 
 
 def _resolve_path(value: str, root: Path) -> Path:

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from trialmatchai.cli.index_data import _load_nested_json_folder
 from trialmatchai.config.config_loader import load_config
 from trialmatchai.search import InMemorySearchBackend
 from trialmatchai.services import preflight
@@ -214,7 +213,7 @@ def test_indexer_loads_prepared_criteria_docs(tmp_path):
     (trial_dir / "C1.json").write_text(
         json.dumps({"criteria_id": "C1", "nct_id": "N1", "criterion": "cancer"})
     )
-    docs = _load_nested_json_folder(processed)
+    docs = [json.loads(p.read_text()) for p in sorted(processed.glob("*/*.json"))]
     backend = InMemorySearchBackend()
     count = backend.replace_criteria_for_trials(["N1"], docs)
 
