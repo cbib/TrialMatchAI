@@ -295,27 +295,31 @@ def run_e2e(
     force_reindex: bool = False,
     force_rematch: bool = False,
 ) -> int:
-    """Ingest -> index -> match, each stage idempotent. Returns a process code."""
-    if inputs:
-        ingest_inputs(
-            config,
-            inputs,
-            input_format=input_format,
-            with_entities=with_entities,
-            force=force_reingest,
-        )
-    expand_queries(config, force=force_rematch)
-    build_index(
-        config,
-        processed_trials_folder=processed_trials_folder,
-        processed_criteria_folder=processed_criteria_folder,
-        nct_filter=nct_filter,
-        force=force_reindex,
+    """Ingest -> index -> match: the run-half slice of the unified pipeline.
+
+    A thin preset over ``run_pipeline`` (index..match): index/ingest/expand/match
+    are idempotent so this resumes from any state, and GPU models are freed once.
+    """
+    from trialmatchai.pipeline import StageContext, run_pipeline
+
+    force: set[str] = set()
+    if force_reingest:
+        force.add("ingest")
+    if force_reindex:
+        force.add("index")
+    if force_rematch:
+        force.update({"expand", "match"})
+    ctx = StageContext(
+        config=config,
+        processed_trials_folder=Path(processed_trials_folder),
+        processed_criteria_folder=Path(processed_criteria_folder),
+        inputs=list(inputs),
+        input_format=input_format,
+        with_entities=with_entities,
+        nct_filter=set(nct_filter) if nct_filter is not None else None,
+        force=force,
     )
-    try:
-        return run_matching(config, resume=True, force=force_rematch)
-    finally:
-        free_models()
+    return run_pipeline(ctx, from_stage="index", to_stage="match")
 
 
 # --------------------------------------------------------------------------- #
