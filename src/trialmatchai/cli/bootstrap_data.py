@@ -15,10 +15,15 @@ import requests
 DATA_URL = "https://zenodo.org/records/15516900/files/processed_trials.tar.gz?download=1"
 MODELS_URL = "https://zenodo.org/records/15516900/files/models.tar.gz?download=1"
 CRITERIA_ZIP_BASE_URL = "https://zenodo.org/records/15516900/files"
+# Fine-tuning datasets (CoT/reranker/NER JSONL) live on the paper's deposit.
+FINETUNE_DATA_URL = (
+    "https://zenodo.org/records/15045515/files/finetuning_datasets.zip?download=1"
+)
 CHUNK_PREFIX = "criteria_part"
 CHUNK_COUNT = 6
 PROCESSED_TRIALS_ARCHIVE = "processed_trials.tar.gz"
 MODELS_ARCHIVE = "models.tar.gz"
+FINETUNE_ARCHIVE = "finetuning_datasets.zip"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -58,6 +63,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Do not download or extract model artifacts",
     )
     parser.add_argument(
+        "--finetune-data",
+        action="store_true",
+        help="Also download the fine-tuning datasets (CoT/reranker/NER JSONL) to data/finetune/.",
+    )
+    parser.add_argument(
+        "--finetune-data-url",
+        default=FINETUNE_DATA_URL,
+        help="finetuning_datasets.zip URL",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Re-extract archives even when target directories already exist",
@@ -72,6 +87,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         criteria_base_url=args.criteria_base_url,
         criteria_chunks=args.criteria_chunks,
         skip_models=args.skip_models,
+        finetune_data=args.finetune_data,
+        finetune_data_url=args.finetune_data_url,
         force=args.force,
     )
     return 0
@@ -85,6 +102,8 @@ def bootstrap_data(
     criteria_base_url: str = CRITERIA_ZIP_BASE_URL,
     criteria_chunks: int = CHUNK_COUNT,
     skip_models: bool = False,
+    finetune_data: bool = False,
+    finetune_data_url: str = FINETUNE_DATA_URL,
     force: bool = False,
 ) -> None:
     data_dir = root / "data"
@@ -123,6 +142,17 @@ def bootstrap_data(
             _download_if_missing(models_url, models_archive)
             _verify_sha256(models_archive, os.getenv("TRIALMATCHAI_MODELS_SHA256"))
             _safe_extract_tar_gz(models_archive, models_dir)
+
+    if finetune_data:
+        finetune_dir = data_dir / "finetune"
+        if force or not _has_entries(finetune_dir):
+            finetune_dir.mkdir(parents=True, exist_ok=True)
+            finetune_archive = data_dir / FINETUNE_ARCHIVE
+            _download_if_missing(finetune_data_url, finetune_archive)
+            _verify_sha256(
+                finetune_archive, os.getenv("TRIALMATCHAI_FINETUNE_DATA_SHA256")
+            )
+            _safe_extract_zip(finetune_archive, finetune_dir)
 
     _cleanup_archives(data_dir, criteria_chunks)
 
@@ -196,7 +226,11 @@ def _validated_target_path(target: Path, member_name: str) -> Path:
 
 
 def _cleanup_archives(data_dir: Path, criteria_chunks: int) -> None:
-    for path in [data_dir / PROCESSED_TRIALS_ARCHIVE, data_dir / MODELS_ARCHIVE]:
+    for path in [
+        data_dir / PROCESSED_TRIALS_ARCHIVE,
+        data_dir / MODELS_ARCHIVE,
+        data_dir / FINETUNE_ARCHIVE,
+    ]:
         path.unlink(missing_ok=True)
     for index in range(criteria_chunks):
         (data_dir / f"{CHUNK_PREFIX}_{index}.zip").unlink(missing_ok=True)

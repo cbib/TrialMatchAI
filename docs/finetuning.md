@@ -13,10 +13,16 @@ checkpoints/adapters via config, and train those adapters with the built-in
 
 > **Where does the training data come from?** Fine-tuning is **optional** — the
 > ready-to-use CoT and reranker adapters are downloaded by `trialmatchai-bootstrap-data`,
-> so most deployments never need to train. The **raw training datasets are not
-> published**; to re-train, bring your own JSONL in the schemas shown below
-> (`data/finetune/*.jsonl`). Each line is a self-contained example, so you can
-> assemble a dataset from your own annotated patient–trial pairs.
+> so most deployments never need to train. The **published training datasets** are
+> available too — fetch them into `data/finetune/`:
+>
+> ```bash
+> trialmatchai-bootstrap-data --finetune-data
+> ```
+>
+> (Source: the paper's Zenodo deposit, <https://zenodo.org/records/15045515>.)
+> Or bring your own JSONL in the schemas shown below — each line is a self-contained
+> example, so you can assemble a dataset from your own annotated patient–trial pairs.
 
 Install the training dependencies:
 

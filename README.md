@@ -137,6 +137,7 @@ uv run trialmatchai build --concepts --concepts-csv data/omop/CONCEPT.csv --syno
 | --- | --- | --- |
 | Trial corpus (`processed_trials` + criteria) | `trialmatchai-bootstrap-data` (Zenodo) | ✅ automatic |
 | Fine-tuned LoRA adapters (CoT + reranker) | `trialmatchai-bootstrap-data` (Zenodo) | ✅ automatic |
+| Fine-tuning datasets (only if you re-train) | `trialmatchai-bootstrap-data --finetune-data` (Zenodo) | ✅ automatic (opt-in) |
 | Embedder (`BAAI/bge-m3`) | downloaded from HuggingFace on first use | ✅ automatic |
 | Concept-linking vocabularies (genes, diseases, …) | `trialmatchai build --concepts` | ✅ automatic |
 | Base LLMs (`microsoft/phi-4`, `google/gemma-2-2b-it`) | HuggingFace on first use | ⚠️ automatic, but **gated** models need a **one-time** `hf auth login` + accepting the model licence |
