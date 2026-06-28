@@ -1,92 +1,119 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+# >=77 for PEP 639 SPDX license metadata (license = "MIT" + license-files).
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "TrialMatchAI"
-version = "0.1.0"
-description = "AI-driven clinical trial matching pipeline."
+name = "trialmatchai"
+version = "0.2.0"
+description = "AI-driven patient-to-clinical-trial matching: hybrid retrieval + LLM eligibility reasoning."
 readme = "README.md"
-requires-python = ">=3.10,<3.12"
-license = {file = "LICENSE"}
+requires-python = ">=3.11,<3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Majd Abdallah", email = "abdallahmajd7@gmail.com" }]
+keywords = [
+  "clinical-trials",
+  "patient-trial-matching",
+  "biomedical-nlp",
+  "information-retrieval",
+  "large-language-models",
+  "eligibility",
+  "healthcare",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Healthcare Industry",
+  "Intended Audience :: Science/Research",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
-  # Core ML / NLP
-  "torch==2.7.1",
-  "torchvision==0.22.1",
-  "torchaudio==2.7.1",
-  "transformers==4.55.0",
+  "numpy>=2.0,<3",
+  "pandas==2.2.3",
+  "python-dateutil==2.9.0.post0",
+  "requests==2.34.2",
+  "tenacity==9.0.0",
+  "tqdm==4.67.1",
+  "PyYAML==6.0.2",
+  "lancedb>=0.25.0,<0.26",
+  "pyarrow>=24.0.0,<25",
+  "pydantic>=2.12.0,<3",
+]
+
+[project.optional-dependencies]
+gpu = [
+  "bitsandbytes==0.49.2; sys_platform == 'linux' or sys_platform == 'win32'",
+  "vllm==0.23.0; sys_platform == 'linux'",
+]
+llm = [
+  "torch==2.11.0",
+  "transformers==5.6.2",
   "accelerate==1.8.1",
-  "tokenizers==0.21.1",
-  "safetensors==0.5.3",
-  "sentence-transformers==2.7.0",
-  "sentencepiece==0.2.0",
-  "datasets==2.19.0",
-  "faiss-cpu==1.9.0.post1",
+  "tokenizers==0.22.1",
+  "safetensors>=0.6.2,<0.7",
+  "sentencepiece==0.2.1",
   "peft==0.15.2",
   "einops==0.8.0",
-  "tiktoken==0.8.0",
-  "bitsandbytes==0.46.1",
-  "vllm==0.10.1.1",
-  # Classical stack & utilities
-  "numpy==1.26.4",
-  "scipy==1.15.1",
-  "scikit-learn==1.6.1",
-  "pandas==2.2.3",
-  "tqdm==4.67.1",
-  "regex==2024.11.6",
-  "orjson==3.10.14",
-  "PyYAML==6.0.2",
-  "python-dotenv==1.0.1",
-  "rich==13.9.4",
-  # spaCy / medspaCy (for your medical text work)
-  "spacy==3.7.5",
-  "medspacy==1.3.1",
-  "medspacy_quickumls==3.2",
-  "PyRuSH==1.0.9",
-  "PyFastNER==1.0.10",
-  "pysbd==0.3.4",
-  "quicksectx==0.4.0",
-  "gliner==0.2.16",
-  # App / infra
-  "SQLAlchemy==2.0.37",
-  "pydantic==2.11.7",
-  "pydantic-settings==2.7.1",
-  # Optional APIs
-  "openai==1.99.1",
-  "httpx==0.28.1",
-  "langchain==0.3.18",
-  "langchain-core==0.3.35",
-  "langchain-community==0.3.17",
-  "langchain-openai==0.3.5",
-  "langsmith==0.2.11",
-  "huggingface_hub==0.34.4",
+]
+entity = [
+  "torch==2.11.0",
+  "transformers==5.6.2",
+  "gliner2>=1.3.1,<2",
+]
+finetune = [
+  "torch==2.11.0",
+  "transformers==5.6.2",
+  "accelerate==1.8.1",
+  "peft==0.15.2",
+  "datasets>=3.0,<5",
+  "gliner2>=1.3.1,<2",
+  "bitsandbytes==0.49.2; sys_platform == 'linux' or sys_platform == 'win32'",
 ]
 
 [project.scripts]
-trialmatchai-healthcheck = "Matcher.cli.healthcheck:main"
+# Single entry point. Every capability is a subcommand: `trialmatchai <cmd>`
+# (pipeline, healthcheck, bootstrap-data, index, build-concepts, update-registry,
+# import-patient, build, run, e2e, trec, finetune).
+trialmatchai = "trialmatchai.cli.main:main"
+
+[project.urls]
+Homepage = "https://github.com/cbib/TrialMatchAI"
+Repository = "https://github.com/cbib/TrialMatchAI"
+Issues = "https://github.com/cbib/TrialMatchAI/issues"
+Paper = "https://doi.org/10.1038/s41467-026-70509-w"
 
 [dependency-groups]
 dev = [
-  "pytest>=7.4",
-  "ruff>=0.6.0",
+  "pytest>=8.3",
+  "ruff>=0.9.0",
+  "pip-audit>=2.7.3",
+  "pre-commit>=4.0",
+]
+docs = [
+  "mkdocs-material>=9.5",
+  "mkdocstrings[python]>=0.26",
 ]
 
 [tool.setuptools]
-package-dir = {"" = "source"}
+package-dir = {"" = "src"}
 include-package-data = true
 
 [tool.setuptools.packages.find]
-where = ["source"]
+where = ["src"]
+
+[tool.setuptools.package-data]
+trialmatchai = [
+  "config/*.json",
+  "entity_schemas/*.yaml",
+  "entities/resources/*.tsv",
+]
 
 [tool.uv]
-index-url = "https://pypi.org/simple"
-
-[[tool.uv.index]]
-name = "pytorch-cuda"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
-
-[tool.uv.sources]
-torch = { index = "pytorch-cuda" }
-torchvision = { index = "pytorch-cuda" }
-torchaudio = { index = "pytorch-cuda" }
+environments = [
+  "sys_platform == 'darwin'",
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]

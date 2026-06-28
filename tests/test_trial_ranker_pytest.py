@@ -1,6 +1,6 @@
 import json
 
-from Matcher.pipeline.trial_ranker import (
+from trialmatchai.matching.trial_ranker import (
     load_trial_data,
     rank_trials,
     save_ranked_trials,
@@ -9,19 +9,18 @@ from Matcher.pipeline.trial_ranker import (
 
 
 def test_score_trial_basic():
+    # A violated exclusion hard-disqualifies the trial regardless of inclusions.
     trial = {
         "Inclusion_Criteria_Evaluation": [
             {"Classification": "Met"},
             {"Classification": "Met"},
-            {"Classification": "Violated"},
         ],
         "Exclusion_Criteria_Evaluation": [
             {"Classification": "Not Violated"},
             {"Classification": "Violated"},
         ],
     }
-    score = score_trial(trial)
-    assert score == ((2 - 1) / 3 + (1 - 1) / 2) / 2
+    assert score_trial(trial) == -1.0
 
 
 def test_rank_trials_orders_by_score():
@@ -40,12 +39,12 @@ def test_rank_trials_orders_by_score():
 def test_load_and_save_ranked_trials(tmp_path):
     trial_folder = tmp_path / "trials"
     trial_folder.mkdir()
-    (trial_folder / "T1.json").write_text(
+    (trial_folder / "NCT0001.json").write_text(
         json.dumps(
             {"Inclusion_Criteria_Evaluation": [], "Exclusion_Criteria_Evaluation": []}
         )
     )
-    (trial_folder / "T2.json").write_text(
+    (trial_folder / "NCT0002.json").write_text(
         json.dumps(
             {
                 "Inclusion_Criteria_Evaluation": [{"Classification": "Met"}],
@@ -53,12 +52,17 @@ def test_load_and_save_ranked_trials(tmp_path):
             }
         )
     )
+    # Run sidecars in the same folder must NOT be loaded as trials.
+    (trial_folder / "keywords.json").write_text(json.dumps({"keywords": ["x"]}))
+    (trial_folder / "patient_profile.json").write_text(json.dumps({"id": "p1"}))
 
     trials = load_trial_data(str(trial_folder))
+    assert {t["TrialID"] for t in trials} == {"NCT0001", "NCT0002"}
+
     ranked = rank_trials(trials)
     out_file = tmp_path / "ranked.json"
     save_ranked_trials(ranked, str(out_file))
 
     saved = json.loads(out_file.read_text())
     assert "RankedTrials" in saved
-    assert saved["RankedTrials"][0]["TrialID"] == "T2"
+    assert saved["RankedTrials"][0]["TrialID"] == "NCT0002"

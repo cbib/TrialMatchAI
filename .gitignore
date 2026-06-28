@@ -3,53 +3,40 @@
 # ============================
 data/
 results/
-src/
 ablation/
 logs/
 *.log
+.env
+.env.*
+!.env.example
+
+/models/
+/source/
+/Parser/
 
 # ============================
-# Finetuning ignore rules
+# Local working dirs (large data stores / uncommitted code)
 # ============================
-
-# Ignore ANY directory under finetuning/ starting with checkpoint
-**/finetuning/**/checkpoint*/
-
-# Ignore ANY directory under finetuning/ starting with finetuned
-**/finetuning/**/finetuned*/
-
-# Ignore ANY directory under finetuning/ ending with "data"
-**/finetuning/**/*data/
-
-# Ignore this explicit model folder
-utils/finetuning/finetune_ner/RoBERTa-large-PM-M3-Voc/
-utils/finetuning/finetune_ner/output_eval
-utils/finetuning/finetune_ner
+/elasticsearch/
+/utils/
 
 # ============================
-# ElasticSearch artifacts
+# Generated indexing state
 # ============================
-elasticsearch/sif/
-elasticsearch/data1/
-elasticsearch/data/
-elasticsearch/logs/
-elasticsearch/sif/*.sif
-
-# ============================
-# Parser artifacts
-# ============================
-models/
-source/Parser/resources/
-source/Parser/models/
-source/Parser/input/
-source/Parser/output/
-Parser/logs/
+*.lance
+*.lancedb
 
 # ============================
 # Python cache
 # ============================
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+*.egg-info/
 
 # ============================
 # Temporary / cache files
@@ -58,6 +45,8 @@ __pycache__/
 *.bak
 *.swp
 *.slurm
+scripts/*.sh
 **/tmp/
 .DS_Store
 Thumbs.db
+site/

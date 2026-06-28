@@ -1,0 +1,65 @@
+site_name: TrialMatchAI
+site_description: AI-driven patient-to-clinical-trial matching — hybrid retrieval + LLM eligibility reasoning
+site_url: https://cbib.github.io/TrialMatchAI/
+repo_url: https://github.com/cbib/TrialMatchAI
+repo_name: cbib/TrialMatchAI
+copyright: "© TrialMatchAI — MIT licensed"
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.highlight
+  palette:
+    - scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_root_heading: true
+            show_source: true
+            members_order: source
+            separate_signature: true
+            docstring_section_style: spacy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Pipeline & CLI: pipeline.md
+  - Patient interoperability: interoperability.md
+  - Registry updater: registry-updater.md
+  - Fine-tuning: finetuning.md
+  - API reference: api.md
+  - Release process: release.md

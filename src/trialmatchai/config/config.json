@@ -1,0 +1,141 @@
+{
+  "entity_extraction": {
+    "backend": "gliner2",
+    "model_name": "fastino/gliner2-base-v1",
+    "model_revision": null,
+    "schema_path": "entity_schemas/trialmatchai.yaml",
+    "threshold": 0.8,
+    "batch_size": 8,
+    "device": "auto",
+    "trust_remote_code": false
+  },
+  "concept_linker": {
+    "enabled": true,
+    "db_path": "data/concepts",
+    "table": "concepts",
+    "accept_threshold": 0.8,
+    "reject_threshold": 0.3,
+    "search_limit": 10
+  },
+  "paths": {
+    "output_dir": "results",
+    "trials_json_folder": "data/trials_jsons"
+  },
+  "patient_inputs": {
+    "raw_dir": "data/patients/raw",
+    "profile_dir": "data/patients/profiles",
+    "summary_dir": "data/patients/summaries",
+    "default_format": "auto",
+    "strict_validation": false,
+    "copy_raw": true
+  },
+  "model": {
+    "base_model": "microsoft/phi-4",
+    "base_model_revision": null,
+    "trust_remote_code": false,
+    "quantization": {
+      "load_in_4bit": true,
+      "bnb_4bit_use_double_quant": true,
+      "bnb_4bit_quant_type": "nf4",
+      "bnb_4bit_compute_dtype": "float16"
+    },
+    "cot_adapter_path": "models/finetuned_phi_reasoning",
+    "reranker_model_path": "google/gemma-2-2b-it",
+    "reranker_model_revision": null,
+    "reranker_adapter_path": "models/finetuned_gemma2"
+  },
+  "tokenizer": {
+    "use_fast": true,
+    "padding_side": "left"
+  },
+  "global": {
+    "device": 0
+  },
+  "search_backend": {
+    "backend": "lancedb",
+    "db_path": "data/search",
+    "trials_table": "trials",
+    "criteria_table": "criteria",
+    "candidate_limit": 1000
+  },
+  "registry": {
+    "source": "clinicaltrials.gov",
+    "api_base_url": "https://clinicaltrials.gov/api/v2/studies",
+    "keywords_file": null,
+    "since_days": 7,
+    "max_studies": null,
+    "request_timeout": 30,
+    "rate_limit_per_second": 2,
+    "raw_dir": "data/registry/raw",
+    "manifest_path": "data/registry/manifest.jsonl",
+    "reports_dir": "data/registry/runs",
+    "failure_threshold": 0.25
+  },
+  "embedder": {
+    "model_name": "BAAI/bge-m3",
+    "revision": null,
+    "trust_remote_code": false,
+    "pooling": "mean",
+    "max_length": 512,
+    "batch_size": 32,
+    "use_gpu": true,
+    "use_fp16": false,
+    "normalize": true
+  },
+  "cot": {
+    "batch_size": 10
+  },
+  "LLM_reranker": {
+    "batch_size": 20
+  },
+  "search": {
+    "mode": "hybrid",
+    "vector_score_threshold": 0.5,
+    "max_trials_first_level": 1000,
+    "max_trials_second_level": 100,
+    "first_level": {
+      "enabled": true,
+      "max_trials": 1000,
+      "per_channel_size": 300,
+      "fusion": "rrf",
+      "rrf_k": 60,
+      "vector_score_threshold": 0.0,
+      "llm_expansion_enabled": false,
+      "llm_max_terms": 12,
+      "write_reports": true,
+      "hard_filters": ["age", "sex", "overall_status"]
+    }
+  },
+  "constraints": {
+    "enabled": true,
+    "score_weight": 0.25,
+    "llm_extraction_enabled": false,
+    "unknown_is_neutral": true,
+    "write_reports": true
+  },
+  "query_expansion": {
+    "enabled": false,
+    "backend": null,
+    "model": null,
+    "adapter": null,
+    "max_new_tokens": 2048,
+    "max_main_conditions": 11,
+    "max_other_conditions": 50
+  },
+  "use_cot_reasoning": true,
+  "rag": {
+    "batch_size": 4,
+    "max_trials_rag": 20
+  },
+  "vllm": {
+    "batch_size": 100,
+    "max_new_tokens": 5000,
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "seed": 1234,
+    "length_bucket": true,
+    "gpu_memory_utilization": 0.5,
+    "max_model_len": 8192,
+    "tensor_parallel_size": 1
+  }
+}

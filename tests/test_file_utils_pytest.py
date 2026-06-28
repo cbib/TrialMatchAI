@@ -1,6 +1,4 @@
-import json
-
-from Matcher.utils.file_utils import read_json_file, read_text_file, write_json_file, write_text_file
+from trialmatchai.utils.file_utils import read_json_file, read_text_file, write_json_file, write_text_file
 
 
 def test_write_and_read_json(tmp_path):

@@ -1,31 +1,46 @@
-.PHONY: venv sync test lock lint healthcheck bootstrap start-es index setup
-
-venv:
-	uv venv
+.PHONY: audit bootstrap build clean healthcheck index lint lock release-check sync sync-model test update-registry
 
 sync:
 	uv sync
 
+sync-model:
+	uv sync --extra llm --extra gpu --extra entity
+
+lock:
+	uv lock --check
+
+lint:
+	uv run ruff check .
+
 test:
 	uv run pytest
 
-lock:
-	uv lock
+audit:
+	uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
 
-lint:
-	uv run python -m ruff check .
+build:
+	uv build
 
 healthcheck:
-	uv run trialmatchai-healthcheck --config Matcher/config/config.json --start-es
+	uv run trialmatchai-healthcheck --registry
 
 bootstrap:
-	bash scripts/bootstrap_data.sh
+	uv run trialmatchai-bootstrap-data
 
-start-es:
-	bash scripts/start_es.sh
+update-registry:
+	uv run trialmatchai-update-registry
 
 index:
-	bash scripts/index_data.sh
+	uv run trialmatchai-index --prepare
 
-setup:
-	bash setup.sh
+release-check:
+	uv lock --check
+	uv run ruff check .
+	uv run pytest
+	uv build
+	uv run python scripts/scan_secrets.py
+	uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
+
+clean:
+	rm -rf build dist src/*.egg-info .pytest_cache .ruff_cache
+	find . -name '__pycache__' -type d -prune -exec rm -rf {} +

@@ -1,0 +1,122 @@
+version: 1
+entities:
+  - id: disease
+    label: disease or condition
+    entity_group: disease
+    description: Diagnosed diseases, clinical conditions, syndromes, and disorders.
+    aliases: [condition, disorder, syndrome]
+    target_vocabularies: [SNOMED, ICD10, ICD10CM]
+    domain_hints: [Condition]
+    linkable_fields: [text]
+    threshold: 0.80
+    query_expansion: true
+    patterns:
+      - "\\b(?:cancer|carcinoma|diabetes|melanoma|leukemia|lymphoma|asthma|hypertension)\\b"
+  - id: gene
+    label: gene
+    entity_group: gene
+    description: Human genes or gene products mentioned as trial criteria.
+    aliases: [gene symbol, biomarker]
+    target_vocabularies: [EntrezGene]
+    domain_hints: [Gene]
+    linkable_fields: [text]
+    threshold: 0.80
+    query_expansion: false
+    patterns:
+      - "\\b(?:BRCA1|BRCA2|EGFR|ALK|KRAS|BRAF|TP53|ERBB2|HER2)\\b"
+  - id: medication
+    label: drug or medication
+    entity_group: drug
+    description: Drugs, medications, biologics, compounds, and therapeutic agents.
+    aliases: [drug, medication, biologic, compound]
+    target_vocabularies: [RxNorm, ATC]
+    domain_hints: [Drug]
+    linkable_fields: [text]
+    threshold: 0.80
+    query_expansion: false
+    patterns:
+      - "\\b(?:aspirin|metformin|pembrolizumab|nivolumab|cisplatin|paclitaxel)\\b"
+  - id: procedure
+    label: procedure
+    entity_group: procedure
+    description: Clinical procedures, interventions, treatments, and surgeries.
+    aliases: [treatment, surgical procedure, intervention]
+    target_vocabularies: [SNOMED]
+    domain_hints: [Procedure]
+    linkable_fields: [text]
+    threshold: 0.80
+    query_expansion: false
+    patterns:
+      - "\\b(?:surgery|radiotherapy|chemotherapy|biopsy|transplantation)\\b"
+  - id: diagnostic_test
+    label: diagnostic test
+    entity_group: diagnostic test
+    description: Diagnostic assays and tests used to establish eligibility.
+    aliases: [test, assay]
+    target_vocabularies: [LOINC, SNOMED]
+    domain_hints: [Measurement, Procedure]
+    linkable_fields: [text]
+    threshold: 0.80
+    query_expansion: false
+    patterns:
+      - "\\b(?:MRI|CT scan|PET scan|biopsy|ECG|EKG)\\b"
+  - id: laboratory_test
+    label: laboratory test
+    entity_group: laboratory test
+    description: Laboratory measurements, lab panels, biomarkers, and analytes.
+    aliases: [lab test, laboratory value, analyte]
+    target_vocabularies: [LOINC]
+    domain_hints: [Measurement]
+    linkable_fields: [text]
+    threshold: 0.80
+    query_expansion: false
+    patterns:
+      - "\\b(?:hemoglobin|creatinine|ALT|AST|bilirubin|platelet count)\\b"
+  - id: radiology
+    label: radiology
+    entity_group: radiology
+    description: Imaging modalities and radiology findings used in criteria.
+    aliases: [imaging]
+    target_vocabularies: [LOINC, SNOMED]
+    domain_hints: [Measurement, Procedure]
+    linkable_fields: [text]
+    threshold: 0.80
+    query_expansion: false
+    patterns:
+      - "\\b(?:radiograph|ultrasound|mammogram|MRI|CT)\\b"
+  - id: sign_symptom
+    label: sign or symptom
+    entity_group: sign symptom
+    description: Patient signs, symptoms, and clinical findings.
+    aliases: [symptom, sign]
+    target_vocabularies: [SNOMED]
+    domain_hints: [Condition, Observation]
+    linkable_fields: [text]
+    threshold: 0.80
+    query_expansion: false
+    patterns:
+      - "\\b(?:fever|pain|fatigue|nausea|dyspnea|cough)\\b"
+  - id: cell_type
+    label: cell type
+    entity_group: cell type
+    description: Cell types, immune cells, and tissue cell populations.
+    aliases: [cell population]
+    target_vocabularies: [Cellosaurus]
+    domain_hints: [Cell]
+    linkable_fields: [text]
+    threshold: 0.80
+    query_expansion: false
+    patterns:
+      - "\\b(?:T cell|B cell|macrophage|neutrophil|fibroblast)\\b"
+  - id: species
+    label: species
+    entity_group: species
+    description: Species and organisms in translational eligibility criteria.
+    aliases: [organism]
+    target_vocabularies: [NCBITaxon]
+    domain_hints: [Species]
+    linkable_fields: [text]
+    threshold: 0.80
+    query_expansion: false
+    patterns:
+      - "\\b(?:human|mouse|rat|zebrafish|macaque)\\b"

@@ -1,0 +1,28 @@
+name: Docs
+
+# Build the MkDocs site (strict) on every push/PR; deploy to GitHub Pages on main.
+on:
+  push:
+    branches: [main, deployment-readiness-audit]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # mkdocs gh-deploy pushes to the gh-pages branch
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build docs (strict)
+        run: uv run --group docs mkdocs build --strict
+      - name: Deploy to GitHub Pages (main only)
+        if: github.ref == 'refs/heads/main'
+        run: uv run --group docs mkdocs gh-deploy --force
