@@ -39,7 +39,7 @@ dependencies = [
   "tenacity==9.0.0",
   "tqdm==4.67.1",
   "PyYAML==6.0.2",
-  "lancedb>=0.25.0,<0.26",
+  "lancedb>=0.25.0,<0.34",
   "pyarrow>=24.0.0,<25",
   "pydantic>=2.12.0,<3",
 ]
