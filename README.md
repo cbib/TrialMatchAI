@@ -376,8 +376,16 @@ The full override list is in [`.env.example`](.env.example).
 
 ## CLI Reference
 
-Every command is available both as a flat script (`trialmatchai build`) and as a
-subcommand (`trialmatchai build`); they are equivalent.
+There is a single entry point — `trialmatchai` — and every capability is a
+subcommand. Under the hood they are all slices of **one idempotent pipeline**.
+
+**The unified pipeline (run any subset)**
+
+| Command | Purpose |
+| --- | --- |
+| `trialmatchai pipeline` | Run the whole pipeline, or any slice: `--only` / `--from` / `--to` / `--skip` / `--force` over the stages `prepare → concepts → index → ingest → expand → match → eval`. Idempotent — finished work is skipped. See [docs](https://cbib.github.io/TrialMatchAI/pipeline/). |
+
+The commands below are convenience presets over that pipeline.
 
 **Build the system (setup half)**
 
