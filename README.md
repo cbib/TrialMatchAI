@@ -2,10 +2,10 @@
 
 <img src="img/logo.png" alt="TrialMatchAI" width="480"/>
 
-<p><b>TrialMatchAI matches patients to the clinical trials they're eligible for.</b> Give it a patient — clinical notes, FHIR, Phenopacket, or OMOP — and it returns a ranked shortlist of trials, each with a transparent, criterion-by-criterion explanation of why the patient does or doesn't qualify. Everything runs on your own infrastructure: hybrid retrieval over a local LanceDB index paired with chain-of-thought LLM reasoning served by vLLM on a single GPU, so sensitive patient data never leaves your environment.</p>
+<p><b>TrialMatchAI matches patients to the clinical trials they're eligible for.</b> Given a patient — clinical notes, FHIR, Phenopacket, or OMOP — it returns a ranked shortlist of trials, each with a criterion-by-criterion explanation of why the patient does or doesn't qualify. It runs entirely on your own infrastructure on a single GPU server, so patient data never leaves your environment.</p>
 
 <p>
-  <a href="#install">Install</a> ·
+  <a href="#installation">Install</a> ·
   <a href="#quickstart">Quickstart</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#configuration">Configuration</a> ·
@@ -18,29 +18,31 @@
 > advice, not a medical device, and must not replace review by qualified
 > healthcare professionals.
 
-## TL;DR
+## Overview
 
-TrialMatchAI runs in **two halves**: **build the system once**, then **match
-patients many times**. Both commands are idempotent and resume after disruption.
+TrialMatchAI runs in **two halves**: you **build the matching system once**, then
+**match patients against it repeatably**. Both halves are idempotent — they only
+do work that is not already done, and resume cleanly after an interruption.
 
-```bash
-pip install "trialmatchai[llm,gpu,entity]"   # GPU host + HuggingFace access
-trialmatchai bootstrap-data                  # fetch prepared corpus + adapters
-trialmatchai build                           # 1) BUILD: prepare + index (once)
-trialmatchai e2e --input patient.txt         # 2) MATCH: ingest + match a patient
-# -> results/<patient_id>/ranked_trials.json
-```
+- **Build** is the heavy, one-time setup (GPU). It prepares a searchable corpus of
+  clinical trials — embeddings, biomedical entity annotations, and parsed
+  eligibility constraints — and builds a local search index.
+- **Match** ingests a patient, retrieves candidate trials, and reasons over each
+  trial's eligibility criteria to produce a ranked, explained shortlist.
+
+Trials, models, indexes, and results all live on your own machine.
 
 ## Requirements
 
 - Python 3.11 (`pyproject.toml` requires `>=3.11,<3.12`)
 - `pip` or `uv` — install from PyPI, or a source checkout for development
-- NVIDIA GPU for vLLM-backed matching and fine-tuning
-- Around 100 GB disk for datasets, model artifacts, LanceDB tables, manifests,
-  and run outputs
-- OMOP vocabulary files if you want to build the concept-linking table locally
+- An NVIDIA GPU for model-backed matching and fine-tuning
+- ~100 GB disk for datasets, model artifacts, search indexes, manifests, and run
+  outputs
+- OMOP vocabulary files, only if you want to build the concept-linking table
+  locally
 
-## Install
+## Installation
 
 ### From PyPI (recommended)
 
@@ -59,9 +61,9 @@ pip install "trialmatchai[finetune]"         # fine-tuning stack
 
 | Extra | Adds |
 | --- | --- |
-| `entity` | GLiNER2 biomedical extraction |
-| `llm` | local embedding and LLM dependencies |
-| `gpu` | vLLM and bitsandbytes; intended for Linux CUDA hosts |
+| `entity` | biomedical entity extraction |
+| `llm` | local embedding and language models |
+| `gpu` | GPU inference stack (CUDA / Linux) |
 | `finetune` | training dependencies for `trialmatchai finetune` |
 
 ### From source (for development)
@@ -74,217 +76,182 @@ uv run trialmatchai --help
 ```
 
 > **Calling the CLI:** installed from PyPI, run it directly — `trialmatchai ...`.
-> From a `uv` source checkout, prefix with `uv run` — `uv run trialmatchai ...`.
-> The examples below use the `uv run` form; drop the prefix if you installed from PyPI.
+> From a `uv` source checkout, prefix with `uv run`. The examples below use the
+> `uv run` form; drop the prefix if you installed from PyPI.
 
-Installing the package only gives you the CLI. Real matching also needs the
-trial corpus, model artifacts, and LanceDB search tables — all produced by the
-**build** step below.
+Installing the package only gives you the CLI. Matching also needs the trial
+corpus, model artifacts, and search index — all produced by the **build** step
+below.
 
 ## Quickstart
 
-The pipeline has two halves. **Build** is the heavy, one-time setup (GPU); it is
-resumable and only does work that is not already done. **Match** is fast and
-repeatable against the built system.
-
-### 0. Set up the runtime (GPU host)
+### 0. Configure the runtime
 
 ```bash
-uv sync --extra llm --extra gpu --extra entity   # model-backed runtime
-cp .env.example .env                             # optional local overrides
-export HF_TOKEN=<token>                           # required for gated models (phi-4, gemma-2)
+cp .env.example .env        # optional local overrides
+export HF_TOKEN=<token>     # required for gated base models (one-time `hf auth login`)
 ```
 
 ### 1. Build the system — once
 
 ```bash
-uv run trialmatchai bootstrap-data   # download the prepared corpus + LoRA adapters
-uv run trialmatchai build            # prepare embeddings/entities + build the index
-uv run trialmatchai build --status   # see exactly what is built (and what isn't)
+trialmatchai bootstrap-data   # download the prepared corpus + model adapters
+trialmatchai build            # prepare the corpus + build the search index
+trialmatchai build --status   # see exactly what is built (and what isn't)
 ```
 
-`build` fails fast if a GPU, an extra, or model access is missing — and resumes
-from where it left off if interrupted. Bringing your **own** trials instead of
-bootstrapping? Put normalized JSON in `data/trials_jsons/` and `build` will
-prepare them. To enable entity→concept linking, add `--concepts` (open
-vocabularies, **auto-downloaded**) — and optionally an OMOP `CONCEPT.csv` for
-SNOMED/LOINC/RxNorm on top:
+`build` fails fast if a GPU, an extra, or model access is missing, and resumes
+from where it left off if interrupted. To use your **own** trials instead of the
+bootstrapped corpus, put normalized JSON in `data/trials_jsons/` and `build` will
+prepare them.
+
+To enable entity→concept linking, add `--concepts` (open vocabularies,
+auto-downloaded) — and optionally an OMOP `CONCEPT.csv` for SNOMED/LOINC/RxNorm on
+top:
 
 ```bash
-uv run trialmatchai build --concepts                          # genes, diseases, chemicals, cells, phenotypes
-uv run trialmatchai build --concepts --concepts-csv data/omop/CONCEPT.csv --synonym-csv data/omop/CONCEPT_SYNONYM.csv
+trialmatchai build --concepts
+trialmatchai build --concepts --concepts-csv data/omop/CONCEPT.csv --synonym-csv data/omop/CONCEPT_SYNONYM.csv
 ```
 
 #### What gets fetched, and how
 
 | Resource | How you get it | Automatic? |
 | --- | --- | --- |
-| Trial corpus (`processed_trials` + criteria) | `trialmatchai bootstrap-data` (Zenodo) | ✅ automatic |
-| Fine-tuned LoRA adapters (CoT + reranker) | `trialmatchai bootstrap-data` (Zenodo) | ✅ automatic |
-| Fine-tuning datasets (only if you re-train) | `trialmatchai bootstrap-data --finetune-data` (Zenodo) | ✅ automatic (opt-in) |
-| Embedder (`BAAI/bge-m3`) | downloaded from HuggingFace on first use | ✅ automatic |
-| Concept-linking vocabularies (genes, diseases, …) | `trialmatchai build --concepts` | ✅ automatic |
-| Base LLMs (`microsoft/phi-4`, `google/gemma-2-2b-it`) | HuggingFace on first use | ⚠️ automatic, but **gated** models need a **one-time** `hf auth login` + accepting the model licence |
-| OMOP clinical vocab (SNOMED/LOINC/RxNorm) | download `CONCEPT.csv` from [OHDSI Athena](https://athena.ohdsi.org/) | ❌ manual (licensed); linking works without it |
+| Trial corpus (prepared trials + criteria) | `trialmatchai bootstrap-data` (Zenodo) | ✅ automatic |
+| Fine-tuned model adapters | `trialmatchai bootstrap-data` (Zenodo) | ✅ automatic |
+| Fine-tuning datasets (only if you re-train) | `trialmatchai bootstrap-data --finetune-data` | ✅ automatic (opt-in) |
+| Embedding model | downloaded on first use | ✅ automatic |
+| Concept-linking vocabularies | `trialmatchai build --concepts` | ✅ automatic |
+| Base language models | downloaded on first use | ⚠️ gated models need a one-time `hf auth login` + licence acceptance |
+| OMOP clinical vocabulary (SNOMED/LOINC/RxNorm) | download `CONCEPT.csv` from [OHDSI Athena](https://athena.ohdsi.org/) | ❌ manual (licensed); linking works without it |
 
-So a from-scratch user runs **two commands** (`bootstrap-data`, then `build --concepts`) after a one-time `hf auth login`. Everything else is pulled on demand.
+From scratch, that is **two commands** (`bootstrap-data`, then `build --concepts`)
+after a one-time `hf auth login`. Everything else is pulled on demand.
 
 ### 2. Match patients — repeatably
 
-`e2e` ingests the patient (format auto-detected) and matches in one command:
+`e2e` ingests the patient (format auto-detected) and matches end-to-end:
 
 ```bash
-uv run trialmatchai e2e --input data/patients/raw/patient-1.txt
-uv run trialmatchai e2e --input data/patients/raw/patient-1.fhir.json
-uv run trialmatchai e2e --input data/patients/omop_extract
+trialmatchai e2e --input data/patients/raw/patient-1.txt
+trialmatchai e2e --input data/patients/raw/patient-1.fhir.json
+trialmatchai e2e --input data/patients/omop_extract
 ```
 
 Results land in `results/<patient_id>/` (ranked trials + eligibility
 explanations). Re-running skips patients already matched.
 
-### Health and keeping trials current
+### Keeping trials current
+
+Validate the installation, then fold new or changed ClinicalTrials.gov studies
+into the live index (incremental and idempotent — unchanged studies are skipped):
 
 ```bash
-uv run trialmatchai healthcheck                          # validate config/paths/deps
+trialmatchai healthcheck                                # validate config, paths, deps, indexes
+trialmatchai update-registry --since 2026-06-01         # one-shot
+trialmatchai update-registry --watch --interval 86400   # server: update daily
 ```
 
-Fold new/changed ClinicalTrials.gov studies into the **live index** — fetch →
-embed + entity-annotate → upsert, incremental and idempotent (unchanged studies
-are skipped via a manifest, so it is safe to re-run):
-
-```bash
-uv run trialmatchai update-registry --since 2026-06-01   # one-shot
-uv run trialmatchai update-registry --watch --interval 86400   # server: update daily
-```
-
-For a one-shot cadence you can also drive `update-registry` from cron, a systemd
-timer, or GitHub Actions — see [docs/registry-updater.md](docs/registry-updater.md).
+The updater also drives from cron, a systemd timer, or GitHub Actions — see
+[docs/registry-updater.md](docs/registry-updater.md).
 
 <details>
 <summary>Manual / advanced control (the steps <code>build</code> and <code>e2e</code> wrap)</summary>
 
 ```bash
-uv run trialmatchai index --prepare                          # prepare + index from trials_jsons (what `build` runs)
-uv run trialmatchai import-patient --input patient.txt       # stage a profile only
-uv run trialmatchai run                                      # match already-staged profiles
-uv run trialmatchai trec --tracks "21 22"                    # benchmark: official TREC CT eval
+trialmatchai index --prepare                       # prepare + index from trials_jsons (what `build` runs)
+trialmatchai import-patient --input patient.txt    # stage a profile only
+trialmatchai run                                   # match already-staged profiles
+trialmatchai trec --tracks "21 22"                 # benchmark: official TREC Clinical Trials eval
 ```
 
 </details>
 
-## How It Works
+## How it works
 
-The diagram below is the **match** path. The one-time **build** step produces the
-LanceDB index it queries — trial and criterion embeddings, entity annotations,
-and parsed eligibility constraints.
+The flow below is the **match** path. The one-time **build** step produces the
+search index it queries — trial and criterion embeddings, entity annotations, and
+parsed eligibility constraints.
 
 ```text
 Patient data (text / FHIR / Phenopacket / OMOP)
-      |
-      v
-Interop importers -> canonical PatientProfile
-      |
-      v
-GLiNER2 entity extraction + deterministic variant patterns -> concept linking
-      |
-      v
-First-level trial retrieval in LanceDB (BM25 + embeddings)
-      |
-      v
+      │
+      ▼
+Interoperable importers → canonical patient profile
+      │
+      ▼
+Biomedical entity extraction + variant recognition → concept linking
+      │
+      ▼
+First-level trial retrieval (lexical + semantic) over the local index
+      │
+      ▼
 Multi-channel query fusion for broad candidate recall
-      |
-      v
-Criterion retrieval + vLLM Yes/No reranker
-      |
-      v
+      │
+      ▼
+Criterion retrieval + reranking
+      │
+      ▼
 Constraint-aware criterion scoring
-      |
-      v
-vLLM eligibility reasoning per criterion
-      |
-      v
+      │
+      ▼
+Per-criterion eligibility reasoning
+      │
+      ▼
 Final ranking + explanations in results/
 ```
 
-The generative LLM stages, reranker and eligibility reasoning, run on vLLM.
-LoRA adapters are served natively through vLLM. NER, reranker, and eligibility
-reasoning are configurable and fine-tunable.
+The reranking and eligibility-reasoning stages use language models served locally
+on the GPU. Every model component — entity extraction, reranker, and eligibility
+reasoning — is configurable and can be fine-tuned (see [Configuration](#configuration)).
 
-## Data and storage
-
-Everything is **embedded LanceDB** — no external services. A search DB
-(`data/search`, with `trials` + `criteria` tables) and a concept-linking DB
-(`data/concepts`). ClinicalTrials.gov records are normalized to
-`data/trials_jsons/<NCT_ID>.json`, then prepared into one trial row and one
-criteria row per eligibility criterion (text + embeddings + entity annotations +
-parsed constraints). Both tables carry full-text and vector columns, so retrieval
-runs in `bm25`, `vector`, or `hybrid` mode. Imported patients live under
-`data/patients/{profiles,summaries}/`.
-
-## Patient Inputs
+## Patient inputs
 
 The importer supports:
 
 - free-text notes: `.txt` and `.md`
 - GA4GH Phenopacket JSON
-- HL7 FHIR R4 Bundle JSON, individual FHIR resource JSON, NDJSON, and JSONL
+- HL7 FHIR R4 bundles, individual FHIR resources, NDJSON, and JSONL
 - OMOP CDM extract folders with CSV or Parquet tables
 
-Importers preserve provenance and unsupported source elements where possible.
-The matching summary is rendered deterministically from the canonical
-`PatientProfile`; raw patient files are not consumed directly by
-`trialmatchai run`.
+Importers preserve provenance and unsupported source elements where possible. The
+matching summary is rendered deterministically from the canonical patient profile;
+raw patient files are not consumed directly by `trialmatchai run`. See
+[docs/interoperability.md](docs/interoperability.md) for format details.
 
-See [docs/interoperability.md](docs/interoperability.md) for format details.
+## Data and storage
 
-## Learn more
-
-Deeper guides live in the **[documentation site](https://cbib.github.io/TrialMatchAI/)**:
-
-- **[Pipeline &amp; CLI](https://cbib.github.io/TrialMatchAI/pipeline/)** — the stage registry, `--only/--skip/--from/--to/--force`, ablation, and presets.
-- **[Architecture](https://cbib.github.io/TrialMatchAI/architecture/)** — multi-channel first-level retrieval, constraint-aware ranking, and the LanceDB tables.
-- **[Patient interoperability](https://cbib.github.io/TrialMatchAI/interoperability/)** — text / FHIR / Phenopacket / OMOP importers.
-- **[Fine-tuning &amp; custom models](https://cbib.github.io/TrialMatchAI/finetuning/)** — swap the NER, reranker, and CoT models; training-data formats.
-- **[Registry updater](https://cbib.github.io/TrialMatchAI/registry-updater/)** — keep trials current from ClinicalTrials.gov.
-- **[API reference](https://cbib.github.io/TrialMatchAI/api/)** — the Python API.
-
-To bring your own models, point `entity_extraction.model_name`,
-`model.reranker_adapter_path`, and `model.cot_adapter_path` at your checkpoints /
-adapters, or train them with `trialmatchai finetune {cot,reranker,ner}` — see the
-[fine-tuning guide](https://cbib.github.io/TrialMatchAI/finetuning/).
+All storage is local and file-based — no external services. The search index
+(`data/search`, with trial and criterion tables) and the concept-linking database
+(`data/concepts`) are embedded databases. ClinicalTrials.gov records are normalized
+to `data/trials_jsons/<NCT_ID>.json`, then prepared into one trial row and one row
+per eligibility criterion (text, embeddings, entity annotations, and parsed
+constraints). Tables carry both full-text and vector columns, so retrieval can run
+in `bm25`, `vector`, or `hybrid` mode. Imported patients live under
+`data/patients/`.
 
 ## Configuration
 
-Defaults live in `src/trialmatchai/config/config.json`. Runtime overrides can be
-set in `.env` or as environment variables.
-
-Common overrides:
+Defaults live in `src/trialmatchai/config/config.json`; runtime overrides go in
+`.env` or environment variables. Common overrides:
 
 ```bash
+TRIALMATCHAI_SEARCH_MODE=hybrid              # bm25 | vector | hybrid
 TRIALMATCHAI_OUTPUT_DIR=results
 TRIALMATCHAI_TRIALS_JSON_FOLDER=data/trials_jsons
-TRIALMATCHAI_SEARCH_DB_PATH=data/search
-TRIALMATCHAI_SEARCH_MODE=hybrid
 TRIALMATCHAI_FIRST_LEVEL_MAX_TRIALS=1000
-TRIALMATCHAI_FIRST_LEVEL_PER_CHANNEL_SIZE=300
-TRIALMATCHAI_FIRST_LEVEL_VECTOR_SCORE_THRESHOLD=0.0
-TRIALMATCHAI_FIRST_LEVEL_LLM_EXPANSION_ENABLED=false
-TRIALMATCHAI_ENTITY_BACKEND=gliner2
-TRIALMATCHAI_ENTITY_SCHEMA_PATH=entity_schemas/trialmatchai.yaml
-TRIALMATCHAI_CONCEPT_DB_PATH=data/concepts
-TRIALMATCHAI_LINK_ACCEPT=0.80
-TRIALMATCHAI_LINK_REJECT=0.30
-TRIALMATCHAI_CONSTRAINTS_ENABLED=true
-TRIALMATCHAI_CONSTRAINTS_SCORE_WEIGHT=0.25
-TRIALMATCHAI_CONSTRAINTS_LLM_EXTRACTION_ENABLED=false
-TRIALMATCHAI_CONSTRAINTS_WRITE_REPORTS=true
-TRIALMATCHAI_MODEL_TRUST_REMOTE_CODE=false
 TRIALMATCHAI_LOG_JSON=1
 ```
 
 The full override list is in [`.env.example`](.env.example).
 
-## CLI Reference
+To bring your own models, point `entity_extraction.model_name`,
+`model.reranker_adapter_path`, and `model.cot_adapter_path` at your checkpoints, or
+train them with `trialmatchai finetune {cot,reranker,ner}` — see the
+[fine-tuning guide](https://cbib.github.io/TrialMatchAI/finetuning/).
+
+## CLI reference
 
 There is a single entry point — `trialmatchai` — and every capability is a
 subcommand. Under the hood they are all slices of **one idempotent pipeline**.
@@ -293,20 +260,20 @@ subcommand. Under the hood they are all slices of **one idempotent pipeline**.
 
 | Command | Purpose |
 | --- | --- |
-| `trialmatchai pipeline` | Run the whole pipeline, or any slice: `--only` / `--from` / `--to` / `--skip` / `--force` over the stages `prepare → concepts → index → ingest → expand → match → eval`. Idempotent — finished work is skipped. See [docs](https://cbib.github.io/TrialMatchAI/pipeline/). |
+| `trialmatchai pipeline` | Run the whole pipeline, or any slice: `--only` / `--from` / `--to` / `--skip` / `--force` over the stages `prepare → concepts → index → ingest → expand → match → eval`. Finished work is skipped. See [docs](https://cbib.github.io/TrialMatchAI/pipeline/). |
 
 The commands below are convenience presets over that pipeline.
 
-**Build the system (setup half)**
+**Build the system**
 
 | Command | Purpose |
 | --- | --- |
 | `trialmatchai build` | Prepare the corpus (embeddings + entities) and build the search index — resumable, with `--status` |
 | `trialmatchai bootstrap-data` | Download and extract the prepared corpus + model adapters |
-| `trialmatchai build-concepts` | Build the LanceDB concept table for entity normalization (optional, OMOP) |
-| `trialmatchai update-registry` | Fetch changed ClinicalTrials.gov studies and upsert LanceDB |
+| `trialmatchai build-concepts` | Build the concept table for entity normalization (optional, OMOP) |
+| `trialmatchai update-registry` | Fetch changed ClinicalTrials.gov studies and update the index |
 
-**Match patients (run half)**
+**Match patients**
 
 | Command | Purpose |
 | --- | --- |
@@ -319,23 +286,16 @@ The commands below are convenience presets over that pipeline.
 
 | Command | Purpose |
 | --- | --- |
-| `trialmatchai healthcheck` | Validate config, paths, optional model deps, and LanceDB tables |
-| `trialmatchai index` | Lower-level prepare/index of trial and criteria search tables |
-| `trialmatchai finetune` | Fine-tune NER, reranker, or eligibility reasoning models |
-
-```bash
-uv run trialmatchai build --status      # what is built
-uv run python -m trialmatchai e2e --input patient.txt
-```
+| `trialmatchai healthcheck` | Validate config, paths, optional model deps, and search tables |
+| `trialmatchai index` | Lower-level prepare/index of trial and criteria tables |
+| `trialmatchai finetune` | Fine-tune entity extraction, reranker, or eligibility-reasoning models |
 
 ## Deployment
 
-The supported deployment is a single Python 3.11 GPU server or VM. Search tables
-are local LanceDB files under `data/search`, and concept linking uses a separate
-LanceDB database under `data/concepts`.
-
-The registry updater is designed for cron, systemd timers, or GitHub Actions.
-See [docs/registry-updater.md](docs/registry-updater.md).
+The supported deployment is a single Python 3.11 GPU server or VM. The search
+index and concept-linking database are local files under `data/search` and
+`data/concepts`. The registry updater is designed for cron, systemd timers, or
+GitHub Actions — see [docs/registry-updater.md](docs/registry-updater.md).
 
 ## Development
 
@@ -347,7 +307,7 @@ uv run pre-commit run --all-files   # ruff + gitleaks secret scan + hygiene
 uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
 ```
 
-Install the git hooks once so secret scanning and linting run on every commit:
+Install the git hooks once so linting and secret scanning run on every commit:
 
 ```bash
 uv run pre-commit install
@@ -355,22 +315,31 @@ uv run pre-commit install
 
 ## Security
 
-Never commit real credentials, private keys, datasets, models, local LanceDB
-data, run manifests, or results. Keep runtime values local:
+Never commit real credentials, private keys, datasets, models, local search data,
+run manifests, or results. Keep runtime values local:
 
 ```bash
 cp .env.example .env
 ```
 
-Artifact bootstrap supports optional SHA-256 verification through:
+Artifact bootstrap supports optional SHA-256 verification through
+`TRIALMATCHAI_PROCESSED_TRIALS_SHA256`, `TRIALMATCHAI_MODELS_SHA256`, and
+`TRIALMATCHAI_CRITERIA_PART_<N>_SHA256`.
 
-- `TRIALMATCHAI_PROCESSED_TRIALS_SHA256`
-- `TRIALMATCHAI_MODELS_SHA256`
-- `TRIALMATCHAI_CRITERIA_PART_<N>_SHA256`
+Dependency auditing currently ignores `CVE-2025-3000` because the pinned inference
+stack lists no fixed version; revisit when upgrading. See [`SECURITY.md`](SECURITY.md)
+for the full policy.
 
-Dependency auditing currently ignores `CVE-2025-3000` because vLLM 0.23 pins
-Torch 2.11.0 and the advisory lists no fixed Torch version. Revisit this when
-upgrading vLLM or Torch.
+## Documentation
+
+Deeper guides live on the **[documentation site](https://cbib.github.io/TrialMatchAI/)**:
+
+- **[Pipeline & CLI](https://cbib.github.io/TrialMatchAI/pipeline/)** — the stage registry, `--only/--skip/--from/--to/--force`, ablation, and presets.
+- **[Architecture](https://cbib.github.io/TrialMatchAI/architecture/)** — first-level retrieval, constraint-aware ranking, and storage layout.
+- **[Patient interoperability](https://cbib.github.io/TrialMatchAI/interoperability/)** — text / FHIR / Phenopacket / OMOP importers.
+- **[Fine-tuning & custom models](https://cbib.github.io/TrialMatchAI/finetuning/)** — swap the entity, reranker, and reasoning models; training-data formats.
+- **[Registry updater](https://cbib.github.io/TrialMatchAI/registry-updater/)** — keep trials current from ClinicalTrials.gov.
+- **[API reference](https://cbib.github.io/TrialMatchAI/api/)** — the Python API.
 
 ## Citation
 
