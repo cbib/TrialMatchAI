@@ -212,3 +212,129 @@ def test_prepare_corpus_does_not_load_model_when_nothing_pending(tmp_path, monke
         {}, trials_json_folder=src, processed_trials_folder=pt, processed_criteria_folder=tmp_path / "pc"
     )
     assert stats == {"total": 2, "prepared": 0, "skipped": 2, "failed": 0}
+
+
+# --------------------------------------------------------------------------- #
+# count_pending / run_matching — per-patient resume + skip the model stack when
+# every patient is already matched.
+# --------------------------------------------------------------------------- #
+def test_count_pending_uses_valid_ranked_marker(tmp_path):
+    from trialmatchai.orchestration import count_pending
+
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    out = tmp_path / "out"
+    for pid in ("P1", "P2", "P3"):
+        (profiles / f"{pid}.json").write_text("{}", encoding="utf-8")
+    (out / "P1").mkdir(parents=True)
+    (out / "P1" / "ranked_trials.json").write_text("[]", encoding="utf-8")  # done
+    (out / "P2").mkdir(parents=True)
+    (out / "P2" / "ranked_trials.json").write_text("[bad", encoding="utf-8")  # corrupt -> pending
+    # P3 has no ranked file -> pending
+
+    config = {"patient_inputs": {"profile_dir": str(profiles)}, "paths": {"output_dir": str(out)}}
+    assert count_pending(config) == (2, 1)
+
+
+def test_run_matching_skips_model_when_all_done(tmp_path, monkeypatch):
+    import trialmatchai.main as main_mod
+    from trialmatchai import orchestration as orch
+
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    out = tmp_path / "out"
+    (profiles / "P1.json").write_text("{}", encoding="utf-8")
+    (out / "P1").mkdir(parents=True)
+    (out / "P1" / "ranked_trials.json").write_text("[]", encoding="utf-8")
+    config = {"patient_inputs": {"profile_dir": str(profiles)}, "paths": {"output_dir": str(out)}}
+
+    monkeypatch.setattr(main_mod, "main_pipeline", _boom)  # must not be called
+    assert orch.run_matching(config, resume=True) == 0
+
+
+def test_run_matching_runs_pipeline_when_pending(tmp_path, monkeypatch):
+    import trialmatchai.main as main_mod
+    from trialmatchai import orchestration as orch
+
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    out = tmp_path / "out"
+    (profiles / "P1.json").write_text("{}", encoding="utf-8")  # no ranked file -> pending
+    config = {"patient_inputs": {"profile_dir": str(profiles)}, "paths": {"output_dir": str(out)}}
+
+    called = {}
+    monkeypatch.setattr(main_mod, "main_pipeline", lambda **k: called.update(k) or 7)
+    assert orch.run_matching(config, resume=True) == 7
+    assert called.get("resume") is True
+
+
+# --------------------------------------------------------------------------- #
+# ingest_inputs — skip already-imported patients, write summary before profile.
+# --------------------------------------------------------------------------- #
+def test_ingest_inputs_skips_existing_and_writes_marker_last(tmp_path, monkeypatch):
+    import trialmatchai.interop.exporters as exp_mod
+    import trialmatchai.interop.importers as imp_mod
+    from trialmatchai import orchestration as orch
+
+    profile_dir = tmp_path / "profiles"
+    profile_dir.mkdir()
+    (profile_dir / "P1.json").write_text('{"patient_id": "P1"}', encoding="utf-8")  # exists -> skip
+
+    class FakeProfile:
+        def __init__(self, pid):
+            self.patient_id = pid
+
+        def model_dump(self, **_kw):
+            return {"patient_id": self.patient_id}
+
+    monkeypatch.setattr(imp_mod, "import_patient_path", lambda raw, **k: [FakeProfile("P1"), FakeProfile("P2")])
+    monkeypatch.setattr(exp_mod, "profile_to_matching_summary", lambda p: {"summary_of": p.patient_id})
+
+    writes = []
+    monkeypatch.setattr(orch, "write_json_file", lambda data, path: writes.append(str(path)))
+
+    config = {
+        "patient_inputs": {"profile_dir": str(profile_dir), "summary_dir": str(tmp_path / "summaries")},
+        "paths": {},
+    }
+    orch.ingest_inputs(config, ["dummy"], with_entities=False)
+
+    assert not any("P1" in w for w in writes)  # existing P1 skipped entirely
+    p2 = [w for w in writes if "P2" in w]
+    assert len(p2) == 2
+    assert "summaries" in p2[0] and "profiles" in p2[1]  # summary first, profile (marker) last
+
+
+# --------------------------------------------------------------------------- #
+# eligibility process_trials worklist + _save_outputs error sidecar.
+# --------------------------------------------------------------------------- #
+def test_process_trials_skips_done_retries_error_processes_missing(tmp_path, monkeypatch):
+    from trialmatchai.matching.eligibility_base import BaseTrialProcessor
+
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "NCT1.json").write_text('{"Inclusion_Criteria_Evaluation": []}', encoding="utf-8")  # done
+    (out / "NCT2.json").write_text('{"error": "x"}', encoding="utf-8")  # error -> retry
+
+    proc = BaseTrialProcessor.__new__(BaseTrialProcessor)
+    proc.batch_size = 8
+    proc.length_bucket = False
+    processed = []
+    monkeypatch.setattr(proc, "_process_batch", lambda batch, of: processed.extend(b["nct_id"] for b in batch))
+    monkeypatch.setattr(proc, "_load_trial_data", lambda nct, jf: "criteria text")
+    monkeypatch.setattr(proc, "_format_prompt", lambda crit, pt: "prompt")
+    monkeypatch.setattr(proc, "_token_length", lambda prompt, nct="": 10)
+
+    proc.process_trials(["NCT1", "NCT2", "NCT3"], "json_folder", str(out), ["narrative"])
+    assert set(processed) == {"NCT2", "NCT3"}  # NCT1 skipped; error + missing processed
+
+
+def test_save_outputs_writes_error_sidecar_on_invalid_json(tmp_path):
+    from trialmatchai.matching.eligibility_base import BaseTrialProcessor
+
+    proc = BaseTrialProcessor.__new__(BaseTrialProcessor)
+    proc._save_outputs("NCT9", "this is not json at all", str(tmp_path))
+
+    data = json.loads((tmp_path / "NCT9.json").read_text())
+    assert data.get("error") == "invalid_json_response"
+    assert (tmp_path / "NCT9.txt").exists()  # raw reasoning still preserved
