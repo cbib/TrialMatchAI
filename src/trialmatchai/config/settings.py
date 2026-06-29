@@ -105,8 +105,8 @@ class EmbedderSettings(BaseModel):
     revision: str | None = None
     trust_remote_code: bool = False
     pooling: str = "mean"
-    max_length: int = 512
-    batch_size: int = 32
+    max_length: int = Field(512, ge=1)
+    batch_size: int = Field(32, ge=1)
     use_gpu: bool = True
     use_fp16: bool = False
     normalize: bool = True

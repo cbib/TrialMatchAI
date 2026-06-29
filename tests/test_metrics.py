@@ -2,6 +2,8 @@
 
 from itertools import permutations
 
+import pytest
+
 from trialmatchai.trec.metrics import (
     condensed_ndcg,
     idcg_at_k,
@@ -55,3 +57,14 @@ def test_condensed_ndcg_drops_unjudged_and_grades_gains():
     out = condensed_ndcg(ranked, score, grade, (5, 10))
     assert set(out) == {5, 10}
     assert out[10] == 1.0  # condensed order a,b,c is already ideal by grade
+
+
+def test_ndcg_golden_value():
+    # Pin the absolute formula (linear gain, log2 discount), not just invariance.
+    # ranked [b, a] with distinct scores, gains a=3, b=1, k=2:
+    #   DCG  = 1/log2(2) + 3/log2(3) = 1.0 + 1.89279 = 2.89279
+    #   IDCG = 3/log2(2) + 1/log2(3) = 3.0 + 0.63093 = 3.63093  -> nDCG = 0.79671
+    from trialmatchai.trec.metrics import ndcg_at_k
+
+    val = ndcg_at_k(["b", "a"], {"b": 0.9, "a": 0.1}, {"a": 3, "b": 1}, 2)
+    assert val == pytest.approx(0.79671, abs=1e-4)
