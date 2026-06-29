@@ -25,10 +25,17 @@ def test_default_schema_validates_vocab_routing():
     schemas = load_entity_schemas()
     by_id = {schema.id: schema for schema in schemas}
 
-    assert by_id["disease"].target_vocabularies == ("SNOMED", "ICD10", "ICD10CM", "DOID")
+    assert by_id["disease"].target_vocabularies == (
+        "SNOMED", "ICD10", "ICD10CM", "MeSH", "OMOP Extension", "DOID",
+    )
     assert by_id["laboratory_test"].target_vocabularies == ("LOINC",)
-    assert by_id["medication"].target_vocabularies == ("RxNorm", "ATC", "ChEBI")
+    assert by_id["medication"].target_vocabularies == (
+        "RxNorm", "RxNorm Extension", "ATC", "OMOP Extension", "ChEBI",
+    )
     assert by_id["disease"].query_expansion is True
+    # the variant schema links mutation entities to the cancer-genetics vocabularies
+    assert by_id["variant"].target_vocabularies == ("CIViC", "ClinVar", "OncoKB")
+    assert by_id["variant"].is_linkable
 
 
 def test_regex_backend_returns_current_output_shape():
@@ -150,6 +157,7 @@ def test_concept_builders_import_omop_and_dictionary_rows(tmp_path):
                 "standard_concept",
                 "concept_code",
             ],
+            delimiter="\t",
         )
         writer.writeheader()
         writer.writerow(
@@ -167,6 +175,7 @@ def test_concept_builders_import_omop_and_dictionary_rows(tmp_path):
         writer = csv.DictWriter(
             handle,
             fieldnames=["concept_id", "concept_synonym_name"],
+            delimiter="\t",
         )
         writer.writeheader()
         writer.writerow({"concept_id": "1", "concept_synonym_name": "Hgb"})
@@ -245,3 +254,32 @@ def test_runtime_replacement_has_no_old_daemon_references():
         content = path.read_text()
         for term in forbidden:
             assert term not in content
+
+
+def test_omop_concept_rows_parse_tab_separated_athena(tmp_path):
+    """Athena CONCEPT/CONCEPT_SYNONYM files are TAB-separated: ingestion must
+    parse them, keep only target vocabularies, skip deprecated rows, and merge
+    synonyms."""
+    concept = tmp_path / "CONCEPT.csv"
+    concept.write_text(
+        "concept_id\tconcept_name\tdomain_id\tvocabulary_id\tconcept_class_id\t"
+        "standard_concept\tconcept_code\tvalid_start_date\tvalid_end_date\tinvalid_reason\n"
+        "201826\tType 2 diabetes mellitus\tCondition\tSNOMED\tDisorder\tS\t44054006\t20020101\t20991231\t\n"
+        "1503297\tmetformin\tDrug\tRxNorm\tIngredient\tS\t6809\t20020101\t20991231\t\n"
+        "999999\tDeprecated thing\tCondition\tSNOMED\tDisorder\t\t000\t20020101\t20051231\tD\n"
+        "888888\tSome LOINC thing\tMeasurement\tLOINC\tLab Test\tS\t1234-5\t20020101\t20991231\t\n",
+        encoding="utf-8",
+    )
+    synonym = tmp_path / "CONCEPT_SYNONYM.csv"
+    synonym.write_text(
+        "concept_id\tconcept_synonym_name\tlanguage_concept_id\n"
+        "201826\tT2DM\t4180186\n"
+        "201826\tdiabetes mellitus type 2\t4180186\n",
+        encoding="utf-8",
+    )
+    rows = build_omop_concept_rows(concept, synonym, vocabularies=("SNOMED", "RxNorm"))
+    by_code = {r["concept_code"]: r for r in rows}
+    assert set(by_code) == {"44054006", "6809"}  # only target vocabularies
+    assert "000" not in by_code  # deprecated (invalid_reason) skipped
+    assert "1234-5" not in by_code  # non-target vocabulary (LOINC) skipped
+    assert "T2DM" in by_code["44054006"]["synonyms"]  # synonyms merged from synonym file

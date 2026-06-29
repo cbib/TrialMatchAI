@@ -8,12 +8,21 @@ from trialmatchai.entities.types import dedupe_strings
 
 
 DEFAULT_OMOP_VOCABULARIES = (
+    # OMOP standard vocabularies (OHDSI Athena). HGNC is listed for when it is
+    # included in a download; it is not in every Athena bundle.
     "SNOMED",
     "ICD10",
     "ICD10CM",
     "LOINC",
     "RxNorm",
+    "RxNorm Extension",
     "ATC",
+    "MeSH",
+    "OMOP Extension",
+    "HGNC",
+    "CIViC",
+    "ClinVar",
+    "OncoKB",
 )
 
 
@@ -27,11 +36,13 @@ def build_omop_concept_rows(
     synonyms_by_concept = _read_omop_synonyms(synonym_csv) if synonym_csv else {}
     rows: list[dict[str, Any]] = []
     with Path(concept_csv).open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
+        reader = csv.DictReader(handle, delimiter="\t")
         for row in reader:
             vocabulary_id = (row.get("vocabulary_id") or "").strip()
             if vocab_filter and vocabulary_id.casefold() not in vocab_filter:
                 continue
+            if (row.get("invalid_reason") or "").strip():
+                continue  # skip deprecated / non-current concepts
             concept_id = (row.get("concept_id") or "").strip()
             concept_name = (row.get("concept_name") or "").strip()
             concept_code = (row.get("concept_code") or "").strip()
@@ -147,7 +158,7 @@ def _read_omop_synonyms(path: str | Path | None) -> dict[str, list[str]]:
         return {}
     synonyms: dict[str, list[str]] = {}
     with Path(path).open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
+        reader = csv.DictReader(handle, delimiter="\t")
         for row in reader:
             concept_id = (row.get("concept_id") or "").strip()
             synonym = (row.get("concept_synonym_name") or "").strip()

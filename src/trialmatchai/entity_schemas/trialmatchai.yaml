@@ -5,7 +5,7 @@ entities:
     entity_group: disease
     description: Diagnosed diseases, clinical conditions, syndromes, and disorders.
     aliases: [condition, disorder, syndrome]
-    target_vocabularies: [SNOMED, ICD10, ICD10CM, DOID]
+    target_vocabularies: [SNOMED, ICD10, ICD10CM, MeSH, "OMOP Extension", DOID]
     domain_hints: [Condition, Disease]
     linkable_fields: [text]
     threshold: 0.80
@@ -17,7 +17,7 @@ entities:
     entity_group: gene
     description: Human genes or gene products mentioned as trial criteria.
     aliases: [gene symbol, biomarker]
-    target_vocabularies: [EntrezGene, NCBIGene]
+    target_vocabularies: [EntrezGene, NCBIGene, HGNC]
     domain_hints: [Gene]
     linkable_fields: [text]
     threshold: 0.80
@@ -29,7 +29,7 @@ entities:
     entity_group: drug
     description: Drugs, medications, biologics, compounds, and therapeutic agents.
     aliases: [drug, medication, biologic, compound]
-    target_vocabularies: [RxNorm, ATC, ChEBI]
+    target_vocabularies: [RxNorm, "RxNorm Extension", ATC, "OMOP Extension", ChEBI]
     domain_hints: [Drug, Chemical]
     linkable_fields: [text]
     threshold: 0.80
@@ -89,7 +89,7 @@ entities:
     entity_group: sign symptom
     description: Patient signs, symptoms, and clinical findings.
     aliases: [symptom, sign]
-    target_vocabularies: [SNOMED, HPO]
+    target_vocabularies: [SNOMED, MeSH, HPO]
     domain_hints: [Condition, Observation, Phenotype]
     linkable_fields: [text]
     threshold: 0.80
@@ -120,3 +120,15 @@ entities:
     query_expansion: false
     patterns:
       - "\\b(?:human|mouse|rat|zebrafish|macaque)\\b"
+  - id: variant
+    label: genetic variant
+    entity_group: mutation
+    description: Genetic variants, mutations, fusions, and molecular alterations used as biomarkers.
+    aliases: [mutation, variant, genetic alteration, molecular alteration, fusion, rearrangement]
+    target_vocabularies: [CIViC, ClinVar, OncoKB]
+    domain_hints: []
+    linkable_fields: [text]
+    threshold: 0.80
+    query_expansion: false
+    patterns:
+      - "\\b(?:V600E|T790M|L858R|G12[A-Z]|exon\\s+\\d+\\s+(?:deletion|insertion|skipping)|amplification|fusion|rearrangement)\\b"
