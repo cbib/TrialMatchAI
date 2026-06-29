@@ -43,16 +43,21 @@ class ClinicalTrialSearch:
 
     def parse_age_input(self, age_input: Union[int, str]) -> Optional[int]:
         if isinstance(age_input, int):
-            return age_input
+            return age_input if 0 <= age_input <= 150 else None
         elif isinstance(age_input, str):
             age_input = age_input.strip().lower()
             age_keywords = ["year", "years", "yr", "yrs"]
             try:
+                age_str = age_input
                 for keyword in age_keywords:
                     if age_input.endswith(keyword):
                         age_str = age_input.replace(keyword, "").strip()
-                        return int(age_str)
-                return int(age_input)
+                        break
+                parsed = int(age_str)
+                # A purely-numeric age is authoritative: accept it when in range,
+                # else reject. Do NOT fall through to fuzzy date parsing, which
+                # would misread "-5" as a near-today date (age 0).
+                return parsed if 0 <= parsed <= 150 else None
             except ValueError:
                 pass
             try:

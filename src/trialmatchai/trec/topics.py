@@ -176,11 +176,16 @@ def extract_demographics(text: str) -> tuple[float | None, str | None]:
             if 0 < value <= 120:
                 age = float(value)
                 break
-    # Female check first: "male" is a substring concern handled by word bounds.
+    # Pick whichever sex mention appears FIRST: the subject is named before any
+    # relatives/partners, so this avoids "a man with a female partner" -> Female.
     sex: str | None = None
-    if _FEMALE.search(text):
+    fm = _FEMALE.search(text)
+    mm = _MALE.search(text)
+    if fm and mm:
+        sex = "Female" if fm.start() < mm.start() else "Male"
+    elif fm:
         sex = "Female"
-    elif _MALE.search(text):
+    elif mm:
         sex = "Male"
     return age, sex
 

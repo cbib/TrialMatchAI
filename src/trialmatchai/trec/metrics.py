@@ -39,6 +39,10 @@ def tie_aware_dcg_at_k(
     scores are contiguous. Each tie group spanning 1-indexed ranks [a..b] gives
     every member the mean discount over ranks a..min(b, k).
     """
+    # Enforce the by-descending-score precondition so tie groups are contiguous
+    # regardless of how the caller ordered the list (the metric is tie-order
+    # invariant, so a stable re-sort cannot change a correct result).
+    ordered_ids = sorted(ordered_ids, key=lambda d: score_of.get(d, 0.0), reverse=True)
     n = len(ordered_ids)
     total = 0.0
     i = 0

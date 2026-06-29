@@ -181,7 +181,10 @@ def _add_measurement_rows(
                     label=label,
                     original_code=code,
                     provenance=_row_provenance(root, profile.patient_id, "MEASUREMENT"),
-                    description=clean_text(f"{value or ''} {unit or ''}") or None,
+                    description=clean_text(
+                        f"{value if value is not None else ''} {unit or ''}"
+                    )
+                    or None,
                     temporality=clean_text(row.get("measurement_date")) or None,
                 )
             )
