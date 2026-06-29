@@ -215,7 +215,8 @@ def run_second_level_search(
         combined_scores[trial_id] = first_score + second_score
 
     sorted_trials = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
-    num_top = max(1, min(len(sorted_trials) // 3, top_n))
+    keep_divisor = max(1, int(config.get("search", {}).get("second_level_keep_divisor", 3)))
+    num_top = max(1, min(len(sorted_trials) // keep_divisor, top_n))
     semi_final_trials = sorted_trials[:num_top]
 
     top_trials_path = f"{output_folder}/top_trials.txt"

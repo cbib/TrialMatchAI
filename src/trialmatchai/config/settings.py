@@ -141,6 +141,10 @@ class SearchSettings(BaseModel):
     vector_score_threshold: float = Field(0.5, ge=0.0, le=1.0)
     max_trials_first_level: int = Field(1000, ge=1)
     max_trials_second_level: int = Field(100, ge=1)
+    # Keep the top 1/N of the reranked second-level trials before CoT (N=1 keeps
+    # all of them). The interactive default thins to a third; the TREC preset sets
+    # N=1 so the full reranked set feeds the CoT cap.
+    second_level_keep_divisor: int = Field(3, ge=1)
     first_level: FirstLevelSearchSettings = Field(
         default_factory=FirstLevelSearchSettings
     )

@@ -40,6 +40,15 @@ def _track_config(base_config: Dict[str, Any], spec: TrackSpec) -> Dict[str, Any
     cfg["patient_inputs"]["summary_dir"] = str(spec.summary_dir)
     cfg.setdefault("paths", {})["output_dir"] = str(spec.output_dir)
     cfg.setdefault("query_expansion", {})["enabled"] = True
+    # TREC analysis funnel: 1000 (first-level) -> 500 (rerank) -> 250 (CoT), with
+    # no second->CoT thinning (keep_divisor=1) so the full reranked set feeds the
+    # CoT cap. Deeper than the interactive single-patient defaults (which stay at
+    # the config.json values) because TREC scores the whole ranked list per topic.
+    search = cfg.setdefault("search", {})
+    search["max_trials_first_level"] = 1000
+    search["max_trials_second_level"] = 500
+    search["second_level_keep_divisor"] = 1
+    cfg.setdefault("rag", {})["max_trials_rag"] = 250
     return cfg
 
 
