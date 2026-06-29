@@ -94,3 +94,35 @@ def test_run_pipeline_frees_models_even_on_stage_error(monkeypatch):
     with pytest.raises(RuntimeError):
         pipeline.run_pipeline(StageContext(config={}))
     assert freed == [1]  # GPU freed despite the failure
+
+
+def test_build_system_links_between_prepare_and_index(monkeypatch, tmp_path):
+    """build --concepts must run the link stage AFTER prepare and BEFORE index so
+    the search tables carry concept IDs, not concept_store_unavailable (audit P0)."""
+    from trialmatchai import orchestration as orch
+    import trialmatchai.linking as linking
+
+    calls = []
+    src = tmp_path / "trials_jsons"
+    src.mkdir()
+    (src / "NCT1.json").write_text("{}", encoding="utf-8")  # so the prepare stage runs
+
+    monkeypatch.setattr(orch, "prepare_corpus", lambda *a, **k: calls.append("prepare") or {"prepared": 0})
+    monkeypatch.setattr(linking, "link_corpus", lambda *a, **k: calls.append("link") or {"accepted": 0})
+    monkeypatch.setattr(orch, "build_index", lambda *a, **k: calls.append("index") or {"trials": 0})
+    monkeypatch.setattr(orch, "build_state", lambda *a, **k: {"ready_to_match": True})
+
+    orch.build_system(
+        {"paths": {}}, trials_json_folder=src,
+        processed_trials_folder=tmp_path / "pt", processed_criteria_folder=tmp_path / "pc",
+        link_concepts=True,
+    )
+    assert calls == ["prepare", "link", "index"]
+
+    calls.clear()
+    orch.build_system(
+        {"paths": {}}, trials_json_folder=src,
+        processed_trials_folder=tmp_path / "pt2", processed_criteria_folder=tmp_path / "pc2",
+        link_concepts=False,
+    )
+    assert calls == ["prepare", "index"]

@@ -16,6 +16,9 @@ from trialmatchai.interop.utils import (
     source_path_string,
 )
 from trialmatchai.schemas.phenopacket import Phenopacket
+from trialmatchai.utils.logging_config import setup_logging
+
+logger = setup_logging(__name__)
 
 
 def import_phenopacket(
@@ -41,14 +44,30 @@ def import_phenopacket(
         demographics=_demographics(data.get("subject") or {}),
         provenance=[provenance],
     )
-    _add_phenotypes(profile, data, provenance)
-    _add_diseases(profile, data, provenance)
-    _add_biosamples(profile, data, provenance)
-    _add_measurements(profile, data, provenance)
-    _add_actions(profile, data, provenance)
-    _add_interpretations(profile, data, provenance)
-    _add_family(profile, data, provenance)
-    _add_files(profile, data, provenance)
+    # Isolate each section: a single malformed item (e.g. a string where an
+    # ontology-class object is expected) must not abort the whole import in
+    # non-strict mode — only re-raise when strict.
+    for add_section in (
+        _add_phenotypes,
+        _add_diseases,
+        _add_biosamples,
+        _add_measurements,
+        _add_actions,
+        _add_interpretations,
+        _add_family,
+        _add_files,
+    ):
+        try:
+            add_section(profile, data, provenance)
+        except Exception:
+            logger.warning(
+                "phenopacket: section %s failed for %s; skipping",
+                add_section.__name__,
+                patient_id,
+                exc_info=True,
+            )
+            if strict:
+                raise
     return profile
 
 
