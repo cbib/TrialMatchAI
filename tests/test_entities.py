@@ -25,9 +25,9 @@ def test_default_schema_validates_vocab_routing():
     schemas = load_entity_schemas()
     by_id = {schema.id: schema for schema in schemas}
 
-    assert by_id["disease"].target_vocabularies == ("SNOMED", "ICD10", "ICD10CM")
+    assert by_id["disease"].target_vocabularies == ("SNOMED", "ICD10", "ICD10CM", "DOID")
     assert by_id["laboratory_test"].target_vocabularies == ("LOINC",)
-    assert by_id["medication"].target_vocabularies == ("RxNorm", "ATC")
+    assert by_id["medication"].target_vocabularies == ("RxNorm", "ATC", "ChEBI")
     assert by_id["disease"].query_expansion is True
 
 

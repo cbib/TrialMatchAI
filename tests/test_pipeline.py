@@ -28,7 +28,7 @@ def test_from_to_slice():
 
 
 def test_to_alone_runs_the_build_half():
-    assert _names(select_stages(to_stage="index")) == ["prepare", "concepts", "index"]
+    assert _names(select_stages(to_stage="index")) == ["prepare", "concepts", "link", "index"]
 
 
 def test_from_alone_runs_the_run_half():
