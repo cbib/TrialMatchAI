@@ -1,11 +1,15 @@
 """Eligibility-criteria chunking.
 
-Splits a free-text eligibility section into individual, typed criteria. This
-folds the domain knowledge from the legacy regex preprocessor — multi-level
-enumeration hierarchies, varied inclusion/exclusion headers, parenthetical
-protection, semicolon splitting, long-criterion full-stop re-splitting, and
-decimal/abbreviation split-exceptions — into one streamlined pass over the text,
-so chunk boundaries match the legacy pipeline.
+Splits a free-text eligibility section into individual, typed criteria. It folds
+domain knowledge from the legacy regex preprocessor — multi-level enumeration
+hierarchies, varied inclusion/exclusion headers, parenthetical protection,
+semicolon splitting, and abbreviation-aware sentence splitting — into one pass.
+
+The sentence step is PySBD-inspired (mask -> split -> restore): periods that
+belong to decimals, single-letter initials/genus names (``E. coli``), and a
+curated abbreviation list are protected, and a boundary is only a sentence-ending
+mark followed by whitespace and a sentence-like start (capital / digit / opening
+bracket). This avoids cutting mid-abbreviation and avoids half-phrases.
 
 Public API: ``split_eligibility_criteria(text) -> list[{"type", "criterion"}]``
 where ``type`` is "inclusion", "exclusion", or "unknown".
@@ -16,18 +20,12 @@ from __future__ import annotations
 import re
 
 # --- Header detection -------------------------------------------------------
-# A line is a section header when, reduced to alpha words, it is essentially the
-# inclusion/exclusion label (with optional qualifiers / "for <cohort>"), or it
-# is a "...the following inclusion/exclusion criteria" lead-in. This is precise
-# enough not to misfire on a real criterion that merely mentions "inclusion".
 _HEADER_CORE = re.compile(
     r"^(?:key|main|general|principal|primary|additional|specific|major)?\s*"
     r"(inclusion|exclusion)(?:\s+criteria)?(?:\s+for\s+.+)?$"
 )
 _HEADER_FOLLOWING = re.compile(r"following\s+(inclusion|exclusion)\s+criteria")
 
-# A header that begins a line and may be followed (after a colon) by inline
-# criteria, e.g. "Exclusion Criteria: 1. Pregnancy 2. Active infection".
 _LEADING_HEADER = re.compile(
     r"^\s*(?:key|main|general|principal|primary|additional|specific|major)?\s*"
     r"(inclusion|exclusion)(?:\s+criteria)?\s*:\s*(.*)$",
@@ -36,8 +34,9 @@ _LEADING_HEADER = re.compile(
 
 # --- Enumeration markers ----------------------------------------------------
 # A leading list marker at the start of a line. Numeric markers REQUIRE a
-# trailing "." or ")" so a bare "18 years" is not mistaken for item 18, and the
-# mandatory trailing whitespace means "e.g." / "i.e." are not treated as markers.
+# trailing "." or ")"; single-letter markers are split so an uppercase letter is
+# only a marker when followed by a capital/digit (a new criterion) — never when
+# followed by a lowercase word, which is a genus abbreviation like "E. coli".
 _LEADING_MARKER = re.compile(
     r"^\s*(?:"
     r"[-–—*•·]"  # - – — * • ·
@@ -46,12 +45,12 @@ _LEADING_MARKER = re.compile(
     r"|\([0-9]{1,2}\)"  # (1)
     r"|\([a-zA-Z]\)"  # (a)
     r"|\(?(?:i{1,3}|iv|v|vi{0,3}|ix|x)[.)]"  # roman i. ii) (iv)
-    r"|[a-zA-Z][.)]"  # a. b)
+    r"|[a-z][.)]"  # lowercase single-letter list marker: a. b)
+    r"|[A-Z][.)](?=\s+[A-Z0-9(])"  # uppercase letter marker ONLY before capital/digit
     r")\s+"
 )
 
-# Mid-line marker (preceded and followed by whitespace) — used to split several
-# criteria packed onto one line.
+# Mid-line marker (preceded and followed by whitespace).
 _MIDLINE_MARKER = re.compile(
     r"\s("
     r"[0-9]{1,2}(?:\.[0-9]{1,2}){0,3}[.)]"
@@ -129,19 +128,10 @@ def _is_useful(text: str) -> bool:
     return len(text) >= 3 and detect_header(text) is None
 
 
-# --- Secondary splits (faithful to the legacy preprocessor) -----------------
-# Each assembled criterion is further split on semicolons that fall outside
-# parentheses, and any resulting criterion longer than this many characters is
-# split into sentences on real full stops (decimal- and abbreviation-aware) —
-# matching the legacy split_lines_on_semicolon and split_large_sentences /
-# split_on_full_stops, so chunk boundaries stay identical to main.
-_LONG_CRITERION_CHARS = 200
-_FULLSTOP_SPLIT = re.compile(r"(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s")
-
-
+# --- Secondary splits -------------------------------------------------------
 def _split_semicolons(text: str) -> list[str]:
     """Split on semicolons not enclosed in parentheses/brackets."""
-    masked = _mask_parens(text)  # in-paren chars (incl. ';') become spaces
+    masked = _mask_parens(text)
     parts: list[str] = []
     last = 0
     for i, char in enumerate(masked):
@@ -152,21 +142,70 @@ def _split_semicolons(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def _split_long_criterion(text: str) -> list[str]:
-    """Split a long (>200 char) criterion into sentences; short text passes through."""
-    if len(text) <= _LONG_CRITERION_CHARS:
-        return [text]
-    sentences = [s.strip() for s in _FULLSTOP_SPLIT.split(text) if s.strip()]
-    return sentences or [text]
+# Abbreviations whose trailing period is NOT a sentence boundary (PySBD-inspired,
+# trimmed to clinical-trial usage). Stored lower-cased without the trailing dot;
+# matched case-insensitively. Internal dots (e.g. "e.g") are handled in masking.
+_ABBREVIATIONS = frozenset(
+    {
+        # titles
+        "dr", "mr", "mrs", "ms", "prof", "sr", "jr", "st", "messrs",
+        # latin / academic
+        "e.g", "i.e", "etc", "cf", "vs", "viz", "et", "al", "ca", "approx",
+        "incl", "excl", "esp", "ibid",
+        # reference / numbering
+        "no", "nos", "fig", "figs", "ref", "refs", "vol", "ch", "sec", "eq",
+        # measurement / clinical units & qualifiers
+        "mg", "kg", "mcg", "ug", "ng", "ml", "dl", "cm", "mm", "nm",
+        "hr", "hrs", "wk", "wks", "mo", "mos", "yr", "yrs", "min", "mins",
+        "sec", "iu", "meq", "mmol", "mol", "max", "avg", "approx",
+        # organizations / general
+        "inc", "ltd", "co", "corp", "dept", "univ", "assn",
+    }
+)
+
+_PRD = "\x00"  # placeholder for a protected (non-boundary) period
+
+# longest-first so multi-dot abbreviations ("e.g") win over their prefixes
+_ABBREV_RE = re.compile(
+    r"(?<![A-Za-z0-9.])(" + "|".join(
+        re.escape(a) for a in sorted(_ABBREVIATIONS, key=len, reverse=True)
+    ) + r")\.",
+    re.IGNORECASE,
+)
+_DECIMAL = re.compile(r"(\d)\.(?=\d)")
+# single-letter initial / genus: "E. coli", "J. Smith", "A. B. Patient"
+_INITIAL = re.compile(r"(?<![A-Za-z0-9])([A-Za-z])\.(?=\s)")
+# a boundary is sentence-ending punctuation + whitespace + a sentence-like start
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9(\[])")
+
+
+def _protect_periods(text: str) -> str:
+    text = _DECIMAL.sub(lambda m: m.group(1) + _PRD, text)
+    text = _ABBREV_RE.sub(lambda m: m.group(1).replace(".", _PRD) + _PRD, text)
+    text = _INITIAL.sub(lambda m: m.group(1) + _PRD, text)
+    return text
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Split text into sentences, protecting decimals / initials / abbreviations.
+
+    Short single-sentence criteria pass through unchanged; multi-sentence criteria
+    are split only at genuine boundaries, so abbreviations and decimals never
+    produce half-phrases.
+    """
+    protected = _protect_periods(text)
+    pieces = _SENTENCE_BOUNDARY.split(protected)
+    out = [piece.replace(_PRD, ".").strip() for piece in pieces]
+    return [s for s in out if s]
 
 
 def _emit(text: str, criterion_type: str, entries: list[dict[str, str]]) -> None:
-    """Clean, semicolon-split, long-criterion-split, filter, and append criteria."""
+    """Clean, semicolon-split, sentence-split, filter, and append criteria."""
     cleaned = _clean(text)
     if not cleaned:
         return
     for part in _split_semicolons(cleaned):
-        for sentence in _split_long_criterion(part):
+        for sentence in _split_sentences(part):
             sentence = sentence.strip(" :-\t")
             if _is_useful(sentence):
                 entries.append({"type": criterion_type, "criterion": sentence})
@@ -183,9 +222,9 @@ def split_eligibility_criteria(text: str) -> list[dict[str, str]]:
     def flush() -> None:
         if not buffered:
             return
-        text = " ".join(buffered)
+        joined = " ".join(buffered)
         buffered.clear()
-        _emit(text, current_type, entries)
+        _emit(joined, current_type, entries)
 
     for raw_line in text.splitlines():
         line = raw_line.strip()
@@ -193,8 +232,6 @@ def split_eligibility_criteria(text: str) -> list[dict[str, str]]:
             flush()
             continue
 
-        # A header at the start of the line sets the section type. If the colon
-        # form carries inline criteria after it, process the remainder below.
         leading = _LEADING_HEADER.match(line)
         if leading:
             flush()
@@ -224,6 +261,5 @@ def split_eligibility_criteria(text: str) -> list[dict[str, str]]:
     if entries:
         return entries
 
-    # Unstructured text (no markers/headers): still semicolon/long-split it.
     _emit(text, "unknown", entries)
     return entries

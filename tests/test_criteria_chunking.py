@@ -103,3 +103,54 @@ def test_multiple_criteria_packed_on_one_line():
     assert ("exclusion", "Pregnancy") in result
     assert ("exclusion", "Active infection") in result
     assert ("exclusion", "Prior therapy") in result
+
+
+def test_genus_abbreviation_at_line_start_not_mangled():
+    assert _criteria("Exclusion Criteria:\nHistory of S. aureus bacteremia") == [
+        ("exclusion", "History of S. aureus bacteremia")
+    ]
+
+
+def test_genus_abbreviation_standalone_marker_item():
+    assert _criteria("Exclusion Criteria:\n- Active E. coli infection") == [
+        ("exclusion", "Active E. coli infection")
+    ]
+
+
+def test_genus_then_real_sentence_boundary_splits():
+    text = "Inclusion Criteria:\n- Prior E. coli infection resolved. No active fever."
+    assert _criteria(text) == [
+        ("inclusion", "Prior E. coli infection resolved."),
+        ("inclusion", "No active fever."),
+    ]
+
+
+def test_abbreviation_periods_are_not_boundaries():
+    assert _criteria(
+        "Inclusion Criteria:\n- Adequate renal function, approx. 60 mL/min or higher"
+    ) == [("inclusion", "Adequate renal function, approx. 60 mL/min or higher")]
+    assert _criteria("Inclusion Criteria:\n- Meets protocol No. 5 requirements") == [
+        ("inclusion", "Meets protocol No. 5 requirements")
+    ]
+
+
+def test_multi_sentence_criterion_is_split():
+    text = "Inclusion Criteria:\n- Age 18 or older. Written informed consent obtained."
+    assert _criteria(text) == [
+        ("inclusion", "Age 18 or older."),
+        ("inclusion", "Written informed consent obtained."),
+    ]
+
+
+def test_title_abbreviation_protected_but_real_boundary_splits():
+    text = "Inclusion Criteria:\n- Approved by Dr. Smith. Patient is willing to comply."
+    assert _criteria(text) == [
+        ("inclusion", "Approved by Dr. Smith."),
+        ("inclusion", "Patient is willing to comply."),
+    ]
+
+
+def test_ranges_and_ratios_do_not_split():
+    assert _criteria(
+        "Inclusion Criteria:\n- Creatinine no more than 1.5 mg/dL and ECOG 0-1"
+    ) == [("inclusion", "Creatinine no more than 1.5 mg/dL and ECOG 0-1")]
