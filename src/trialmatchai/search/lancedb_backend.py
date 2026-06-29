@@ -32,6 +32,10 @@ CRITERIA_TEXT_WEIGHTS: tuple[tuple[str, float], ...] = (
     ("entity_synonyms_text", 1.2),
     ("entity_text", 0.8),
 )
+# Best-of-both text relevance: weight on normalized engine BM25 versus the
+# field-weighted lexical heuristic when both are available (the remainder goes to
+# the heuristic). Tunable; validated against the TREC recall@k / nDCG baseline.
+BM25_FUSION_WEIGHT: float = 0.6
 
 
 @dataclass(frozen=True)
@@ -402,7 +406,7 @@ class LanceDBSearchBackend:
 
         if mode in {"bm25", "hybrid"} and text_query.strip():
             for row in self._search_fts(table, text_query, where=where, limit=limit):
-                rows_by_key[_row_key(row)] = row
+                _merge_candidate(rows_by_key, row)
 
         if mode in {"vector", "hybrid"} and query_vector:
             for row in self._search_vector(
@@ -412,11 +416,11 @@ class LanceDBSearchBackend:
                 where=where,
                 limit=limit,
             ):
-                rows_by_key[_row_key(row)] = row
+                _merge_candidate(rows_by_key, row)
 
         if not rows_by_key:
             for row in self._scan_rows(table, where=where, limit=limit):
-                rows_by_key[_row_key(row)] = row
+                _merge_candidate(rows_by_key, row)
 
         return list(rows_by_key.values())
 
@@ -532,6 +536,7 @@ def _rank_trial_rows(
     search_mode: str,
 ) -> list[SearchHit]:
     mode = (search_mode or "hybrid").lower()
+    bm25_norm = _bm25_norms(rows)
     hits: list[SearchHit] = []
     for raw in rows:
         # Candidate rows read from the index already carry the derived fields;
@@ -551,6 +556,7 @@ def _rank_trial_rows(
                 text_score,
                 0.75 * _weighted_text_score(row, other_terms, TRIAL_TEXT_WEIGHTS),
             )
+        text_score = _fuse_text(bm25_norm.get(_row_key(raw)), text_score)
         vector_score = _trial_vector_score(row, primary_terms, other_terms, embeddings)
         if mode in {"vector", "hybrid"} and vector_score < vector_score_threshold:
             continue
@@ -580,12 +586,16 @@ def _rank_criteria_rows(
         if use_entity_synonyms
         else tuple(item for item in CRITERIA_TEXT_WEIGHTS if item[0] == "criterion")
     )
+    bm25_norm = _bm25_norms(rows)
     hits: list[SearchHit] = []
     for raw in rows:
         row = dict(raw) if "search_text" in raw else build_criteria_record(raw)
         if allowed and row.get("nct_id") not in allowed:
             continue
-        text_score = _weighted_text_score(row, [query], fields)
+        text_score = _fuse_text(
+            bm25_norm.get(_row_key(raw)),
+            _weighted_text_score(row, [query], fields),
+        )
         vector_score = _vector_score(query_vector, _clean_vector(row.get("criterion_vector")))
         if mode in {"vector", "hybrid"} and vector_score < vector_score_threshold:
             continue
@@ -603,6 +613,50 @@ def _combine_scores(mode: str, text_score: float, vector_score: float) -> float:
     if mode == "vector":
         return vector_score
     return 0.5 * text_score + 0.5 * vector_score
+
+
+def _bm25_norms(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
+    """Min-max normalize LanceDB FTS ``_score`` (BM25, unbounded) to [0, 1] across
+    the candidate batch, keyed by row. Rows without an engine score are omitted so
+    callers fall back to the lexical heuristic."""
+    raw: dict[str, float] = {}
+    for row in rows:
+        score = row.get("_score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            raw[_row_key(row)] = float(score)
+    if not raw:
+        return {}
+    low = min(raw.values())
+    high = max(raw.values())
+    if high <= low:
+        return {key: 1.0 for key in raw}
+    span = high - low
+    return {key: (value - low) / span for key, value in raw.items()}
+
+
+def _fuse_text(bm25_norm: float | None, heuristic: float) -> float:
+    """Best-of-both text relevance. Normalized engine BM25 supplies IDF / term
+    saturation / length sensitivity; the field-weighted lexical heuristic supplies
+    phrase/exact-match, query coverage, and per-field focus. When no engine BM25
+    score is present (vector-only candidates, in-memory backend, scan fallback),
+    fall back to the heuristic alone."""
+    if bm25_norm is None:
+        return heuristic
+    fused = BM25_FUSION_WEIGHT * bm25_norm + (1.0 - BM25_FUSION_WEIGHT) * heuristic
+    return max(0.0, min(1.0, fused))
+
+
+def _merge_candidate(
+    rows_by_key: dict[str, dict[str, Any]], row: dict[str, Any]
+) -> None:
+    """Insert a candidate row, preserving an FTS ``_score`` that a later
+    overlapping vector-search row (which carries only ``_distance``) would
+    otherwise overwrite — the BM25 score is needed by the text re-ranker."""
+    key = _row_key(row)
+    previous = rows_by_key.get(key)
+    if previous is not None and "_score" in previous and "_score" not in row:
+        row = {**row, "_score": previous["_score"]}
+    rows_by_key[key] = row
 
 
 def _weighted_text_score(
