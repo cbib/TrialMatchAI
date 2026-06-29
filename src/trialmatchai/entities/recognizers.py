@@ -12,6 +12,33 @@ logger = setup_logging(__name__)
 
 VARIANT_PATTERNS_RESOURCE = ("trialmatchai.entities", "resources/variant_patterns.tsv")
 
+# Some curated variant cues are also ordinary English words ("loss", "increased",
+# "insertion", "inhibited"). Listed bare in the table they fire on plain prose
+# ("appetite loss", "symptoms increased"), so we keep such a match only when a
+# gene/biomarker-like token sits within a short window of it ("PTEN loss",
+# "MYC increased"). This guards precision without touching the curated regexes.
+_AMBIGUOUS_VARIANT_WORDS = frozenset(
+    {
+        "increase",
+        "increased",
+        "increases",
+        "loss",
+        "lost",
+        "insertion",
+        "insertions",
+        "inhibitor",
+        "inhibitors",
+        "inhibition",
+        "inhibited",
+        "inhibits",
+    }
+)
+# Gene/biomarker shapes: all-caps symbols (EGFR, HER2), title-case with a digit
+# (Brca1), and p53-style. Deliberately conservative — genes are uppercase by
+# convention, so this avoids rescuing matches on plain lowercase prose.
+_GENE_CONTEXT = re.compile(r"\b(?:[A-Z]{2,}[0-9]*|[A-Z][a-z]+[0-9]+|p[0-9]{2})\b")
+_GENE_CONTEXT_WINDOW = 30
+
 
 class EntityRecognizer(Protocol):
     def recognize(
@@ -106,8 +133,13 @@ class RegexVariantRecognizer:
             for label, pattern in self._patterns:
                 for match in pattern.finditer(text):
                     start, end = match.start(), match.end()
-                    if end <= start or not match.group(0).strip():
+                    matched = match.group(0).strip()
+                    if end <= start or not matched:
                         continue  # skip zero-width / whitespace-only matches
+                    if matched.lower() in _AMBIGUOUS_VARIANT_WORDS:
+                        window = text[max(0, start - _GENE_CONTEXT_WINDOW) : end + _GENE_CONTEXT_WINDOW]
+                        if not _GENE_CONTEXT.search(window):
+                            continue  # bare ambiguous word, no nearby gene -> drop
                     annotations.append(
                         EntityAnnotation(
                             entity_group=label,
