@@ -94,3 +94,44 @@ def test_run_pipeline_frees_models_even_on_stage_error(monkeypatch):
     with pytest.raises(RuntimeError):
         pipeline.run_pipeline(StageContext(config={}))
     assert freed == [1]  # GPU freed despite the failure
+
+
+def test_run_match_raises_on_nonzero_exit(monkeypatch):
+    from trialmatchai import orchestration as orch
+    from trialmatchai.pipeline import StageContext, _run_match
+
+    monkeypatch.setattr(orch, "run_matching", lambda config, **k: 5)
+    with pytest.raises(RuntimeError):
+        _run_match(StageContext(config={}))
+
+
+def test_run_eval_noops_without_qrels():
+    from trialmatchai.pipeline import StageContext, _run_eval
+
+    _run_eval(StageContext(config={}))  # qrels None -> returns cleanly, no trec import
+
+
+def test_run_ingest_noops_without_inputs():
+    from trialmatchai.pipeline import StageContext, _run_ingest
+
+    _run_ingest(StageContext(config={}))  # no inputs -> returns cleanly
+
+
+def test_run_prepare_forwards_force_and_folders(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    from trialmatchai import orchestration as orch
+    from trialmatchai.pipeline import StageContext, _run_prepare
+
+    captured = {}
+    monkeypatch.setattr(orch, "prepare_corpus", lambda config, **k: captured.update(k) or {})
+    ctx = StageContext(
+        config={"paths": {"trials_json_folder": "TJ"}},
+        processed_trials_folder=tmp_path / "pt",
+        processed_criteria_folder=tmp_path / "pc",
+        force={"prepare"},
+    )
+    _run_prepare(ctx)
+    assert captured["force"] is True
+    assert captured["trials_json_folder"] == "TJ"
+    assert Path(captured["processed_trials_folder"]) == tmp_path / "pt"

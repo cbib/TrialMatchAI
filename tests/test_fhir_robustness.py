@@ -209,3 +209,21 @@ def test_reference_resolution_urn_uuid_and_absolute_url(tmp_path):
     profile = import_fhir(path, input_format="fhir")[0]
     labels = {c.label for c in profile.conditions}
     assert {"asthma", "eczema"} <= labels  # both reference styles resolved
+
+
+def test_fhir_ndjson_strict_raises_on_malformed_line(tmp_path):
+    """A malformed NDJSON line is skipped in non-strict mode but must raise in
+    strict mode (audit P2: importer strict raise-paths)."""
+    import pytest
+
+    from trialmatchai.interop.importers.fhir import import_fhir
+
+    path = tmp_path / "p.ndjson"
+    path.write_text(
+        '{"resourceType": "Patient", "id": "P1"}\n{ this is not valid json\n',
+        encoding="utf-8",
+    )
+    profiles = import_fhir(path, input_format="fhir-ndjson")  # non-strict: bad line skipped
+    assert len(profiles) >= 1
+    with pytest.raises(Exception):
+        import_fhir(path, input_format="fhir-ndjson", strict=True)

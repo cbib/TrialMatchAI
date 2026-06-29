@@ -330,7 +330,9 @@ def _rrf_merge(
 
     for source_name, rows in (("fts", lexical_rows), ("vector", vector_rows)):
         for rank, row in enumerate(rows, start=1):
-            key = row.normalized_id
+            # Dedup on concept_id (unique). normalized_id collapses every CUI-less
+            # candidate onto the same constant key, dropping distinct concepts.
+            key = row.concept_id
             by_id.setdefault(key, row)
             score = 1.0 / (k + rank)
             scores[key] = scores.get(key, 0.0) + score
