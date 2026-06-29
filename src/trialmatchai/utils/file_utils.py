@@ -65,10 +65,29 @@ def read_text_file(file_path: str) -> List[str]:
 
 
 def write_text_file(lines: List[str], file_path: str):
-    """Write lines to a text file."""
+    """Atomically write lines to a text file.
+
+    Mirrors write_json_file (temp file in the same directory, fsync, os.replace)
+    so a crash mid-write never leaves a truncated artifact that a reader could
+    see as partial.
+    """
     try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+        path = str(file_path)
+        directory = os.path.dirname(path) or "."
+        os.makedirs(directory, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=directory, prefix=".tmp-", suffix=".txt")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
     except Exception as e:
         raise ValueError(f"Failed to write {file_path}: {str(e)}")
 
