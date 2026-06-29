@@ -5,8 +5,8 @@ entities:
     entity_group: disease
     description: Diagnosed diseases, clinical conditions, syndromes, and disorders.
     aliases: [condition, disorder, syndrome]
-    target_vocabularies: [SNOMED, ICD10, ICD10CM]
-    domain_hints: [Condition]
+    target_vocabularies: [SNOMED, ICD10, ICD10CM, DOID]
+    domain_hints: [Condition, Disease]
     linkable_fields: [text]
     threshold: 0.80
     query_expansion: true
@@ -17,7 +17,7 @@ entities:
     entity_group: gene
     description: Human genes or gene products mentioned as trial criteria.
     aliases: [gene symbol, biomarker]
-    target_vocabularies: [EntrezGene]
+    target_vocabularies: [EntrezGene, NCBIGene]
     domain_hints: [Gene]
     linkable_fields: [text]
     threshold: 0.80
@@ -29,8 +29,8 @@ entities:
     entity_group: drug
     description: Drugs, medications, biologics, compounds, and therapeutic agents.
     aliases: [drug, medication, biologic, compound]
-    target_vocabularies: [RxNorm, ATC]
-    domain_hints: [Drug]
+    target_vocabularies: [RxNorm, ATC, ChEBI]
+    domain_hints: [Drug, Chemical]
     linkable_fields: [text]
     threshold: 0.80
     query_expansion: false
@@ -89,8 +89,8 @@ entities:
     entity_group: sign symptom
     description: Patient signs, symptoms, and clinical findings.
     aliases: [symptom, sign]
-    target_vocabularies: [SNOMED]
-    domain_hints: [Condition, Observation]
+    target_vocabularies: [SNOMED, HPO]
+    domain_hints: [Condition, Observation, Phenotype]
     linkable_fields: [text]
     threshold: 0.80
     query_expansion: false
@@ -101,8 +101,8 @@ entities:
     entity_group: cell type
     description: Cell types, immune cells, and tissue cell populations.
     aliases: [cell population]
-    target_vocabularies: [Cellosaurus]
-    domain_hints: [Cell]
+    target_vocabularies: [Cellosaurus, CL]
+    domain_hints: [Cell, CellLine, CellType]
     linkable_fields: [text]
     threshold: 0.80
     query_expansion: false

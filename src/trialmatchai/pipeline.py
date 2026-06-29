@@ -78,6 +78,17 @@ def _run_concepts(ctx: StageContext) -> None:
     )
 
 
+def _run_link(ctx: StageContext) -> None:
+    from trialmatchai.linking import link_corpus
+
+    link_corpus(
+        ctx.config,
+        processed_criteria_folder=ctx.processed_criteria_folder,
+        processed_trials_folder=ctx.processed_trials_folder,
+        force=ctx.forced("link"),
+    )
+
+
 def _run_index(ctx: StageContext) -> None:
     from trialmatchai.orchestration import build_index
 
@@ -144,6 +155,7 @@ class Stage:
 STAGES: tuple[Stage, ...] = (
     Stage("prepare", _run_prepare, "embed + entity-annotate the trial corpus"),
     Stage("concepts", _run_concepts, "build the entity-linking concept store"),
+    Stage("link", _run_link, "link extracted entities to concept IDs (idempotent)"),
     Stage("index", _run_index, "build the LanceDB search tables"),
     Stage("ingest", _run_ingest, "import patient inputs into canonical profiles"),
     Stage("expand", _run_expand, "CoT query expansion of patient summaries"),
