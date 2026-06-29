@@ -82,3 +82,29 @@ def test_disqualified_ranks_below_even_a_zero_score_eligible_trial():
     ranked = rank_trials([TRIAL_VIOLATED_EXCLUSION, TRIAL_ALL_NOT_MET])
     assert ranked[0]["TrialID"] == "NOT_MET"
     assert ranked[-1]["TrialID"] == "VIOLATED"
+
+
+def test_score_trial_normalizes_classification_variants():
+    """Model output varies in case, markdown, and trailing punctuation; a
+    disqualifying Violated exclusion must still be detected (audit P0)."""
+    for variant in ("violated", "**Violated**", "Violated ", "Violated.", "VIOLATED"):
+        trial = {
+            "Inclusion_Criteria_Evaluation": [{"Classification": "Met"}],
+            "Exclusion_Criteria_Evaluation": [{"Classification": variant}],
+        }
+        assert score_trial(trial) == DISQUALIFIED_SCORE, variant
+
+    # "Not Violated" must NOT disqualify (substring trap), and inclusion variants
+    # in mixed case / whitespace must still count toward the Met fraction.
+    assert score_trial(
+        {
+            "Inclusion_Criteria_Evaluation": [{"Classification": "met"}],
+            "Exclusion_Criteria_Evaluation": [{"Classification": "Not Violated"}],
+        }
+    ) == 1.0
+    assert score_trial(
+        {
+            "Inclusion_Criteria_Evaluation": [{"Classification": "MET"}, {"Classification": "not met "}],
+            "Exclusion_Criteria_Evaluation": [],
+        }
+    ) == 0.5

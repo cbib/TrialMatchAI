@@ -345,3 +345,75 @@ def test_narrative_and_phenopacket_export_are_deterministic(tmp_path):
     assert narrative[0].startswith("Diagnoses:")
     assert packet_out["id"] == "patient-export"
     assert packet_out["diseases"][0]["term"]["label"] == "cancer"
+
+
+def test_omop_note_nlp_negation_recognizes_no(tmp_path):
+    """OMOP note_nlp.term_exists 'N'/'No'/'0' means the term is negated (e.g.
+    'no metastasis'); only literal 'false' was honored before (audit P0)."""
+    from trialmatchai.interop.importers.omop import import_omop_extract
+
+    omop = tmp_path / "omop"
+    omop.mkdir()
+    pd.DataFrame([{"person_id": 1, "gender_source_value": "F", "year_of_birth": 1980}]).to_csv(
+        omop / "PERSON.csv", index=False
+    )
+    pd.DataFrame(
+        [
+            {"person_id": 1, "note_nlp_concept_id": 10, "term_exists": "N", "snippet": "no metastasis"},
+            {"person_id": 1, "note_nlp_concept_id": 11, "term_exists": "Y", "snippet": "diabetes present"},
+        ]
+    ).to_csv(omop / "NOTE_NLP.csv", index=False)
+    pd.DataFrame(
+        [
+            {"concept_id": 10, "vocabulary_id": "SNOMED", "concept_code": "1", "concept_name": "Metastasis", "domain_id": "Condition"},
+            {"concept_id": 11, "vocabulary_id": "SNOMED", "concept_code": "2", "concept_name": "Diabetes", "domain_id": "Condition"},
+        ]
+    ).to_csv(omop / "CONCEPT.csv", index=False)
+
+    profile = import_omop_extract(omop)[0]
+    by_label = {c.label: c for c in profile.conditions}
+    assert by_label["Metastasis"].negated is True
+    assert by_label["Diabetes"].negated is False
+
+
+def test_omop_import_isolates_unreadable_table(tmp_path):
+    """A single unreadable OMOP table must not abort the whole import in
+    non-strict mode, but must raise in strict mode (audit P0)."""
+    import pytest
+
+    from trialmatchai.interop.importers.omop import import_omop_extract
+
+    omop = tmp_path / "omop"
+    omop.mkdir()
+    pd.DataFrame([{"person_id": 1, "gender_source_value": "F", "year_of_birth": 1980}]).to_csv(
+        omop / "PERSON.csv", index=False
+    )
+    (omop / "EXTRA.parquet").write_bytes(b"not a real parquet file")
+
+    profiles = import_omop_extract(omop)  # non-strict: person imports, bad table skipped
+    assert len(profiles) == 1
+    with pytest.raises(Exception):  # strict: malformed table aborts
+        import_omop_extract(omop, strict=True)
+
+
+def test_phenopacket_import_isolates_malformed_section(tmp_path):
+    """A malformed phenotypicFeatures item must not abort the whole import in
+    non-strict mode, but must raise in strict mode (audit P0)."""
+    import pytest
+
+    from trialmatchai.interop.importers.phenopacket import import_phenopacket
+
+    packet = {
+        "id": "P1",
+        "subject": {"sex": "FEMALE"},
+        "phenotypicFeatures": ["should be an object, not a string"],
+        "diseases": [{"term": {"id": "DOID:1612", "label": "breast cancer"}}],
+    }
+    path = tmp_path / "p.json"
+    path.write_text(json.dumps(packet), encoding="utf-8")
+
+    profile = import_phenopacket(path)  # non-strict: bad section skipped, rest imports
+    assert profile.patient_id == "P1"
+    assert any(c.label == "breast cancer" for c in profile.conditions)
+    with pytest.raises(Exception):
+        import_phenopacket(path, strict=True)

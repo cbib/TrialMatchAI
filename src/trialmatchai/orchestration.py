@@ -471,8 +471,9 @@ def build_system(
     processed_criteria_folder: str | Path = "data/processed_criteria",
     force_prepare: bool = False,
     force_reindex: bool = False,
+    link_concepts: bool = False,
 ) -> dict:
-    """Run the setup half (prepare -> index), idempotent, with a manifest.
+    """Run the setup half (prepare -> link -> index), idempotent, with a manifest.
 
     Each stage is resumable and recorded in ``.trialmatchai_build.json`` next to
     the processed data, so a disrupted build can be re-run and continues from the
@@ -511,6 +512,20 @@ def build_system(
             "normalized trial JSONs."
         )
     _save_manifest(manifest_path, manifest)
+
+    # Stage 1b — link extracted entities to concept IDs when a concept store was
+    # built this run, so the index carries concept IDs instead of leaving every
+    # entity at concept_store_unavailable. Idempotent: already-linked entities are
+    # skipped, so this also relinks an already-prepared NER-only corpus.
+    if link_concepts:
+        logger.info("=== build: link stage ===")
+        from trialmatchai.linking import link_corpus
+
+        link_tally = link_corpus(
+            config, processed_criteria_folder=pc, processed_trials_folder=pt
+        )
+        manifest["link"] = {**link_tally, "completed_at": _now_iso()}
+        _save_manifest(manifest_path, manifest)
 
     # Stage 2 — build the LanceDB search index (idempotent).
     logger.info("=== build: index stage ===")

@@ -22,6 +22,9 @@ from trialmatchai.interop.utils import (
     safe_patient_id,
     source_path_string,
 )
+from trialmatchai.utils.logging_config import setup_logging
+
+logger = setup_logging(__name__)
 
 
 def import_omop_extract(
@@ -30,7 +33,7 @@ def import_omop_extract(
     strict: bool = False,
 ) -> list[PatientProfile]:
     root = Path(path)
-    tables = _load_tables(root)
+    tables = _load_tables(root, strict=strict)
     concepts = _concept_lookup(tables.get("concept"))
     location_index = _location_index(tables.get("location"))
     person = tables.get("person")
@@ -90,16 +93,23 @@ def import_omop_extract(
     return profiles
 
 
-def _load_tables(root: Path) -> dict[str, pd.DataFrame]:
+def _load_tables(root: Path, *, strict: bool = False) -> dict[str, pd.DataFrame]:
     tables: dict[str, pd.DataFrame] = {}
     for file_path in root.iterdir():
         if file_path.suffix.casefold() not in {".csv", ".parquet"}:
             continue
         name = file_path.stem.casefold()
-        if file_path.suffix.casefold() == ".csv":
-            table = pd.read_csv(file_path)
-        else:
-            table = pd.read_parquet(file_path)
+        try:
+            if file_path.suffix.casefold() == ".csv":
+                table = pd.read_csv(file_path)
+            else:
+                table = pd.read_parquet(file_path)
+        except Exception:
+            # A single malformed table must not abort the whole import.
+            logger.warning("OMOP: failed to read %s; skipping", file_path, exc_info=True)
+            if strict:
+                raise
+            continue
         table.columns = [str(column).casefold() for column in table.columns]
         tables[name] = table
     return tables
@@ -290,7 +300,10 @@ def _add_note_nlp_rows(
                 provenance=_row_provenance(root, profile.patient_id, "NOTE_NLP"),
                 evidence_text=clean_text(row.get("snippet")) or None,
                 evidence_start=_int_or_none(row.get("offset")),
-                negated=str(row.get("term_exists")).casefold() == "false",
+                # OMOP note_nlp.term_exists marks whether the term is asserted:
+                # "N"/"No"/"0"/"False" mean it is NEGATED (e.g. "no metastasis").
+                negated=str(row.get("term_exists")).strip().casefold()
+                in {"n", "no", "false", "0", "f"},
             )
         )
 

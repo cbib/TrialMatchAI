@@ -75,18 +75,13 @@ def main() -> int:
         logger.error("Build aborted: resolve the %s issue(s) above.", len(preflight_issues))
         return 1
 
-    build_system(
-        config,
-        trials_json_folder=args.trials_json_folder,
-        processed_trials_folder=args.processed_trials_folder,
-        processed_criteria_folder=args.processed_criteria_folder,
-        force_prepare=args.force_prepare,
-        force_reindex=args.reindex,
-    )
-
-    # Optional: chain the concept-DB build. --concepts pulls the open vocabularies
-    # (auto-downloaded); --concepts-csv adds the licensed OMOP vocab on top.
-    if args.concepts or args.concepts_csv:
+    # Build the concept store BEFORE prepare/index. --concepts pulls the open
+    # vocabularies (auto-downloaded); --concepts-csv adds the licensed OMOP vocab.
+    # Building it first means `build_system` can link the extracted entities
+    # between prepare and index, so the search tables carry concept IDs instead of
+    # leaving every entity at concept_store_unavailable.
+    link_concepts = bool(args.concepts or args.concepts_csv)
+    if link_concepts:
         logger.info("=== build: concepts stage ===")
         from trialmatchai.cli.build_concepts import run_build_concepts
 
@@ -102,6 +97,16 @@ def main() -> int:
             "Run `trialmatchai build --concepts` to enable it (open vocabularies, "
             "auto-downloaded); add --concepts-csv for OMOP SNOMED/LOINC/RxNorm."
         )
+
+    build_system(
+        config,
+        trials_json_folder=args.trials_json_folder,
+        processed_trials_folder=args.processed_trials_folder,
+        processed_criteria_folder=args.processed_criteria_folder,
+        force_prepare=args.force_prepare,
+        force_reindex=args.reindex,
+        link_concepts=link_concepts,
+    )
 
     state = build_state(
         config,

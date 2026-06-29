@@ -46,26 +46,37 @@ def load_trial_data(
 # by the fraction of decided inclusion criteria (Met or Not Met) that are Met.
 DISQUALIFIED_SCORE = -1.0
 
-_DECIDED_INCLUSION = {"Met", "Not Met"}
+_DECIDED_INCLUSION = {"met", "not met"}
+
+# Model classifications vary in case, surrounding markdown, and trailing
+# punctuation (e.g. "violated", "**Violated**", "Met."); normalize before matching
+# so a disqualifying exclusion is never missed on a formatting variant.
+_CLASSIFICATION_STRIP = " \t\r\n*_`.,;:!\"'"
+
+
+def _normalize_classification(value: object) -> str:
+    return value.strip(_CLASSIFICATION_STRIP).casefold() if isinstance(value, str) else ""
 
 
 def score_trial(trial: Dict) -> float:
     inclusion = [
-        c.get("Classification") for c in trial.get("Inclusion_Criteria_Evaluation", [])
+        _normalize_classification(c.get("Classification"))
+        for c in trial.get("Inclusion_Criteria_Evaluation", [])
     ]
     exclusion = [
-        c.get("Classification") for c in trial.get("Exclusion_Criteria_Evaluation", [])
+        _normalize_classification(c.get("Classification"))
+        for c in trial.get("Exclusion_Criteria_Evaluation", [])
     ]
 
     # Any violated exclusion is a hard disqualifier: rank below all eligible trials.
-    if "Violated" in exclusion:
+    if "violated" in exclusion:
         return DISQUALIFIED_SCORE
 
     # Eligible: score by the fraction of decided inclusion criteria that are Met.
     decided = [c for c in inclusion if c in _DECIDED_INCLUSION]
     if not decided:
         return 0.0
-    met = sum(1 for c in decided if c == "Met")
+    met = sum(1 for c in decided if c == "met")
     return met / len(decided)
 
 
