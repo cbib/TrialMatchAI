@@ -27,7 +27,7 @@
   .report { display: grid; grid-template-columns: 300px minmax(0, 720px); gap: 32px;
             max-width: 1080px; margin-inline: auto; padding: 24px; align-items: start; }
   .sidebar { position: sticky; top: 24px; align-self: start; max-height: calc(100vh - 48px); overflow-y: auto; }
-  .brand-logo { height: 30px; width: auto; display: block; margin-bottom: 16px; }
+  .brand-logo { height: 48px; width: auto; display: block; margin-bottom: 16px; }
 
   /* ---- patient context card ---- */
   .pcard { border: 1px solid var(--rule); border-radius: 12px; background: var(--bg); padding: 20px; }
@@ -47,11 +47,7 @@
   .search .mag { color: var(--faint); font-size: 15px; }
   .search input { border: 0; outline: 0; flex: 1; font-size: 14px; padding: 8px; background: transparent; color: var(--ink); }
   .toolbar select { font-size: 13px; padding: 7px 9px; border: 1px solid var(--rule); border-radius: 8px; background: var(--bg); color: #333; }
-  .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; margin-left: auto; }
-  .seg button { border: 0; background: var(--bg); font-size: 13px; padding: 7px 12px; cursor: pointer; color: var(--muted); }
-  .seg button.on { background: var(--fill); color: var(--ink); font-weight: 600; }
-  .seg button + button { border-left: 1px solid var(--rule); }
-  .ghost { border: 1px solid var(--rule); background: var(--bg); border-radius: 8px; font-size: 13px; padding: 7px 11px; cursor: pointer; color: var(--muted); }
+  .ghost { border: 1px solid var(--rule); background: var(--bg); border-radius: 8px; font-size: 13px; padding: 7px 11px; cursor: pointer; color: var(--muted); margin-left: auto; }
   .ghost:hover { background: var(--fill); }
   .statusline { display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--muted); }
   .statusline .count { font-variant-numeric: tabular-nums; }
@@ -73,7 +69,7 @@
   .t-sub .mono { font-family: var(--mono); }
   .t-sub .dot { color: var(--faint); padding: 0 6px; }
 
-  .rail { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .rail { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
   .statuspill { font: 600 11px/1 var(--mono); border-radius: 999px; padding: 3px 9px; white-space: nowrap; border: 1px solid transparent; }
   .st-good { color: var(--good-tx); background: var(--good-bg); border-color: #bfe3d6; }
   .st-warn { color: var(--warn-tx); background: var(--warn-bg); border-color: #eddcae; }
@@ -145,10 +141,6 @@
         <select id="f-status" aria-label="Filter by status"></select>
         <select id="f-phase" aria-label="Filter by phase"></select>
         <select id="f-decision" aria-label="Filter by verdict"></select>
-        <div class="seg" id="sort" role="radiogroup" aria-label="Sort order">
-          <button type="button" data-sort="rank" role="radio" aria-checked="true" class="on">Best match</button>
-          <button type="button" data-sort="relevance" role="radio" aria-checked="false">Text match</button>
-        </div>
         <button id="toggle-all" class="ghost" type="button" aria-pressed="false">Expand all</button>
       </div>
       <div class="statusline">
@@ -215,10 +207,10 @@ function critCounts(t) {
 function statusPill(status) {
   if (!status) return null;
   const s = status.toLowerCase();
-  let glyph = "○", kind = "st-neutral";
+  let glyph = "○", kind = "st-neutral", label = status;
   if (s === "recruiting" || s === "enrolling by invitation") { glyph = "●"; kind = "st-good"; }
-  else if (s.startsWith("active")) { glyph = "◐"; kind = "st-warn"; }
-  return el("span", { class: "statuspill " + kind, text: glyph + " " + status });
+  else if (s.startsWith("active")) { glyph = "◐"; kind = "st-warn"; label = "Active"; }
+  return el("span", { class: "statuspill " + kind, text: glyph + " " + label });
 }
 
 // --- patient sidebar ---
@@ -322,7 +314,6 @@ function fillSelect(id, values, allLabel) {
 fillSelect("f-status", TRIALS.map(t => (t.meta || {}).overall_status), "All statuses");
 fillSelect("f-phase", TRIALS.map(t => (t.meta || {}).phase), "All phases");
 fillSelect("f-decision", TRIALS.map(t => t.final_decision), "All verdicts");
-let currentSort = "rank";
 
 const list = document.getElementById("trial-list");
 const countEl = document.getElementById("count");
@@ -339,9 +330,7 @@ function apply() {
     if (q && !(((m.brief_title || "") + " " + t.trial_id + " " + (m.condition || "")).toLowerCase().includes(q))) return false;
     return true;
   });
-  rows = currentSort === "relevance"
-    ? rows.slice().sort((a, b) => (b.reranker_score || 0) - (a.reranker_score || 0))
-    : rows.slice().sort((a, b) => a.rank - b.rank);
+  rows = rows.slice().sort((a, b) => a.rank - b.rank);
   list.textContent = "";
   if (!rows.length) list.append(el("p", { class: "empty", text: "No trials match these filters." }));
   else for (const t of rows) list.append(renderTrial(t));
@@ -355,13 +344,6 @@ apply();
 renderFooter();
 for (const id of ["search", "f-status", "f-phase", "f-decision"])
   document.getElementById(id).addEventListener("input", apply);
-document.querySelectorAll("#sort button").forEach(b => b.addEventListener("click", () => {
-  currentSort = b.dataset.sort;
-  document.querySelectorAll("#sort button").forEach(x => {
-    const on = x === b; x.classList.toggle("on", on); x.setAttribute("aria-checked", on);
-  });
-  apply();
-}));
 const toggleAll = document.getElementById("toggle-all");
 toggleAll.addEventListener("click", () => {
   const open = toggleAll.getAttribute("aria-pressed") !== "true";
