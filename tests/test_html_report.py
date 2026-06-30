@@ -225,6 +225,24 @@ def test_maybe_write_report_respects_gate(tmp_path):
     assert (pdir / "report.html").exists()
 
 
+def test_maybe_write_unified_report_over_all_patients(tmp_path):
+    from trialmatchai.main import _maybe_write_unified_report
+
+    out = tmp_path / "results"
+    for pid in ("P1", "P2"):
+        d = out / pid
+        d.mkdir(parents=True)
+        (d / "ranked_trials.json").write_text(
+            json.dumps({"RankedTrials": [{"TrialID": "NCT1", "Score": 1.0}]}), encoding="utf-8")
+    cfg = {"paths": {"output_dir": str(out), "trials_json_folder": str(tmp_path / "meta")}, "patient_inputs": {}}
+    _maybe_write_unified_report({**cfg, "reporting": {"emit_html": False}})
+    assert not (out / "index.html").exists()  # gated off
+    _maybe_write_unified_report(cfg)  # default-on: one front page over both patients
+    html = (out / "index.html").read_text(encoding="utf-8")
+    island = json.loads(html.split('id="report-data">', 1)[1].split("</script>", 1)[0])
+    assert sorted(p["patient"]["id"] for p in island["patients"]) == ["P1", "P2"]
+
+
 def test_read_cot_extracts_thinking(tmp_path):
     from trialmatchai.interop.exporters.html_report import _read_cot
 
