@@ -122,7 +122,7 @@ def test_render_escapes_script_injection():
     assert "\\u003cscript\\u003ealert(1)" in html
     # the data still round-trips for the client
     island = html.split('id="report-data">', 1)[1].split("</script>", 1)[0]
-    assert json.loads(island)["trials"][0]["trial_id"] == "NCT1"
+    assert json.loads(island)["patients"][0]["trials"][0]["trial_id"] == "NCT1"
 
 
 def test_profile_to_html_report_end_to_end(tmp_path):
@@ -160,6 +160,42 @@ def test_render_index_html_links_patients():
     assert html.lstrip().startswith("<!doctype html>")
     assert 'href="P1/report.html"' in html and "Patient P1" in html
     assert "2 patients" in html
+
+
+def test_render_unified_html_carries_all_patients():
+    from trialmatchai.interop.exporters.html_report import render_unified_html
+
+    def one(pid, tid):
+        return build_report_model(
+            patient_summary={"patient_id": pid},
+            ranked={"RankedTrials": [{"TrialID": tid, "Score": 1.0}]},
+            eligibility_by_id={}, meta_by_id={}, generated_at="x",
+        )
+
+    html = render_unified_html([one("P1", "NCT1"), one("P2", "NCT2")], "2026-06-30 12:00")
+    assert html.lstrip().startswith("<!doctype html>")
+    island = json.loads(html.split('id="report-data">', 1)[1].split("</script>", 1)[0])
+    assert [p["patient"]["id"] for p in island["patients"]] == ["P1", "P2"]
+    assert island["generated_at"] == "2026-06-30 12:00"
+
+
+def test_profile_to_model_falls_back_to_dir_name_for_id(tmp_path):
+    from trialmatchai.interop.exporters.html_report import profile_to_model
+
+    pdir = tmp_path / "P777"
+    pdir.mkdir()
+    (pdir / "ranked_trials.json").write_text(json.dumps({"RankedTrials": []}), encoding="utf-8")
+    (pdir / "keywords.json").write_text(json.dumps({"age": 50}), encoding="utf-8")  # no patient_id
+    m = profile_to_model(pdir, generated_at="x")
+    assert m["patient"]["id"] == "P777"  # never null — drives the overview route key
+
+
+def test_single_model_normalized_into_patients_island():
+    # a single-patient model is wrapped so the template always reads DATA.patients
+    html = render_html_report(_model())
+    island = json.loads(html.split('id="report-data">', 1)[1].split("</script>", 1)[0])
+    assert "patients" in island and len(island["patients"]) == 1
+    assert island["patients"][0]["patient"]["id"] == "P1"
 
 
 def test_reporting_default_on_and_trec_disables():

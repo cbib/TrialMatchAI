@@ -14,7 +14,8 @@ from pathlib import Path
 from trialmatchai.config.config_loader import normalize_config_paths, resolve_config_path
 from trialmatchai.interop.exporters.html_report import (
     profile_to_html_report,
-    render_index_html,
+    profile_to_model,
+    render_unified_html,
 )
 from trialmatchai.utils.logging_config import setup_logging
 
@@ -53,32 +54,40 @@ def main() -> int:
     else:
         patient_dirs = [output_dir / args.patient]
 
-    written = 0
-    index_entries = []
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    valid_dirs = []
     for pdir in patient_dirs:
-        ranked_path = pdir / "ranked_trials.json"
-        if not ranked_path.exists():
+        if (pdir / "ranked_trials.json").exists():
+            valid_dirs.append(pdir)
+        else:
             logger.warning("Skipping %s: no ranked_trials.json", pdir.name)
-            continue
-        html = profile_to_html_report(pdir, summary_dir=summary_dir, trial_meta_folders=meta_folders)
-        out_path = Path(args.out) if args.out else pdir / "report.html"
-        out_path.write_text(html, encoding="utf-8")
-        logger.info("Wrote %s", out_path)
-        written += 1
-        if args.all:
-            try:
-                raw = json.loads(ranked_path.read_text(encoding="utf-8"))
-                n = len(raw["RankedTrials"] if isinstance(raw, dict) else raw)
-            except Exception:
-                n = 0
-            index_entries.append({"patient_id": pdir.name, "n_trials": n, "href": f"{pdir.name}/report.html"})
-
-    if not written:
-        logger.error("No reports generated (no patient result dirs with ranked_trials.json under %s).", output_dir)
+    if not valid_dirs:
+        logger.error("No patient result dirs with ranked_trials.json under %s.", output_dir)
         return 1
-    if args.all and index_entries:
-        index = render_index_html(index_entries, datetime.now().strftime("%Y-%m-%d %H:%M"))
-        (output_dir / "index.html").write_text(index, encoding="utf-8")
-        logger.info("Wrote %s", output_dir / "index.html")
-    logger.info("Generated %s report(s).", written)
+
+    if args.all:
+        # One unified, self-contained report: a front page listing every patient
+        # that drills into the per-patient view.
+        models = []
+        for pdir in valid_dirs:
+            try:
+                models.append(profile_to_model(
+                    pdir, summary_dir=summary_dir, trial_meta_folders=meta_folders, generated_at=generated_at))
+            except Exception:
+                logger.exception("Skipping %s: failed to build report model", pdir.name)
+        if not models:
+            logger.error("No reports generated.")
+            return 1
+        out_path = output_dir / "index.html"
+        out_path.write_text(render_unified_html(models, generated_at), encoding="utf-8")
+        logger.info("Wrote unified report %s (%d patients).", out_path, len(models))
+        return 0
+
+    # single patient
+    pdir = valid_dirs[0]
+    html = profile_to_html_report(
+        pdir, summary_dir=summary_dir, trial_meta_folders=meta_folders, generated_at=generated_at)
+    out_path = Path(args.out) if args.out else pdir / "report.html"
+    out_path.write_text(html, encoding="utf-8")
+    logger.info("Wrote %s", out_path)
     return 0

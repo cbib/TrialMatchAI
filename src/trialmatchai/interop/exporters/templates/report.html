@@ -29,7 +29,37 @@
          -webkit-font-smoothing:antialiased; }
   a { color: var(--accent); }
 
-  /* ---- two-column shell ---- */
+  /* ---- overview / front page ---- */
+  .ov { max-width:880px; margin-inline:auto; padding:var(--s5); }
+  .ov-head { margin-bottom:var(--s5); }
+  .ov-head h1 { margin:0; font-size:20px; line-height:28px; font-weight:600; color:var(--n900); }
+  .ov-head .ov-sub { color:var(--n500); font-size:12px; line-height:16px; font-weight:500;
+                     font-variant-numeric:tabular-nums; margin-top:var(--s1); }
+  .plist { border-top:1px solid var(--n200); }
+  .prow { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:var(--s4); align-items:center;
+          padding:var(--s4) var(--s2); border-bottom:1px solid var(--n200); text-decoration:none; color:inherit; }
+  .prow:hover { background:var(--n50); }
+  .prow:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; border-radius:var(--r-card); }
+  .pinfo { min-width:0; }
+  .pname { font-size:16px; line-height:24px; font-weight:600; color:var(--n900); }
+  .pmeta { color:var(--n500); font-size:12px; line-height:16px; font-weight:500; margin-top:2px;
+           font-variant-numeric:tabular-nums; }
+  .tally { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:var(--s1); max-width:320px; }
+  .tl { font-size:12px; line-height:16px; font-weight:500; border-radius:var(--r-pill);
+        padding:2px var(--s2); white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .tl-good { background:var(--good-bg); color:var(--good-tx); }
+  .tl-warn { background:var(--warn-bg); color:var(--warn-tx); }
+  .tl-bad { background:var(--bad-bg); color:var(--bad-tx); }
+  .tl-neutral { background:var(--neu-bg); color:var(--neu-tx); }
+  .chev { color:var(--n500); font-size:18px; line-height:1; }
+
+  /* ---- back to overview ---- */
+  .topbar { max-width:1080px; margin-inline:auto; padding:var(--s4) var(--s5) 0; }
+  .topbar .back { display:inline-flex; align-items:center; gap:var(--s1); color:var(--accent);
+                  text-decoration:none; font-size:13px; line-height:20px; font-weight:500; }
+  .topbar .back:hover { text-decoration:underline; }
+
+  /* ---- two-column patient shell ---- */
   .report { display:grid; grid-template-columns:300px minmax(0,720px); gap:var(--s6);
             max-width:1080px; margin-inline:auto; padding:var(--s5); align-items:start; }
   .sidebar { position:sticky; top:var(--s5); align-self:start; max-height:calc(100vh - var(--s7)); overflow-y:auto; }
@@ -119,7 +149,7 @@
   .crit .ctext { font-size:14px; line-height:20px; color:var(--n700); }
   .crit .just { color:var(--n500); font-size:14px; line-height:20px; margin-top:var(--s1); }
   .unavailable { color:var(--n500); font-weight:500; padding:var(--s1) 0; }
-  .empty { color:var(--n500); padding:var(--s5) 0; }
+  .empty { color:var(--n500); padding:var(--s5); }
 
   /* ---- model reasoning (third-level disclosure: supporting, not a decision driver) ---- */
   details.cot { margin-top:var(--s5); }
@@ -157,44 +187,57 @@
 </style>
 </head>
 <body>
-<div class="report">
-  <aside class="sidebar">
-    <img class="brand-logo" src="__LOGO_SRC__" alt="TrialMatchAI">
-    <div class="pcard" id="patient-card"></div>
-  </aside>
-  <main class="main">
-    <div class="main-head"><h1>Matched clinical trials</h1></div>
-    <div class="toolbar no-print">
-      <div class="controls">
-        <div class="search"><span class="mag" aria-hidden="true">⌕</span>
-          <input id="search" type="search" placeholder="Search title, id, or condition…" aria-label="Search trials"></div>
-        <select id="f-status" aria-label="Filter by status"></select>
-        <select id="f-phase" aria-label="Filter by phase"></select>
-        <select id="f-decision" aria-label="Filter by verdict"></select>
-        <button id="toggle-all" class="ghost" type="button" aria-pressed="false">Expand all</button>
+<!-- front page: list of all patients (hidden for single-patient reports) -->
+<div id="overview" hidden></div>
+
+<!-- per-patient view -->
+<div id="patient-view" hidden>
+  <div class="topbar no-print" id="topbar" hidden><a class="back" href="#/">‹ All patients</a></div>
+  <div class="report">
+    <aside class="sidebar">
+      <img class="brand-logo" src="__LOGO_SRC__" alt="TrialMatchAI">
+      <div class="pcard" id="patient-card"></div>
+    </aside>
+    <main class="main">
+      <div class="main-head"><h1>Matched clinical trials</h1></div>
+      <div class="toolbar no-print">
+        <div class="controls">
+          <div class="search"><span class="mag" aria-hidden="true">⌕</span>
+            <input id="search" type="search" placeholder="Search title, id, or condition…" aria-label="Search trials"></div>
+          <select id="f-status" aria-label="Filter by status"></select>
+          <select id="f-phase" aria-label="Filter by phase"></select>
+          <select id="f-decision" aria-label="Filter by verdict"></select>
+          <button id="toggle-all" class="ghost" type="button" aria-pressed="false">Expand all</button>
+        </div>
+        <div class="statusline">
+          <span class="count" id="count" aria-live="polite"></span>
+          <button id="clear" class="linkbtn" type="button" hidden>Clear filters</button>
+        </div>
       </div>
-      <div class="statusline">
-        <span class="count" id="count" aria-live="polite"></span>
-        <button id="clear" class="linkbtn" type="button" hidden>Clear filters</button>
-      </div>
-    </div>
-    <div id="trial-list"></div>
-    <footer class="band" id="report-footer"></footer>
-  </main>
+      <div id="trial-list"></div>
+      <footer class="band" id="report-footer"></footer>
+    </main>
+  </div>
 </div>
 
 <script type="application/json" id="report-data">__REPORT_DATA__</script>
 <script>
 "use strict";
 const DATA = JSON.parse(document.getElementById("report-data").textContent);
-const TRIALS = DATA.trials || [];
+const PATIENTS = DATA.patients || [];
+const LOGO_SRC = (document.querySelector(".brand-logo") || {}).src || "";
 
-// Canonical display order: keep the pipeline's eligibility rank, but sink any
-// unassessable ("Not assessed") trial below every assessed one, then number 1..N
-// so the badges read monotonically. Computed once and stable under filtering.
-TRIALS.slice()
-  .sort((a, b) => (Number(!a.reasoning_available) - Number(!b.reasoning_available)) || (a.rank - b.rank))
-  .forEach((t, i) => { t.displayRank = i + 1; });
+// Canonical display order, per patient: keep the pipeline's eligibility rank, but
+// sink any unassessable ("Not assessed") trial below every assessed one, then number
+// 1..N so the badges read monotonically. Computed once per patient.
+PATIENTS.forEach((p, idx) => {
+  // stable route key: the patient id when present, else a positional fallback so
+  // null/duplicate ids never produce an unmatchable "#/p/undefined" anchor.
+  p._key = (p.patient && p.patient.id != null) ? String(p.patient.id) : ("_" + idx);
+  (p.trials || []).slice()
+    .sort((a, b) => (Number(!a.reasoning_available) - Number(!b.reasoning_available)) || (a.rank - b.rank))
+    .forEach((t, i) => { t.displayRank = i + 1; });
+});
 
 function el(tag, attrs, kids) {
   const n = document.createElement(tag);
@@ -255,25 +298,50 @@ function statusPill(status) {
   return el("span", { class: "statuspill " + kind, text: glyph + " " + label });
 }
 
-// --- patient sidebar ---
-function renderPatientCard() {
-  const p = DATA.patient || {};
-  const c = document.getElementById("patient-card");
-  c.append(
-    el("div", { class: "pid", text: "Patient " + (p.id != null ? p.id : "—") }),
-    el("div", { class: "pdem", text: (p.age != null ? "Age " + p.age + "  ·  " : "") + "Sex " + (p.sex || "—") }),
-  );
-  const conds = [...(p.main_conditions || []), ...(p.other_conditions || [])];
-  if (conds.length) c.append(el("h2", { text: "Conditions" }), el("div", { class: "chips" }, chips(conds)));
-  if (p.narrative) c.append(el("h2", { text: "Summary" }), el("p", { class: "narrative", text: p.narrative }));
+// ===== overview (front page) =====
+// One tally pill per verdict tier present, glyph-coded so it reads in grayscale.
+const TALLY = [
+  { cls: "good",    glyph: "✓", title: "Eligible / likely eligible", match: ["Eligible", "Likely eligible"] },
+  { cls: "warn",    glyph: "△", title: "Likely ineligible",          match: ["Likely ineligible"] },
+  { cls: "bad",     glyph: "✕", title: "Ineligible",                 match: ["Ineligible"] },
+  { cls: "neutral", glyph: "—", title: "Not assessed",               match: ["Not assessed"] },
+];
+function overviewRow(p) {
+  const pt = p.patient || {}, trials = p.trials || [];
+  const info = el("div", { class: "pinfo" });
+  info.append(el("div", { class: "pname", text: "Patient " + (pt.id != null ? pt.id : "—") }));
+  const bits = [];
+  if (pt.age != null) bits.push("Age " + pt.age);
+  if (pt.sex) bits.push(pt.sex);
+  bits.push(trials.length + (trials.length === 1 ? " trial" : " trials"));
+  info.append(el("div", { class: "pmeta", text: bits.join("  ·  ") }));
+  const tally = el("div", { class: "tally" });
+  for (const tier of TALLY) {
+    const n = trials.filter(t => tier.match.includes(verdictOf(t))).length;
+    if (n) tally.append(el("span", { class: "tl tl-" + tier.cls, title: tier.title, text: tier.glyph + " " + n }));
+  }
+  const row = el("a", { class: "prow", href: "#/p/" + encodeURIComponent(p._key) });
+  row.append(info, tally, el("span", { class: "chev", "aria-hidden": "true", text: "›" }));
+  return row;
 }
-function renderFooter() {
-  const f = document.getElementById("report-footer");
-  f.append(el("div", { class: "note", text: "Eligibility verdicts are AI-generated guidance, not a medical decision." }));
-  f.append(el("div", { class: "gen", text: "Generated " + (DATA.generated_at || "") }));
+function renderOverview() {
+  const root = document.getElementById("overview");
+  root.textContent = "";
+  const head = el("div", { class: "ov-head" }, [
+    LOGO_SRC ? el("img", { class: "brand-logo", src: LOGO_SRC, alt: "TrialMatchAI" }) : null,
+    el("h1", { text: "Match reports" }),
+    el("div", { class: "ov-sub", text: PATIENTS.length + (PATIENTS.length === 1 ? " patient" : " patients") }),
+  ]);
+  const plist = el("div", { class: "plist" });
+  for (const p of PATIENTS) plist.append(overviewRow(p));
+  const foot = el("footer", { class: "band" }, [
+    el("div", { class: "note", text: "Eligibility verdicts are AI-generated guidance, not a medical decision." }),
+    el("div", { class: "gen", text: "Generated " + (DATA.generated_at || "") }),
+  ]);
+  root.append(el("div", { class: "ov" }, [head, plist, foot]));
 }
 
-// --- one trial ---
+// ===== one trial =====
 function kv(label, value) {
   return el("div", { class: "kv" }, [el("b", { text: label }), el("span", { text: value })]);
 }
@@ -355,32 +423,50 @@ function renderTrial(t) {
   return det;
 }
 
-// --- filters + pipeline ---
+// ===== per-patient view (parameterised by the current patient CUR) =====
+let CUR = null;
+function renderPatientCard() {
+  const p = CUR.patient || {};
+  const c = document.getElementById("patient-card");
+  c.textContent = "";
+  c.append(
+    el("div", { class: "pid", text: "Patient " + (p.id != null ? p.id : "—") }),
+    el("div", { class: "pdem", text: (p.age != null ? "Age " + p.age + "  ·  " : "") + "Sex " + (p.sex || "—") }),
+  );
+  const conds = [...(p.main_conditions || []), ...(p.other_conditions || [])];
+  if (conds.length) c.append(el("h2", { text: "Conditions" }), el("div", { class: "chips" }, chips(conds)));
+  if (p.narrative) c.append(el("h2", { text: "Summary" }), el("p", { class: "narrative", text: p.narrative }));
+}
+function renderFooter() {
+  const f = document.getElementById("report-footer");
+  f.textContent = "";
+  f.append(el("div", { class: "note", text: "Eligibility verdicts are AI-generated guidance, not a medical decision." }));
+  f.append(el("div", { class: "gen", text: "Generated " + (DATA.generated_at || "") }));
+}
 function fillSelect(id, values, allLabel) {
   const sel = document.getElementById(id);
+  sel.textContent = "";
+  sel.append(el("option", { value: "", text: allLabel }));
   for (const v of [...new Set(values)].filter(Boolean).sort()) sel.append(el("option", { value: v, text: v }));
-  sel.insertBefore(el("option", { value: "", text: allLabel }), sel.firstChild);
   sel.value = "";
 }
 function fillVerdict() {
   const sel = document.getElementById("f-decision");
-  const present = new Set(TRIALS.map(verdictOf));
+  sel.textContent = "";
   sel.append(el("option", { value: "", text: "All verdicts" }));
+  const present = new Set((CUR.trials || []).map(verdictOf));
   for (const label of VERDICT_ORDER) if (present.has(label)) sel.append(el("option", { value: label, text: label }));
   sel.value = "";
 }
-fillSelect("f-status", TRIALS.map(t => (t.meta || {}).overall_status), "All statuses");
-fillSelect("f-phase", TRIALS.map(t => (t.meta || {}).phase), "All phases");
-fillVerdict();
-
 const list = document.getElementById("trial-list");
 const countEl = document.getElementById("count");
 function apply() {
+  const trials = CUR.trials || [];
   const q = document.getElementById("search").value.trim().toLowerCase();
   const fs = document.getElementById("f-status").value;
   const fp = document.getElementById("f-phase").value;
   const fd = document.getElementById("f-decision").value;
-  let rows = TRIALS.filter(t => {
+  let rows = trials.filter(t => {
     const m = t.meta || {};
     if (fs && m.overall_status !== fs) return false;
     if (fp && m.phase !== fp) return false;
@@ -393,21 +479,31 @@ function apply() {
   if (!rows.length) list.append(el("p", { class: "empty", text: "No trials match these filters." }));
   else for (const t of rows) list.append(renderTrial(t));
   const active = !!(q || fs || fp || fd);
-  countEl.textContent = active ? ("Showing " + rows.length + " of " + TRIALS.length) : (TRIALS.length + " trials");
+  countEl.textContent = active ? ("Showing " + rows.length + " of " + trials.length) : (trials.length + " trials");
   document.getElementById("clear").hidden = !active;
 }
+function mountPatient(p) {
+  CUR = p;
+  document.getElementById("search").value = "";
+  const ta = document.getElementById("toggle-all");
+  ta.setAttribute("aria-pressed", "false"); ta.textContent = "Expand all";
+  renderPatientCard();
+  fillSelect("f-status", (p.trials || []).map(t => (t.meta || {}).overall_status), "All statuses");
+  fillSelect("f-phase", (p.trials || []).map(t => (t.meta || {}).phase), "All phases");
+  fillVerdict();
+  apply();
+  renderFooter();
+}
 
-renderPatientCard();
-apply();
-renderFooter();
+// toolbar listeners (attached once; they read the current patient via CUR)
 for (const id of ["search", "f-status", "f-phase", "f-decision"])
   document.getElementById(id).addEventListener("input", apply);
-const toggleAll = document.getElementById("toggle-all");
-toggleAll.addEventListener("click", () => {
-  const open = toggleAll.getAttribute("aria-pressed") !== "true";
+document.getElementById("toggle-all").addEventListener("click", () => {
+  const ta = document.getElementById("toggle-all");
+  const open = ta.getAttribute("aria-pressed") !== "true";
   list.querySelectorAll("details.trial").forEach(d => d.open = open);
-  toggleAll.setAttribute("aria-pressed", open);
-  toggleAll.textContent = open ? "Collapse all" : "Expand all";
+  ta.setAttribute("aria-pressed", open);
+  ta.textContent = open ? "Collapse all" : "Expand all";
 });
 document.getElementById("clear").addEventListener("click", () => {
   document.getElementById("search").value = "";
@@ -418,6 +514,40 @@ window.addEventListener("beforeprint", () =>
   document.querySelectorAll("details").forEach(d => { d.dataset.wasOpen = d.open ? "1" : "0"; d.open = true; }));
 window.addEventListener("afterprint", () =>
   document.querySelectorAll("details").forEach(d => { if (d.dataset.wasOpen === "0") d.open = false; delete d.dataset.wasOpen; }));
+
+// ===== router: overview <-> patient =====
+function showOverview() {
+  document.getElementById("patient-view").hidden = true;
+  const ov = document.getElementById("overview");
+  if (!ov.dataset.rendered) { renderOverview(); ov.dataset.rendered = "1"; }
+  ov.hidden = false;
+  document.title = "Match reports — TrialMatchAI";
+  window.scrollTo(0, 0);
+}
+function showPatient(p, solo) {
+  document.getElementById("overview").hidden = true;
+  document.getElementById("topbar").hidden = !!solo;
+  document.getElementById("patient-view").hidden = false;
+  mountPatient(p);
+  document.title = "Patient " + ((p.patient || {}).id != null ? (p.patient || {}).id : "") + " — TrialMatchAI";
+  window.scrollTo(0, 0);
+}
+function route() {
+  if (!PATIENTS.length) {
+    document.body.append(el("p", { class: "empty", text: "No patient reports available." }));
+    return;
+  }
+  if (PATIENTS.length === 1) return showPatient(PATIENTS[0], true);   // solo: no front page
+  const m = location.hash.match(/^#\/p\/(.+)$/);
+  if (m) {
+    const key = decodeURIComponent(m[1]);
+    const p = PATIENTS.find(x => x._key === key);
+    if (p) return showPatient(p, false);
+  }
+  showOverview();
+}
+window.addEventListener("hashchange", route);
+route();
 </script>
 </body>
 </html>

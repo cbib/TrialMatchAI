@@ -173,7 +173,14 @@ def _logo_data_uri() -> str:
 
 
 def render_html_report(model: Mapping[str, Any]) -> str:
-    """Embed the model as a tag-safe JSON island in the static template."""
+    """Embed the model as a tag-safe JSON island in the static template.
+
+    Accepts a single-patient model (``{"patient", "trials", ...}``) or a unified
+    one (``{"patients": [...]}``). A single model is wrapped so the template
+    always reads ``DATA.patients`` and a one-patient report skips the front page.
+    """
+    if "patients" not in model:
+        model = {"patients": [dict(model)], "generated_at": model.get("generated_at", "")}
     data = json.dumps(model, ensure_ascii=False, default=str)
     # neutralize </script> injection — LLM free text may contain "</script>";
     # JSON.parse reads the escaped sequences back unchanged.
@@ -190,15 +197,15 @@ def _load_meta(trial_id: str, folders: list[Path]) -> dict | None:
     return None
 
 
-def profile_to_html_report(
+def profile_to_model(
     patient_dir: str | Path,
     *,
     summary_dir: str | Path | None = None,
     trial_meta_folders: list[str | Path] | None = None,
     generated_at: str | None = None,
     run_info: Mapping[str, Any] | None = None,
-) -> str:
-    """Read a patient's result dir and return a self-contained HTML report.
+) -> dict:
+    """Read a patient's result dir into a render-ready model (no HTML).
 
     ``patient_dir`` is ``<output_dir>/<patient_id>/``. Metadata folders are tried
     in order (processed_trials, then trials_jsons); ids with no metadata (e.g.
@@ -229,9 +236,12 @@ def profile_to_html_report(
 
     patient_id = patient_dir.name
     summary = _read_json(Path(summary_dir) / f"{patient_id}.json") if summary_dir else None
-    summary = summary or _read_json(patient_dir / "keywords.json") or {"patient_id": patient_id}
+    summary = summary or _read_json(patient_dir / "keywords.json")
+    if not isinstance(summary, dict):
+        summary = {}
+    summary.setdefault("patient_id", patient_id)  # never let the id be null (drives routing)
 
-    model = build_report_model(
+    return build_report_model(
         patient_summary=summary,
         ranked=ranked,
         eligibility_by_id=eligibility_by_id,
@@ -240,7 +250,31 @@ def profile_to_html_report(
         generated_at=generated_at or datetime.now().strftime("%Y-%m-%d %H:%M"),
         run_info=run_info,
     )
+
+
+def profile_to_html_report(
+    patient_dir: str | Path,
+    *,
+    summary_dir: str | Path | None = None,
+    trial_meta_folders: list[str | Path] | None = None,
+    generated_at: str | None = None,
+    run_info: Mapping[str, Any] | None = None,
+) -> str:
+    """Read a patient's result dir and return a self-contained single-patient report."""
+    model = profile_to_model(
+        patient_dir,
+        summary_dir=summary_dir,
+        trial_meta_folders=trial_meta_folders,
+        generated_at=generated_at,
+        run_info=run_info,
+    )
     return render_html_report(model)
+
+
+def render_unified_html(patient_models: Sequence[Mapping[str, Any]], generated_at: str) -> str:
+    """One self-contained report over many patients: a front page listing every
+    patient that drills into the per-patient view client-side."""
+    return render_html_report({"patients": list(patient_models), "generated_at": generated_at})
 
 
 _INDEX_TEMPLATE = """<!doctype html>
