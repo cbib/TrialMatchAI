@@ -51,3 +51,14 @@ orchestration stages and evaluation metrics are documented for programmatic use.
         - parse_qrels
         - corpus_ncts
         - evaluate
+
+## HTML report
+
+::: trialmatchai.interop.exporters.html_report
+    options:
+      members:
+        - build_report_model
+        - profile_to_model
+        - profile_to_html_report
+        - render_unified_html
+        - render_html_report

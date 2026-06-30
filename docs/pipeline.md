@@ -71,6 +71,22 @@ These are thin wrappers over the pipeline that add their own setup:
 Every command is idempotent and resumable: re-running continues from the last
 completed work.
 
+## Reports
+
+Matching writes a self-contained, offline HTML report (no server, no build step,
+no CDN). It is emitted automatically at the end of a run —
+`<output_dir>/<patient_id>/report.html` per patient and `<output_dir>/index.html`
+as a front page across all patients — and can be regenerated from existing results
+without re-matching:
+
+```bash
+trialmatchai report --patient 1009     # one patient        -> <output_dir>/1009/report.html
+trialmatchai report --all              # unified front page -> <output_dir>/index.html
+```
+
+Auto-emit is gated by `reporting.emit_html` (default `true`; disabled for `trec`
+benchmark sweeps).
+
 ## Python API
 
 ```python
