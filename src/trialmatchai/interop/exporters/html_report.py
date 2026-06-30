@@ -120,7 +120,6 @@ def build_report_model(
                 "meta": meta,
                 "metadata_available": bool(meta),
                 "final_decision": elig.get("Final Decision") if reasoning_ok else None,
-                "recap": elig.get("Recap") if reasoning_ok else None,
                 "inclusion": _criteria(elig.get("Inclusion_Criteria_Evaluation")) if reasoning_ok else [],
                 "exclusion": _criteria(elig.get("Exclusion_Criteria_Evaluation")) if reasoning_ok else [],
                 "reasoning_available": reasoning_ok,

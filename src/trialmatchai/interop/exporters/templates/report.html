@@ -83,7 +83,6 @@
 
   /* ---- expanded body ---- */
   .body { padding: 0 4px 22px 44px; }
-  .recap { background: var(--fill); border-left: 3px solid var(--accent); padding: 8px 12px; margin: 0 0 8px; max-width: 66ch; }
   .metrics { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; margin-bottom: 16px; }
   .facts { margin-bottom: 24px; }
   .summary-txt { max-width: 66ch; color: #333; margin: 0 0 10px; }
@@ -271,7 +270,6 @@ function renderTrial(t) {
   ]);
 
   const body = el("div", { class: "body" });
-  if (t.recap) body.append(el("div", { class: "recap", text: t.recap }));
   if (t.reasoning_available) {
     const c = critCounts(t), total = c.good + c.bad + c.warn, parts = [];
     if (total) parts.push(c.good + " of " + total + " criteria met");
