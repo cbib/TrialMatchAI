@@ -214,6 +214,12 @@ class QueryExpansionSettings(BaseModel):
     trust_remote_code: bool = False
 
 
+class ReportingSettings(BaseModel):
+    """HTML match-report generation."""
+
+    emit_html: bool = True
+
+
 class TrialMatchSettings(BaseModel):
     entity_extraction: EntityExtractionSettings = Field(
         default_factory=EntityExtractionSettings
@@ -234,6 +240,7 @@ class TrialMatchSettings(BaseModel):
     query_expansion: QueryExpansionSettings = Field(
         default_factory=QueryExpansionSettings
     )
+    reporting: ReportingSettings = Field(default_factory=ReportingSettings)
     use_cot_reasoning: bool = True
     rag: RagSettings
     vllm: VllmSettings

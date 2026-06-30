@@ -44,6 +44,25 @@ if TYPE_CHECKING:
 logger = setup_logging(__name__)
 
 
+def _maybe_write_report(output_folder, config) -> None:
+    """Best-effort HTML report next to ranked_trials.json; never raises so a
+    successfully-matched patient is not marked failed by a reporting error."""
+    if not config.get("reporting", {}).get("emit_html", True):
+        return
+    try:
+        from trialmatchai.interop.exporters.html_report import profile_to_html_report
+
+        trials_json = config.get("paths", {}).get("trials_json_folder", "data/trials_jsons")
+        html = profile_to_html_report(
+            output_folder,
+            summary_dir=config.get("patient_inputs", {}).get("summary_dir"),
+            trial_meta_folders=[str(Path(trials_json).parent / "processed_trials"), trials_json],
+        )
+        Path(output_folder, "report.html").write_text(html, encoding="utf-8")
+    except Exception:
+        logger.warning("HTML report generation failed for %s", output_folder, exc_info=True)
+
+
 def run_first_level_search(
     keywords: Dict,
     output_folder: str,
@@ -539,6 +558,7 @@ def main_pipeline(
                     str(output_folder / "ranked_trials.json"),
                 )
 
+            _maybe_write_report(output_folder, config)
             logger.info("Pipeline completed for patient %s", patient_id)
             completed_patients += 1
         except Exception:

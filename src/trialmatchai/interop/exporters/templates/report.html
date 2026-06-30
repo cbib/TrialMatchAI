@@ -25,7 +25,6 @@
   header.band .eyebrow { font: 600 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
   header.band h1 { margin: 8px 0 4px; font-size: 22px; }
   .pt-meta { color: var(--muted); font-size: 14px; }
-  .pt-meta .mono { font-family: var(--mono); }
   .narrative { max-width: 66ch; color: #333; margin: 12px 0 6px; }
   .note { max-width: 66ch; color: var(--faint); font-size: 13px; margin-top: 10px; border-left: 3px solid var(--rule); padding-left: 10px; }
   .chips { margin: 10px 0 0; }
@@ -33,13 +32,15 @@
           color: #333; border-radius: 999px; padding: 2px 10px; margin: 0 6px 6px 0; }
 
   .toolbar { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--rule);
-             display: flex; gap: 12px; align-items: center; padding: 12px 0; z-index: 5; flex-wrap: wrap; }
-  .toolbar input[type=search] { flex: 1 1 240px; min-width: 200px; font-size: 14px; padding: 8px 12px;
+             display: flex; gap: 10px 14px; align-items: center; padding: 12px 0; z-index: 5; flex-wrap: wrap; }
+  .toolbar input[type=search] { flex: 1 1 220px; min-width: 180px; font-size: 14px; padding: 8px 12px;
              border: 1px solid var(--rule); border-radius: 8px; }
+  .toolbar label { font-size: 12px; color: var(--muted); display: inline-flex; gap: 5px; align-items: center; }
+  .toolbar select { font-size: 13px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 8px; background: var(--bg); color: #333; }
   .toolbar button { font-size: 13px; padding: 7px 12px; border: 1px solid var(--rule); background: var(--bg);
              border-radius: 8px; cursor: pointer; color: #333; }
   .toolbar button:hover { background: var(--fill); }
-  .toolbar .count { color: var(--muted); font-size: 13px; margin-left: auto; }
+  .toolbar .count { color: var(--muted); font-size: 13px; margin-left: auto; white-space: nowrap; }
 
   details.trial { border-bottom: 1px solid var(--rule); }
   details.trial > summary { list-style: none; cursor: pointer; display: grid;
@@ -52,6 +53,9 @@
   .t-sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
   .t-sub .mono { font-family: var(--mono); }
   .t-sub .dot { color: var(--faint); padding: 0 6px; }
+  .critsum { font-size: 12px; margin-top: 5px; }
+  .critsum span { margin-right: 10px; font-weight: 600; }
+  .cs-good { color: var(--good); } .cs-bad { color: var(--bad); } .cs-warn { color: var(--warn); }
 
   .scoreblock { text-align: right; min-width: 132px; }
   .verdict { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 6px; padding: 3px 9px; color: #fff; white-space: nowrap; }
@@ -79,6 +83,7 @@
   .crit .ctext { font-size: 14px; }
   .crit .just { color: var(--muted); font-size: 13px; margin-top: 3px; }
   .unavailable { color: var(--faint); font-style: italic; padding: 6px 0; }
+  .empty { color: var(--faint); padding: 24px 4px; }
   details.cot { margin-top: 16px; }
   details.cot > summary { cursor: pointer; color: var(--accent); font-size: 13px; }
   details.cot pre { white-space: pre-wrap; font: 12.5px/1.5 var(--mono); color: #444; background: var(--fill);
@@ -88,9 +93,12 @@
 
   @media print {
     .no-print { display: none !important; }
+    body { font-size: 11pt; }
+    .wrap { max-width: none; }
     details.trial, details.cot, .crit { break-inside: avoid; page-break-inside: avoid; }
-    .toolbar { position: static; }
-    a::after { content: " (" attr(href) ")"; font-size: 11px; color: #666; }
+    .verdict, .relbar > i, .cl, .cs-good, .cs-bad, .cs-warn { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    a[href]::after { content: " (" attr(href) ")"; font-size: 9pt; color: #555; }
+    @page { margin: 1.6cm; }
   }
 </style>
 </head>
@@ -98,7 +106,14 @@
 <div class="wrap">
   <header class="band" id="report-header"></header>
   <div class="toolbar no-print">
-    <input id="search" type="search" placeholder="Search trials by title, id, or condition…" aria-label="Search trials">
+    <input id="search" type="search" placeholder="Search title, id, or condition…" aria-label="Search trials">
+    <label>Status <select id="f-status" aria-label="Filter by status"></select></label>
+    <label>Phase <select id="f-phase" aria-label="Filter by phase"></select></label>
+    <label>Verdict <select id="f-decision" aria-label="Filter by verdict"></select></label>
+    <label>Sort <select id="sort" aria-label="Sort trials">
+      <option value="rank">Rank</option>
+      <option value="relevance">Relevance</option>
+    </select></label>
     <button id="expand-all" type="button">Expand all</button>
     <button id="collapse-all" type="button">Collapse all</button>
     <span class="count" id="count" aria-live="polite"></span>
@@ -111,6 +126,8 @@
 <script>
 "use strict";
 const DATA = JSON.parse(document.getElementById("report-data").textContent);
+const TRIALS = DATA.trials || [];
+const maxRel = Math.max(1e-9, ...TRIALS.map(t => Number(t.reranker_score) || 0));
 
 function el(tag, attrs, kids) {
   const n = document.createElement(tag);
@@ -122,9 +139,8 @@ function el(tag, attrs, kids) {
   for (const c of (kids || [])) if (c != null) n.append(c);
   return n;
 }
-function chips(items) {
-  return (items || []).map(c => el("span", { class: "chip", text: c }));
-}
+const chips = items => (items || []).map(c => el("span", { class: "chip", text: c }));
+
 function verdictClass(d) {
   const s = (d || "").toLowerCase();
   if (s.startsWith("eligible")) return "v-eligible";
@@ -140,30 +156,40 @@ function classKind(c) {
   if (s === "unclear") return "cl-warn";
   return "cl-neutral";
 }
+function critCounts(t) {
+  let good = 0, bad = 0, warn = 0;
+  for (const it of [...(t.inclusion || []), ...(t.exclusion || [])]) {
+    const k = classKind(it.classification);
+    if (k === "cl-good") good++; else if (k === "cl-bad") bad++; else if (k === "cl-warn") warn++;
+  }
+  return { good, bad, warn };
+}
 
-// --- header ---
+// --- header / footer ---
 function renderHeader() {
   const p = DATA.patient || {};
   const h = document.getElementById("report-header");
   h.append(
     el("div", { class: "eyebrow", text: "TrialMatchAI — Match Report" }),
     el("h1", { text: "Patient " + (p.id != null ? p.id : "—") }),
-    el("div", { class: "pt-meta" }, [
-      p.age != null ? document.createTextNode("Age " + p.age + "  ·  ") : null,
-      document.createTextNode("Sex " + (p.sex || "—")),
-    ]),
+    el("div", { class: "pt-meta", text: (p.age != null ? "Age " + p.age + "  ·  " : "") + "Sex " + (p.sex || "—") }),
   );
   if ((p.main_conditions || []).length || (p.other_conditions || []).length)
     h.append(el("div", { class: "chips" }, chips([...(p.main_conditions || []), ...(p.other_conditions || [])])));
   if (p.narrative) h.append(el("p", { class: "narrative", text: p.narrative }));
   h.append(el("p", { class: "note", text:
-    "Trials are ordered by eligibility then retrieval relevance. The eligibility verdict is an automated "
-    + "assessment from the model's reasoning — decision support, not a clinical eligibility determination." }));
+    "Trials are ranked by how well they match this patient. Each eligibility verdict is "
+    + "AI-generated and meant as guidance, not a medical decision." }));
+}
+function renderFooter() {
+  const r = DATA.run || {};
+  const bits = ["Generated " + (DATA.generated_at || "")];
+  if (r.model) bits.push("model " + r.model);
+  if (r.git) bits.push("git " + r.git);
+  document.getElementById("report-footer").textContent = bits.join("  ·  ") + "  ·  TrialMatchAI";
 }
 
 // --- one trial row ---
-const maxRel = Math.max(1e-9, ...DATA.trials.map(t => Number(t.reranker_score) || 0));
-
 function critList(title, items) {
   if (!items || !items.length) return null;
   const rows = items.map(it => el("div", { class: "crit" }, [
@@ -175,14 +201,21 @@ function critList(title, items) {
   ]));
   return el("div", {}, [el("div", { class: "crit-h", text: title }), ...rows]);
 }
-
 function renderTrial(t) {
   const m = t.meta || {};
   const title = m.brief_title || (t.metadata_available ? t.trial_id : t.trial_id + " (no metadata available)");
-  const sub = el("div", { class: "t-sub" });
-  sub.append(el("span", { class: "mono", text: t.trial_id }));
-  for (const v of [m.phase, m.overall_status, m.study_type]) if (v) {
+  const sub = el("div", { class: "t-sub" }, [el("span", { class: "mono", text: t.trial_id })]);
+  for (const v of [m.phase, m.overall_status, m.study_type]) if (v)
     sub.append(el("span", { class: "dot", text: "·" }), document.createTextNode(v));
+
+  const mid = el("div", {}, [el("h3", { class: "t-title", text: title }), sub]);
+  if (t.reasoning_available) {
+    const c = critCounts(t);
+    mid.append(el("div", { class: "critsum" }, [
+      el("span", { class: "cs-good", text: "✓ " + c.good + " met" }),
+      c.warn ? el("span", { class: "cs-warn", text: "? " + c.warn + " unclear" }) : null,
+      c.bad ? el("span", { class: "cs-bad", text: "✗ " + c.bad + " against" }) : null,
+    ]));
   }
 
   const rel = Math.round(((Number(t.reranker_score) || 0) / maxRel) * 100);
@@ -195,18 +228,11 @@ function renderTrial(t) {
     ]),
   ]);
 
-  const summary = el("summary", {}, [
-    el("div", { class: "rank", text: t.rank }),
-    el("div", {}, [el("h3", { class: "t-title", text: title }), sub]),
-    scoreblock,
-  ]);
-
   const body = el("div", { class: "body" });
   if (m.brief_summary) body.append(el("p", { class: "summary-txt", text: m.brief_summary }));
   if (m.condition) body.append(el("div", { class: "kv" }, [el("b", { text: "Conditions: " }), document.createTextNode(m.condition)]));
   if ((m.interventions || []).length) body.append(el("div", { class: "kv" }, [el("b", { text: "Interventions: " }), document.createTextNode(m.interventions.join(", "))]));
   if (t.recap) body.append(el("div", { class: "recap", text: t.recap }));
-
   if (!t.reasoning_available) {
     body.append(el("p", { class: "unavailable", text: "Per-criterion reasoning unavailable for this trial." }));
   } else {
@@ -220,47 +246,71 @@ function renderTrial(t) {
       body.append(d);
     }
   }
-
   const det = el("details", { class: "trial" });
-  det.dataset.text = (title + " " + t.trial_id + " " + (m.condition || "")).toLowerCase();
-  det.append(summary, body);
+  det.append(el("summary", {}, [el("div", { class: "rank", text: t.rank }), mid, scoreblock]), body);
   return det;
 }
 
-// --- list + search ---
-const list = document.getElementById("trial-list");
-const countEl = document.getElementById("count");
-function render(query) {
-  list.textContent = "";
-  const q = (query || "").trim().toLowerCase();
-  let shown = 0;
-  for (const t of DATA.trials) {
-    if (q) {
-      const hay = (t.meta.brief_title || "") + " " + t.trial_id + " " + (t.meta.condition || "");
-      if (!hay.toLowerCase().includes(q)) continue;
-    }
-    list.append(renderTrial(t));
-    shown++;
-  }
-  countEl.textContent = "Showing " + shown + " of " + DATA.trials.length + " trials";
+// --- filter dropdowns ---
+function fillSelect(id, values) {
+  const sel = document.getElementById(id);
+  for (const v of [...new Set(values)].filter(Boolean).sort())
+    sel.append(el("option", { value: v, text: v }));
+}
+fillSelect("f-status", TRIALS.map(t => (t.meta || {}).overall_status));
+fillSelect("f-phase", TRIALS.map(t => (t.meta || {}).phase));
+fillSelect("f-decision", TRIALS.map(t => t.final_decision));
+for (const id of ["f-status", "f-phase", "f-decision"]) {
+  const sel = document.getElementById(id);
+  sel.insertBefore(el("option", { value: "", text: "All" }), sel.firstChild);
+  sel.value = "";
 }
 
-function renderFooter() {
-  const r = DATA.run || {};
-  const bits = ["Generated " + (DATA.generated_at || "")];
-  if (r.model) bits.push("model " + r.model);
-  if (r.git) bits.push("git " + r.git);
-  document.getElementById("report-footer").textContent = bits.join("  ·  ") + "  ·  TrialMatchAI";
+// --- filter -> sort -> render pipeline ---
+const list = document.getElementById("trial-list");
+const countEl = document.getElementById("count");
+function apply() {
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  const fs = document.getElementById("f-status").value;
+  const fp = document.getElementById("f-phase").value;
+  const fd = document.getElementById("f-decision").value;
+  const sort = document.getElementById("sort").value;
+
+  let rows = TRIALS.filter(t => {
+    const m = t.meta || {};
+    if (fs && m.overall_status !== fs) return false;
+    if (fp && m.phase !== fp) return false;
+    if (fd && t.final_decision !== fd) return false;
+    if (q) {
+      const hay = ((m.brief_title || "") + " " + t.trial_id + " " + (m.condition || "")).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  if (sort === "relevance") rows = rows.slice().sort((a, b) => (b.reranker_score || 0) - (a.reranker_score || 0));
+  else rows = rows.slice().sort((a, b) => a.rank - b.rank);
+
+  list.textContent = "";
+  if (!rows.length) list.append(el("p", { class: "empty", text: "No trials match these filters." }));
+  else for (const t of rows) list.append(renderTrial(t));
+  countEl.textContent = "Showing " + rows.length + " of " + TRIALS.length + " trials";
 }
 
 renderHeader();
-render("");
+apply();
 renderFooter();
-document.getElementById("search").addEventListener("input", e => render(e.target.value));
+for (const id of ["search", "f-status", "f-phase", "f-decision", "sort"])
+  document.getElementById(id).addEventListener("input", apply);
 document.getElementById("expand-all").addEventListener("click", () =>
   list.querySelectorAll("details.trial").forEach(d => d.open = true));
 document.getElementById("collapse-all").addEventListener("click", () =>
   list.querySelectorAll("details.trial").forEach(d => d.open = false));
+
+// expand everything for print, restore afterward
+window.addEventListener("beforeprint", () =>
+  document.querySelectorAll("details").forEach(d => { d.dataset.wasOpen = d.open ? "1" : "0"; d.open = true; }));
+window.addEventListener("afterprint", () =>
+  document.querySelectorAll("details").forEach(d => { if (d.dataset.wasOpen === "0") d.open = false; delete d.dataset.wasOpen; }));
 </script>
 </body>
 </html>

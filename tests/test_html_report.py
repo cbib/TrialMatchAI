@@ -145,3 +145,45 @@ def test_profile_to_html_report_end_to_end(tmp_path):
     assert "Targeted Therapy in EGFR-mutant NSCLC" in html  # joined metadata
     assert "NL99" in html  # graceful degrade for the no-metadata trial
     assert "Patient" in html
+
+
+def test_render_index_html_links_patients():
+    from trialmatchai.interop.exporters.html_report import render_index_html
+
+    html = render_index_html(
+        [
+            {"patient_id": "P1", "n_trials": 5, "href": "P1/report.html"},
+            {"patient_id": "P2", "n_trials": 3, "href": "P2/report.html"},
+        ],
+        "2026-06-30 12:00",
+    )
+    assert html.lstrip().startswith("<!doctype html>")
+    assert 'href="P1/report.html"' in html and "Patient P1" in html
+    assert "2 patients" in html
+
+
+def test_reporting_default_on_and_trec_disables():
+    from types import SimpleNamespace
+
+    from trialmatchai.config.settings import ReportingSettings
+    from trialmatchai.trec.runner import _track_config
+
+    assert ReportingSettings().emit_html is True  # interactive runs emit by default
+    spec = SimpleNamespace(db_path="d", profile_dir="p", summary_dir="s", output_dir="o")
+    cfg = _track_config({}, spec)
+    assert cfg["reporting"]["emit_html"] is False  # TREC sweep does not
+
+
+def test_maybe_write_report_respects_gate(tmp_path):
+    from trialmatchai.main import _maybe_write_report
+
+    pdir = tmp_path / "P1"
+    pdir.mkdir()
+    (pdir / "ranked_trials.json").write_text(
+        json.dumps({"RankedTrials": [{"TrialID": "NCT1", "Score": 1.0}]}), encoding="utf-8"
+    )
+    _maybe_write_report(pdir, {"reporting": {"emit_html": False}})
+    assert not (pdir / "report.html").exists()  # gated off
+    # default-on; never raises even with no metadata folder present
+    _maybe_write_report(pdir, {"paths": {"trials_json_folder": str(tmp_path / "meta")}, "patient_inputs": {}})
+    assert (pdir / "report.html").exists()

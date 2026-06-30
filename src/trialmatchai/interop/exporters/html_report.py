@@ -9,10 +9,11 @@ templating to escape and no templating dependency.
 
 from __future__ import annotations
 
+import html as _html
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 _TEMPLATE = Path(__file__).parent / "templates" / "report.html"
 _DATA_PLACEHOLDER = "__REPORT_DATA__"
@@ -201,3 +202,50 @@ def profile_to_html_report(
         run_info=run_info,
     )
     return render_html_report(model)
+
+
+_INDEX_TEMPLATE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrialMatchAI — Match Reports</title>
+<style>
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+         color:#1a1a1a; line-height:1.5; }
+  .wrap { max-width:720px; margin:0 auto; padding:32px 20px 64px; }
+  .eyebrow { font:600 12px/1 ui-monospace,Menlo,Consolas,monospace; letter-spacing:.12em;
+             text-transform:uppercase; color:#0072b2; }
+  h1 { font-size:22px; margin:8px 0 20px; }
+  ul { list-style:none; margin:0; padding:0; }
+  li { border-bottom:1px solid #e2e2e2; padding:14px 4px; display:flex; align-items:baseline; gap:12px; }
+  li a { color:#0072b2; text-decoration:none; font-weight:600; }
+  li a:hover { text-decoration:underline; }
+  .n { color:#5a5a5a; font-size:13px; margin-left:auto; font-family:ui-monospace,Menlo,Consolas,monospace; }
+  footer { color:#8a8a8a; font:12px/1.5 ui-monospace,Menlo,Consolas,monospace; margin-top:18px; }
+</style></head><body><div class="wrap">
+  <div class="eyebrow">TrialMatchAI</div>
+  <h1>Match Reports (__N__ patients)</h1>
+  <ul>
+__ITEMS__
+  </ul>
+  <footer>Generated __WHEN__</footer>
+</div></body></html>"""
+
+
+def render_index_html(entries: Sequence[Mapping[str, Any]], generated_at: str) -> str:
+    """A minimal index page linking each patient's ``report.html``.
+
+    ``entries`` items: ``{"patient_id", "n_trials", "href"}``.
+    """
+    items = "\n".join(
+        '    <li><a href="{href}">Patient {pid}</a><span class="n">{n} trials</span></li>'.format(
+            href=_html.escape(str(e["href"]), quote=True),
+            pid=_html.escape(str(e["patient_id"])),
+            n=int(e.get("n_trials", 0)),
+        )
+        for e in entries
+    )
+    return (
+        _INDEX_TEMPLATE.replace("__ITEMS__", items)
+        .replace("__WHEN__", _html.escape(str(generated_at)))
+        .replace("__N__", str(len(entries)))
+    )
