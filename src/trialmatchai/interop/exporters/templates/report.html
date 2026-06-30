@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrialMatchAI — Match Report</title>
+<style>
+  :root {
+    /* spacing — single 4px ramp; every margin/padding/gap resolves to one of these */
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px;
+    /* neutral slate ramp */
+    --n0:#ffffff; --n50:#f8fafc; --n100:#f1f5f9; --n200:#e2e8f0;
+    --n500:#64748b; --n700:#334155; --n900:#0f172a;
+    /* one interactive accent (links, disclosure, focus only — never on status) */
+    --accent:#0072b2;
+    /* status / verdict / criterion tints — always paired with a glyph + word */
+    --good-bg:#e0f2ec; --good-tx:#00674e;
+    --bad-bg:#fbe9dd;  --bad-tx:#9a4500;
+    --warn-bg:#fbf0d8; --warn-tx:#7a5a00;
+    --neu-bg:#eef0f2;  --neu-tx:#475569;
+    /* radii */
+    --r-pill:999px; --r-card:8px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--n0); color:var(--n700);
+         font-family:var(--sans); font-size:14px; line-height:20px;
+         -webkit-font-smoothing:antialiased; }
+  a { color: var(--accent); }
+
+  /* ---- overview / front page ---- */
+  .ov { max-width:880px; margin-inline:auto; padding:var(--s5); }
+  .ov-head { margin-bottom:var(--s5); }
+  .ov-head h1 { margin:0; font-size:20px; line-height:28px; font-weight:600; color:var(--n900); }
+  .ov-head .ov-sub { color:var(--n500); font-size:12px; line-height:16px; font-weight:500;
+                     font-variant-numeric:tabular-nums; margin-top:var(--s1); }
+  .plist { border-top:1px solid var(--n200); }
+  .prow { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:var(--s4); align-items:center;
+          padding:var(--s4) var(--s2); border-bottom:1px solid var(--n200); text-decoration:none; color:inherit; }
+  .prow:hover { background:var(--n50); }
+  .prow:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; border-radius:var(--r-card); }
+  .pinfo { min-width:0; }
+  .pname { font-size:16px; line-height:24px; font-weight:600; color:var(--n900); }
+  .pmeta { color:var(--n500); font-size:12px; line-height:16px; font-weight:500; margin-top:2px;
+           font-variant-numeric:tabular-nums; }
+  .tally { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:var(--s1); max-width:320px; }
+  .tl { font-size:12px; line-height:16px; font-weight:500; border-radius:var(--r-pill);
+        padding:2px var(--s2); white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .tl-good { background:var(--good-bg); color:var(--good-tx); }
+  .tl-warn { background:var(--warn-bg); color:var(--warn-tx); }
+  .tl-bad { background:var(--bad-bg); color:var(--bad-tx); }
+  .tl-neutral { background:var(--neu-bg); color:var(--neu-tx); }
+  .chev { color:var(--n500); font-size:18px; line-height:1; }
+
+  /* ---- back to overview ---- */
+  .topbar { max-width:1080px; margin-inline:auto; padding:var(--s4) var(--s5) 0; }
+  .topbar .back { display:inline-flex; align-items:center; gap:var(--s1); color:var(--accent);
+                  text-decoration:none; font-size:13px; line-height:20px; font-weight:500; }
+  .topbar .back:hover { text-decoration:underline; }
+
+  /* ---- two-column patient shell ---- */
+  .report { display:grid; grid-template-columns:300px minmax(0,720px); gap:var(--s6);
+            max-width:1080px; margin-inline:auto; padding:var(--s5); align-items:start; }
+  .sidebar { position:sticky; top:var(--s5); align-self:start; max-height:calc(100vh - var(--s7)); overflow-y:auto; }
+  .brand-logo { height:52px; width:auto; max-width:100%; display:block; margin-bottom:var(--s5); }
+
+  /* ---- patient context card ---- */
+  .pcard { border:1px solid var(--n200); border-radius:var(--r-card); background:var(--n0);
+           box-shadow:0 1px 2px rgba(15,23,42,.06); padding:var(--s5); }
+  .pcard .pid { font-size:16px; line-height:24px; font-weight:600; color:var(--n900); }
+  .pcard .pdem { color:var(--n500); font-size:12px; line-height:16px; font-weight:500;
+                 margin-top:var(--s1); font-variant-numeric:tabular-nums; }
+  .pcard h2, .crit-h { font-size:12px; line-height:16px; font-weight:500; letter-spacing:.08em;
+                       text-transform:uppercase; color:var(--n500); }
+  .pcard h2 { margin:var(--s5) 0 var(--s2); }
+  .pcard .narrative { font-size:14px; line-height:20px; color:var(--n700); margin:0; max-width:70ch; }
+  .chips { display:flex; flex-wrap:wrap; gap:var(--s2); }
+  .chip { font-size:12px; line-height:16px; background:var(--n50); border:1px solid var(--n200);
+          color:var(--n700); border-radius:var(--r-pill); padding:2px var(--s2); }
+
+  /* ---- main column ---- */
+  /* header band: same height as the logo so the H1 centres against it and the
+     toolbar lines up with the patient card across the two columns */
+  .main-head { min-height:52px; display:flex; align-items:center; }
+  .main-head h1 { margin:0; font-size:20px; line-height:28px; font-weight:600; color:var(--n900); }
+  .toolbar { position:sticky; top:0; background:var(--n0); border-bottom:1px solid var(--n200);
+             display:flex; flex-direction:column; gap:var(--s2); padding:var(--s3) 0; z-index:5; margin-top:var(--s5); }
+  .controls { display:flex; gap:var(--s2); align-items:center; flex-wrap:wrap; }
+  .search { display:flex; align-items:center; flex:1 1 220px; min-width:170px; height:36px;
+            border:1px solid var(--n200); border-radius:var(--r-card); padding:0 var(--s2) 0 var(--s3); background:var(--n0); }
+  .search .mag { color:var(--n500); font-size:16px; }
+  .search input { border:0; outline:0; flex:1; font-size:14px; padding:0 var(--s2); background:transparent; color:var(--n900); }
+  .toolbar select { height:36px; font-size:14px; padding:0 var(--s3); border:1px solid var(--n200);
+                    border-radius:var(--r-card); background:var(--n0); color:var(--n700); }
+  .ghost { height:36px; border:1px solid var(--n200); background:var(--n0); border-radius:var(--r-card);
+           font-size:14px; padding:0 var(--s3); cursor:pointer; color:var(--n700); margin-left:auto; }
+  .ghost:hover { background:var(--n50); }
+  .search:focus-within, .toolbar select:focus-visible, .ghost:focus-visible {
+    outline:2px solid var(--accent); outline-offset:2px; border-color:var(--accent); }
+  .statusline { display:flex; align-items:center; gap:var(--s3); font-size:12px; line-height:16px; color:var(--n500); }
+  .statusline .count { font-variant-numeric:tabular-nums; }
+  .linkbtn { border:0; background:0; color:var(--accent); font-size:12px; cursor:pointer; padding:0; }
+  @media (max-width:720px) { .search { flex-basis:100%; } }
+
+  /* ---- trial card (flat divided list; accent marks the open card) ---- */
+  details.trial { border-bottom:1px solid var(--n200); border-left:2px solid transparent; }
+  details.trial[open] { border-left-color:var(--accent); }
+  details.trial > summary { list-style:none; cursor:pointer; display:grid;
+            grid-template-columns:32px minmax(0,1fr) auto; column-gap:var(--s4);
+            align-items:start; padding:var(--s4) 0; }
+  details.trial > summary::-webkit-details-marker { display:none; }
+  details.trial > summary:hover { background:var(--n50); }
+  summary:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+  .rank { font-size:20px; line-height:24px; font-weight:600; color:var(--n900);
+          text-align:right; font-variant-numeric:tabular-nums; }
+  .identity { min-width:0; }
+  .t-title { margin:0; font-size:16px; line-height:24px; font-weight:600; color:var(--n900); }
+  .t-sub { color:var(--n500); font-size:12px; line-height:16px; font-weight:500; margin-top:var(--s1); }
+  .t-sub .mono { font-family:var(--mono); }
+  .t-sub .dot { color:var(--n200); padding:0 var(--s2); }
+  .t-sub .tlink { color:var(--accent); text-decoration:none; }
+  .t-sub .tlink:hover { text-decoration:underline; }
+  .t-sub .ext { color:var(--n500); }
+  .rail { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:var(--s2); }
+
+  /* unified pill — status, verdict, and criterion pills share one shape + four tints */
+  .statuspill, .verdict, .cl {
+    font-size:12px; line-height:16px; font-weight:500; border-radius:var(--r-pill);
+    padding:var(--s1) var(--s3); white-space:nowrap; display:inline-block; }
+  .st-good, .v-eligible, .v-likely-eligible, .cl-good { background:var(--good-bg); color:var(--good-tx); }
+  .st-warn, .v-likely-ineligible, .cl-warn { background:var(--warn-bg); color:var(--warn-tx); }
+  .v-ineligible, .cl-bad { background:var(--bad-bg); color:var(--bad-tx); }
+  .st-neutral, .v-unknown, .cl-neutral { background:var(--neu-bg); color:var(--neu-tx); }
+
+  /* ---- expanded body: everything starts on the 48px card keyline ---- */
+  .body { padding:0 0 var(--s5) var(--s7); }
+  .metrics { color:var(--n500); font-size:12px; line-height:16px; font-variant-numeric:tabular-nums; margin-bottom:var(--s4); }
+  .facts { margin-bottom:var(--s5); }
+  /* facts and criteria share ONE 120px label column so values + criterion text line up */
+  .kv, .crit { display:grid; grid-template-columns:120px minmax(0,1fr); column-gap:var(--s4); align-items:start; }
+  .kv { padding:var(--s1) 0; }
+  .kv b { font-size:12px; line-height:16px; font-weight:500; color:var(--n500); }
+  .kv span { font-size:14px; line-height:20px; color:var(--n700); max-width:70ch; }
+  .critgroup + .critgroup { margin-top:var(--s5); }
+  .crit-h { margin:0 0 var(--s2); }
+  .crit { padding:var(--s3) 0; border-top:1px solid var(--n200); }
+  .cl { justify-self:start; }
+  .crit .ctext { font-size:14px; line-height:20px; color:var(--n700); }
+  .crit .just { color:var(--n500); font-size:14px; line-height:20px; margin-top:var(--s1); }
+  .unavailable { color:var(--n500); font-weight:500; padding:var(--s1) 0; }
+  .empty { color:var(--n500); padding:var(--s5); }
+
+  /* ---- model reasoning (third-level disclosure: supporting, not a decision driver) ---- */
+  details.cot { margin-top:var(--s5); }
+  details.cot > summary { list-style:none; cursor:pointer; display:inline-flex; align-items:center; gap:var(--s2);
+            font-size:12px; line-height:16px; font-weight:600; color:var(--accent); padding:var(--s1) var(--s3);
+            border:1px solid var(--n200); border-radius:var(--r-pill); background:var(--n0); user-select:none; }
+  details.cot > summary::-webkit-details-marker { display:none; }
+  details.cot > summary:hover { background:var(--n50); }
+  details.cot > summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-color:var(--accent); }
+  details.cot .cot-ic { display:inline-block; transition:transform .15s ease; font-size:10px; color:var(--n500); }
+  details.cot[open] .cot-ic { transform:rotate(90deg); }
+  details.cot[open] > summary { margin-bottom:var(--s2); }
+  .cot-panel { white-space:pre-wrap; font-size:14px; line-height:22px; color:var(--n700);
+            background:var(--n50); border:1px solid var(--n200); border-left:3px solid var(--accent);
+            border-radius:var(--r-card); padding:var(--s4); max-width:70ch; max-height:340px; overflow-y:auto; }
+
+  footer.band { border-top:1px solid var(--n200); margin-top:var(--s5); padding:var(--s4) 0; }
+  footer.band .note { font-size:14px; line-height:20px; color:var(--n500); margin-bottom:var(--s1); }
+  footer.band .gen { font-size:12px; line-height:16px; color:var(--n500); font-variant-numeric:tabular-nums; }
+
+  @media (max-width:880px) {
+    .report { grid-template-columns:1fr; gap:var(--s5); }
+    .sidebar { position:static; max-height:none; overflow:visible; }
+  }
+  @media print {
+    body { font-size:11pt; background:var(--n0); }
+    .report { display:block; max-width:none; padding:0; }
+    .sidebar { position:static; top:auto; max-height:none; overflow:visible; break-after:avoid; margin-bottom:var(--s4); }
+    .no-print { display:none !important; }
+    details.trial, details.cot, .crit { break-inside:avoid; page-break-inside:avoid; }
+    .verdict, .statuspill, .cl { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    a[href]::after { content:" (" attr(href) ")"; font-size:9pt; color:#555; }
+    @page { margin:1.6cm; }
+  }
+</style>
+</head>
+<body>
+<!-- front page: list of all patients (hidden for single-patient reports) -->
+<div id="overview" hidden></div>
+
+<!-- per-patient view -->
+<div id="patient-view" hidden>
+  <div class="topbar no-print" id="topbar" hidden><a class="back" href="#/">‹ All patients</a></div>
+  <div class="report">
+    <aside class="sidebar">
+      <img class="brand-logo" src="__LOGO_SRC__" alt="TrialMatchAI">
+      <div class="pcard" id="patient-card"></div>
+    </aside>
+    <main class="main">
+      <div class="main-head"><h1>Matched clinical trials</h1></div>
+      <div class="toolbar no-print">
+        <div class="controls">
+          <div class="search"><span class="mag" aria-hidden="true">⌕</span>
+            <input id="search" type="search" placeholder="Search title, id, or condition…" aria-label="Search trials"></div>
+          <select id="f-status" aria-label="Filter by status"></select>
+          <select id="f-phase" aria-label="Filter by phase"></select>
+          <select id="f-decision" aria-label="Filter by verdict"></select>
+          <button id="toggle-all" class="ghost" type="button" aria-pressed="false">Expand all</button>
+        </div>
+        <div class="statusline">
+          <span class="count" id="count" aria-live="polite"></span>
+          <button id="clear" class="linkbtn" type="button" hidden>Clear filters</button>
+        </div>
+      </div>
+      <div id="trial-list"></div>
+      <footer class="band" id="report-footer"></footer>
+    </main>
+  </div>
+</div>
+
+<script type="application/json" id="report-data">__REPORT_DATA__</script>
+<script>
+"use strict";
+const DATA = JSON.parse(document.getElementById("report-data").textContent);
+const PATIENTS = DATA.patients || [];
+const LOGO_SRC = (document.querySelector(".brand-logo") || {}).src || "";
+
+// Canonical display order, per patient: keep the pipeline's eligibility rank, but
+// sink any unassessable ("Not assessed") trial below every assessed one, then number
+// 1..N so the badges read monotonically. Computed once per patient.
+PATIENTS.forEach((p, idx) => {
+  // stable route key: the patient id when present, else a positional fallback so
+  // null/duplicate ids never produce an unmatchable "#/p/undefined" anchor.
+  p._key = (p.patient && p.patient.id != null) ? String(p.patient.id) : ("_" + idx);
+  (p.trials || []).slice()
+    .sort((a, b) => (Number(!a.reasoning_available) - Number(!b.reasoning_available)) || (a.rank - b.rank))
+    .forEach((t, i) => { t.displayRank = i + 1; });
+});
+
+function el(tag, attrs, kids) {
+  const n = document.createElement(tag);
+  if (attrs) for (const k in attrs) {
+    if (k === "class") n.className = attrs[k];
+    else if (k === "text") n.textContent = attrs[k];
+    else if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+  }
+  for (const c of (kids || [])) if (c != null) n.append(c);
+  return n;
+}
+const chips = items => (items || []).map(c => el("span", { class: "chip", text: c }));
+
+function verdictClass(d) {
+  const s = (d || "").toLowerCase();
+  if (s.startsWith("eligible")) return "v-eligible";
+  if (s.includes("likely eligible")) return "v-likely-eligible";
+  if (s.includes("likely ineligible")) return "v-likely-ineligible";
+  if (s.startsWith("ineligible")) return "v-ineligible";
+  return "v-unknown";
+}
+function verdictLabel(d) {
+  const s = (d || "").toLowerCase();
+  if (s.startsWith("eligible")) return "Eligible";
+  if (s.includes("likely eligible")) return "Likely eligible";
+  if (s.includes("likely ineligible")) return "Likely ineligible";
+  if (s.startsWith("ineligible")) return "Ineligible";
+  return "Not assessed";
+}
+const VGLYPH = { "v-eligible": "✓", "v-likely-eligible": "✓", "v-likely-ineligible": "△", "v-ineligible": "✕", "v-unknown": "—" };
+// The verdict shown for a trial: a real label only when it was actually assessed.
+function verdictOf(t) { return t.reasoning_available ? verdictLabel(t.final_decision) : "Not assessed"; }
+// Semantic order for the verdict filter — best match first, "Not assessed" last.
+const VERDICT_ORDER = ["Eligible", "Likely eligible", "Likely ineligible", "Ineligible", "Not assessed"];
+
+function classKind(c) {
+  const s = (c || "").toLowerCase();
+  if (s === "met" || s === "not violated") return "cl-good";
+  if (s === "not met" || s === "violated") return "cl-bad";
+  if (s === "unclear") return "cl-warn";
+  return "cl-neutral";
+}
+const CGLYPH = { "cl-good": "✓", "cl-bad": "✕", "cl-warn": "△", "cl-neutral": "—" };
+function critCounts(t) {
+  let good = 0, bad = 0, warn = 0;
+  for (const it of [...(t.inclusion || []), ...(t.exclusion || [])]) {
+    const k = classKind(it.classification);
+    if (k === "cl-good") good++; else if (k === "cl-bad") bad++; else if (k === "cl-warn") warn++;
+  }
+  return { good, bad, warn };
+}
+function statusPill(status) {
+  if (!status) return null;
+  const s = status.toLowerCase();
+  let glyph = "○", kind = "st-neutral", label = status;
+  if (s === "recruiting" || s === "enrolling by invitation") { glyph = "●"; kind = "st-good"; }
+  else if (s.startsWith("active")) { glyph = "◐"; kind = "st-warn"; label = "Active"; }
+  return el("span", { class: "statuspill " + kind, text: glyph + " " + label });
+}
+
+// ===== overview (front page) =====
+// One tally pill per verdict tier present, glyph-coded so it reads in grayscale.
+const TALLY = [
+  { cls: "good",    glyph: "✓", title: "Eligible / likely eligible", match: ["Eligible", "Likely eligible"] },
+  { cls: "warn",    glyph: "△", title: "Likely ineligible",          match: ["Likely ineligible"] },
+  { cls: "bad",     glyph: "✕", title: "Ineligible",                 match: ["Ineligible"] },
+  { cls: "neutral", glyph: "—", title: "Not assessed",               match: ["Not assessed"] },
+];
+function overviewRow(p) {
+  const pt = p.patient || {}, trials = p.trials || [];
+  const info = el("div", { class: "pinfo" });
+  info.append(el("div", { class: "pname", text: "Patient " + (pt.id != null ? pt.id : "—") }));
+  const bits = [];
+  if (pt.age != null) bits.push("Age " + pt.age);
+  if (pt.sex) bits.push(pt.sex);
+  bits.push(trials.length + (trials.length === 1 ? " trial" : " trials"));
+  info.append(el("div", { class: "pmeta", text: bits.join("  ·  ") }));
+  const tally = el("div", { class: "tally" });
+  for (const tier of TALLY) {
+    const n = trials.filter(t => tier.match.includes(verdictOf(t))).length;
+    if (n) tally.append(el("span", { class: "tl tl-" + tier.cls, title: tier.title, text: tier.glyph + " " + n }));
+  }
+  const row = el("a", { class: "prow", href: "#/p/" + encodeURIComponent(p._key) });
+  row.append(info, tally, el("span", { class: "chev", "aria-hidden": "true", text: "›" }));
+  return row;
+}
+function renderOverview() {
+  const root = document.getElementById("overview");
+  root.textContent = "";
+  const head = el("div", { class: "ov-head" }, [
+    LOGO_SRC ? el("img", { class: "brand-logo", src: LOGO_SRC, alt: "TrialMatchAI" }) : null,
+    el("h1", { text: "Match reports" }),
+    el("div", { class: "ov-sub", text: PATIENTS.length + (PATIENTS.length === 1 ? " patient" : " patients") }),
+  ]);
+  const plist = el("div", { class: "plist" });
+  for (const p of PATIENTS) plist.append(overviewRow(p));
+  const foot = el("footer", { class: "band" }, [
+    el("div", { class: "note", text: "Eligibility verdicts are AI-generated guidance, not a medical decision." }),
+    el("div", { class: "gen", text: "Generated " + (DATA.generated_at || "") }),
+  ]);
+  root.append(el("div", { class: "ov" }, [head, plist, foot]));
+}
+
+// ===== one trial =====
+function kv(label, value) {
+  return el("div", { class: "kv" }, [el("b", { text: label }), el("span", { text: value })]);
+}
+function critList(title, items) {
+  if (!items || !items.length) return null;
+  const rows = items.map(it => {
+    const k = classKind(it.classification);
+    return el("div", { class: "crit" }, [
+      el("span", { class: "cl " + k, text: CGLYPH[k] + " " + (it.classification || "—") }),
+      el("div", {}, [
+        el("div", { class: "ctext", text: it.criterion }),
+        it.justification ? el("div", { class: "just", text: it.justification }) : null,
+      ]),
+    ]);
+  });
+  return el("div", { class: "critgroup" }, [el("div", { class: "crit-h", text: title }), ...rows]);
+}
+function trialUrl(id) {
+  return /^NCT\d+$/i.test(id) ? "https://clinicaltrials.gov/study/" + id.toUpperCase() : null;
+}
+function renderTrial(t) {
+  const m = t.meta || {};
+  const title = m.brief_title || t.trial_id;
+  const sub = el("div", { class: "t-sub" });
+  const url = trialUrl(t.trial_id);
+  if (url) {
+    const a = el("a", { class: "mono tlink", href: url, target: "_blank", rel: "noopener" });
+    a.append(document.createTextNode(t.trial_id), el("span", { class: "ext", text: " ↗" }));
+    sub.append(a);
+  } else {
+    sub.append(el("span", { class: "mono", text: t.trial_id }));
+  }
+  const tail = [m.phase].filter(Boolean);
+  if (!tail.length && !t.metadata_available) tail.push("no metadata");
+  for (const v of tail) sub.append(el("span", { class: "dot", text: "·" }), document.createTextNode(v));
+
+  const rail = el("div", { class: "rail" });
+  const sp = statusPill(m.overall_status);
+  if (sp) rail.append(sp);
+  const vc = verdictClass(t.final_decision);
+  rail.append(el("span", { class: "verdict " + vc, text: VGLYPH[vc] + " " + verdictOf(t) }));
+
+  const summary = el("summary", {}, [
+    el("div", { class: "rank", text: t.displayRank }),
+    el("div", { class: "identity" }, [el("h3", { class: "t-title", title: title, text: title }), sub]),
+    rail,
+  ]);
+
+  const body = el("div", { class: "body" });
+  const facts = el("div", { class: "facts" });
+  if (m.brief_summary) facts.append(kv("Summary", m.brief_summary));
+  if (m.condition) facts.append(kv("Conditions", m.condition));
+  if ((m.interventions || []).length) facts.append(kv("Interventions", m.interventions.join(", ")));
+  if (m.study_type) facts.append(kv("Study type", m.study_type));
+  if (facts.childNodes.length) body.append(facts);
+
+  if (!t.reasoning_available) {
+    body.append(el("p", { class: "unavailable", text: "Per-criterion reasoning unavailable for this trial." }));
+  } else {
+    const c = critCounts(t), total = c.good + c.bad + c.warn, parts = [];
+    if (total) parts.push(c.good + " of " + total + " criteria met");
+    if (c.warn) parts.push(c.warn + " unclear");
+    if (t.reranker_score != null) parts.push("relevance " + Number(t.reranker_score).toFixed(2));
+    if (parts.length) body.append(el("div", { class: "metrics", text: parts.join("  ·  ") }));
+    const inc = critList("Inclusion criteria", t.inclusion);
+    const exc = critList("Exclusion criteria", t.exclusion);
+    if (inc) body.append(inc);
+    if (exc) body.append(exc);
+  }
+  if (t.cot) {
+    const d = el("details", { class: "cot" });
+    const sm = el("summary", {});
+    sm.append(el("span", { class: "cot-ic", text: "▸" }), el("span", { text: "Model reasoning" }));
+    d.append(sm, el("div", { class: "cot-panel", text: t.cot }));
+    body.append(d);
+  }
+  const det = el("details", { class: "trial" });
+  det.append(summary, body);
+  return det;
+}
+
+// ===== per-patient view (parameterised by the current patient CUR) =====
+let CUR = null;
+function renderPatientCard() {
+  const p = CUR.patient || {};
+  const c = document.getElementById("patient-card");
+  c.textContent = "";
+  c.append(
+    el("div", { class: "pid", text: "Patient " + (p.id != null ? p.id : "—") }),
+    el("div", { class: "pdem", text: (p.age != null ? "Age " + p.age + "  ·  " : "") + "Sex " + (p.sex || "—") }),
+  );
+  const conds = [...(p.main_conditions || []), ...(p.other_conditions || [])];
+  if (conds.length) c.append(el("h2", { text: "Conditions" }), el("div", { class: "chips" }, chips(conds)));
+  if (p.narrative) c.append(el("h2", { text: "Summary" }), el("p", { class: "narrative", text: p.narrative }));
+}
+function renderFooter() {
+  const f = document.getElementById("report-footer");
+  f.textContent = "";
+  f.append(el("div", { class: "note", text: "Eligibility verdicts are AI-generated guidance, not a medical decision." }));
+  f.append(el("div", { class: "gen", text: "Generated " + (DATA.generated_at || "") }));
+}
+function fillSelect(id, values, allLabel) {
+  const sel = document.getElementById(id);
+  sel.textContent = "";
+  sel.append(el("option", { value: "", text: allLabel }));
+  for (const v of [...new Set(values)].filter(Boolean).sort()) sel.append(el("option", { value: v, text: v }));
+  sel.value = "";
+}
+function fillVerdict() {
+  const sel = document.getElementById("f-decision");
+  sel.textContent = "";
+  sel.append(el("option", { value: "", text: "All verdicts" }));
+  const present = new Set((CUR.trials || []).map(verdictOf));
+  for (const label of VERDICT_ORDER) if (present.has(label)) sel.append(el("option", { value: label, text: label }));
+  sel.value = "";
+}
+const list = document.getElementById("trial-list");
+const countEl = document.getElementById("count");
+function apply() {
+  const trials = CUR.trials || [];
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  const fs = document.getElementById("f-status").value;
+  const fp = document.getElementById("f-phase").value;
+  const fd = document.getElementById("f-decision").value;
+  let rows = trials.filter(t => {
+    const m = t.meta || {};
+    if (fs && m.overall_status !== fs) return false;
+    if (fp && m.phase !== fp) return false;
+    if (fd && verdictOf(t) !== fd) return false;
+    if (q && !(((m.brief_title || "") + " " + t.trial_id + " " + (m.condition || "")).toLowerCase().includes(q))) return false;
+    return true;
+  });
+  rows = rows.slice().sort((a, b) => a.displayRank - b.displayRank);
+  list.textContent = "";
+  if (!rows.length) list.append(el("p", { class: "empty", text: "No trials match these filters." }));
+  else for (const t of rows) list.append(renderTrial(t));
+  const active = !!(q || fs || fp || fd);
+  countEl.textContent = active ? ("Showing " + rows.length + " of " + trials.length) : (trials.length + " trials");
+  document.getElementById("clear").hidden = !active;
+}
+function mountPatient(p) {
+  CUR = p;
+  document.getElementById("search").value = "";
+  const ta = document.getElementById("toggle-all");
+  ta.setAttribute("aria-pressed", "false"); ta.textContent = "Expand all";
+  renderPatientCard();
+  fillSelect("f-status", (p.trials || []).map(t => (t.meta || {}).overall_status), "All statuses");
+  fillSelect("f-phase", (p.trials || []).map(t => (t.meta || {}).phase), "All phases");
+  fillVerdict();
+  apply();
+  renderFooter();
+}
+
+// toolbar listeners (attached once; they read the current patient via CUR)
+for (const id of ["search", "f-status", "f-phase", "f-decision"])
+  document.getElementById(id).addEventListener("input", apply);
+document.getElementById("toggle-all").addEventListener("click", () => {
+  const ta = document.getElementById("toggle-all");
+  const open = ta.getAttribute("aria-pressed") !== "true";
+  list.querySelectorAll("details.trial").forEach(d => d.open = open);
+  ta.setAttribute("aria-pressed", open);
+  ta.textContent = open ? "Collapse all" : "Expand all";
+});
+document.getElementById("clear").addEventListener("click", () => {
+  document.getElementById("search").value = "";
+  for (const id of ["f-status", "f-phase", "f-decision"]) document.getElementById(id).value = "";
+  apply();
+});
+window.addEventListener("beforeprint", () =>
+  document.querySelectorAll("details").forEach(d => { d.dataset.wasOpen = d.open ? "1" : "0"; d.open = true; }));
+window.addEventListener("afterprint", () =>
+  document.querySelectorAll("details").forEach(d => { if (d.dataset.wasOpen === "0") d.open = false; delete d.dataset.wasOpen; }));
+
+// ===== router: overview <-> patient =====
+function showOverview() {
+  document.getElementById("patient-view").hidden = true;
+  const ov = document.getElementById("overview");
+  if (!ov.dataset.rendered) { renderOverview(); ov.dataset.rendered = "1"; }
+  ov.hidden = false;
+  document.title = "Match reports — TrialMatchAI";
+  window.scrollTo(0, 0);
+}
+function showPatient(p, solo) {
+  document.getElementById("overview").hidden = true;
+  document.getElementById("topbar").hidden = !!solo;
+  document.getElementById("patient-view").hidden = false;
+  mountPatient(p);
+  document.title = "Patient " + ((p.patient || {}).id != null ? (p.patient || {}).id : "") + " — TrialMatchAI";
+  window.scrollTo(0, 0);
+}
+function route() {
+  if (!PATIENTS.length) {
+    document.body.append(el("p", { class: "empty", text: "No patient reports available." }));
+    return;
+  }
+  if (PATIENTS.length === 1) return showPatient(PATIENTS[0], true);   // solo: no front page
+  const m = location.hash.match(/^#\/p\/(.+)$/);
+  if (m) {
+    const key = decodeURIComponent(m[1]);
+    const p = PATIENTS.find(x => x._key === key);
+    if (p) return showPatient(p, false);
+  }
+  showOverview();
+}
+window.addEventListener("hashchange", route);
+route();
+</script>
+</body>
+</html>

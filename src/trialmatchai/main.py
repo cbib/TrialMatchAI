@@ -44,6 +44,64 @@ if TYPE_CHECKING:
 logger = setup_logging(__name__)
 
 
+def _maybe_write_report(output_folder, config) -> None:
+    """Best-effort HTML report next to ranked_trials.json; never raises so a
+    successfully-matched patient is not marked failed by a reporting error."""
+    if not config.get("reporting", {}).get("emit_html", True):
+        return
+    try:
+        from trialmatchai.interop.exporters.html_report import profile_to_html_report
+
+        trials_json = config.get("paths", {}).get("trials_json_folder", "data/trials_jsons")
+        html = profile_to_html_report(
+            output_folder,
+            summary_dir=config.get("patient_inputs", {}).get("summary_dir"),
+            trial_meta_folders=[str(Path(trials_json).parent / "processed_trials"), trials_json],
+        )
+        Path(output_folder, "report.html").write_text(html, encoding="utf-8")
+    except Exception:
+        logger.warning("HTML report generation failed for %s", output_folder, exc_info=True)
+
+
+def _maybe_write_unified_report(config) -> None:
+    """Best-effort unified report (a front page over every patient) at
+    ``<output_dir>/index.html``. Regenerated at the end of a run so it always
+    reflects all patients that have results, including ones from earlier runs.
+    Never raises so a finished run is not marked failed by a reporting error."""
+    if not config.get("reporting", {}).get("emit_html", True):
+        return
+    try:
+        from datetime import datetime
+
+        from trialmatchai.interop.exporters.html_report import (
+            profile_to_model,
+            render_unified_html,
+        )
+
+        output_dir = Path(config.get("paths", {}).get("output_dir", ""))
+        if not output_dir.is_dir():
+            return
+        trials_json = config.get("paths", {}).get("trials_json_folder", "data/trials_jsons")
+        meta_folders = [str(Path(trials_json).parent / "processed_trials"), trials_json]
+        summary_dir = config.get("patient_inputs", {}).get("summary_dir")
+        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+        models = []
+        for pdir in sorted(p for p in output_dir.iterdir() if p.is_dir()):
+            if not (pdir / "ranked_trials.json").exists():
+                continue
+            try:
+                models.append(profile_to_model(
+                    pdir, summary_dir=summary_dir, trial_meta_folders=meta_folders, generated_at=generated_at))
+            except Exception:
+                logger.warning("Unified report: skipping %s", pdir.name, exc_info=True)
+        if models:
+            Path(output_dir, "index.html").write_text(
+                render_unified_html(models, generated_at), encoding="utf-8")
+            logger.info("Wrote unified report %s (%d patients).", output_dir / "index.html", len(models))
+    except Exception:
+        logger.warning("Unified HTML report generation failed", exc_info=True)
+
+
 def run_first_level_search(
     keywords: Dict,
     output_folder: str,
@@ -539,6 +597,7 @@ def main_pipeline(
                     str(output_folder / "ranked_trials.json"),
                 )
 
+            _maybe_write_report(output_folder, config)
             logger.info("Pipeline completed for patient %s", patient_id)
             completed_patients += 1
         except Exception:
@@ -547,6 +606,9 @@ def main_pipeline(
             continue
         finally:
             reset_request_id(token)
+
+    # once at the end of the run: refresh the front-page report over all patients
+    _maybe_write_unified_report(config)
 
     if completed_patients == 0 and skipped_patients == 0:
         logger.error("Pipeline failed for all %s patient(s).", len(patient_inputs))

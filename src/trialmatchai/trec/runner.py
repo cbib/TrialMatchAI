@@ -49,6 +49,9 @@ def _track_config(base_config: Dict[str, Any], spec: TrackSpec) -> Dict[str, Any
     search["max_trials_second_level"] = 500
     search["second_level_keep_divisor"] = 1
     cfg.setdefault("rag", {})["max_trials_rag"] = 250
+    # No per-topic HTML report across a TREC sweep (one report per topic is wasted
+    # work; the eval consumes the run files, not the reports).
+    cfg.setdefault("reporting", {})["emit_html"] = False
     return cfg
 
 
