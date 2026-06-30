@@ -33,7 +33,7 @@
   .report { display:grid; grid-template-columns:300px minmax(0,720px); gap:var(--s6);
             max-width:1080px; margin-inline:auto; padding:var(--s5); align-items:start; }
   .sidebar { position:sticky; top:var(--s5); align-self:start; max-height:calc(100vh - var(--s7)); overflow-y:auto; }
-  .brand-logo { height:64px; width:auto; max-width:100%; display:block; margin-bottom:var(--s5); }
+  .brand-logo { height:52px; width:auto; max-width:100%; display:block; margin-bottom:var(--s5); }
 
   /* ---- patient context card ---- */
   .pcard { border:1px solid var(--n200); border-radius:var(--r-card); background:var(--n0);
@@ -50,9 +50,12 @@
           color:var(--n700); border-radius:var(--r-pill); padding:2px var(--s2); }
 
   /* ---- main column ---- */
+  /* header band: same height as the logo so the H1 centres against it and the
+     toolbar lines up with the patient card across the two columns */
+  .main-head { min-height:52px; display:flex; align-items:center; }
   .main-head h1 { margin:0; font-size:20px; line-height:28px; font-weight:600; color:var(--n900); }
   .toolbar { position:sticky; top:0; background:var(--n0); border-bottom:1px solid var(--n200);
-             display:flex; flex-direction:column; gap:var(--s2); padding:var(--s3) 0; z-index:5; margin-top:var(--s4); }
+             display:flex; flex-direction:column; gap:var(--s2); padding:var(--s3) 0; z-index:5; margin-top:var(--s5); }
   .controls { display:flex; gap:var(--s2); align-items:center; flex-wrap:wrap; }
   .search { display:flex; align-items:center; flex:1 1 220px; min-width:170px; height:36px;
             border:1px solid var(--n200); border-radius:var(--r-card); padding:0 var(--s2) 0 var(--s3); background:var(--n0); }
