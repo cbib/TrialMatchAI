@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrialMatchAI — Match Report</title>
+<style>
+  :root {
+    --ink: #1a1a1a; --muted: #5a5a5a; --faint: #8a8a8a;
+    --rule: #e2e2e2; --fill: #f6f7f8; --accent: #0072b2; --bg: #ffffff;
+    --good: #009e73; --bad: #d55e00; --warn: #e69f00; --neutral: #9a9a9a;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px; line-height: 1.55;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px 64px; }
+  a { color: var(--accent); }
+  h1, h2, h3 { line-height: 1.25; }
+
+  header.band { border-bottom: 1px solid var(--rule); padding: 28px 0 20px; }
+  header.band .eyebrow { font: 600 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  header.band h1 { margin: 8px 0 4px; font-size: 22px; }
+  .pt-meta { color: var(--muted); font-size: 14px; }
+  .pt-meta .mono { font-family: var(--mono); }
+  .narrative { max-width: 66ch; color: #333; margin: 12px 0 6px; }
+  .note { max-width: 66ch; color: var(--faint); font-size: 13px; margin-top: 10px; border-left: 3px solid var(--rule); padding-left: 10px; }
+  .chips { margin: 10px 0 0; }
+  .chip { display: inline-block; font-size: 12.5px; background: var(--fill); border: 1px solid var(--rule);
+          color: #333; border-radius: 999px; padding: 2px 10px; margin: 0 6px 6px 0; }
+
+  .toolbar { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--rule);
+             display: flex; gap: 12px; align-items: center; padding: 12px 0; z-index: 5; flex-wrap: wrap; }
+  .toolbar input[type=search] { flex: 1 1 240px; min-width: 200px; font-size: 14px; padding: 8px 12px;
+             border: 1px solid var(--rule); border-radius: 8px; }
+  .toolbar button { font-size: 13px; padding: 7px 12px; border: 1px solid var(--rule); background: var(--bg);
+             border-radius: 8px; cursor: pointer; color: #333; }
+  .toolbar button:hover { background: var(--fill); }
+  .toolbar .count { color: var(--muted); font-size: 13px; margin-left: auto; }
+
+  details.trial { border-bottom: 1px solid var(--rule); }
+  details.trial > summary { list-style: none; cursor: pointer; display: grid;
+            grid-template-columns: 44px 1fr auto; gap: 14px; align-items: start; padding: 16px 4px; }
+  details.trial > summary::-webkit-details-marker { display: none; }
+  details.trial > summary:hover { background: var(--fill); }
+  summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .rank { font: 600 20px/1.3 var(--mono); color: var(--faint); text-align: right; }
+  .t-title { margin: 0; font-size: 16.5px; font-weight: 600; }
+  .t-sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .t-sub .mono { font-family: var(--mono); }
+  .t-sub .dot { color: var(--faint); padding: 0 6px; }
+
+  .scoreblock { text-align: right; min-width: 132px; }
+  .verdict { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 6px; padding: 3px 9px; color: #fff; white-space: nowrap; }
+  .v-eligible { background: var(--good); }
+  .v-likely-eligible { background: #4bb38f; }
+  .v-likely-ineligible { background: var(--warn); }
+  .v-ineligible { background: var(--bad); }
+  .v-unknown { background: var(--neutral); }
+  .relevance { margin-top: 8px; }
+  .relbar { height: 5px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+  .relbar > i { display: block; height: 100%; background: var(--accent); }
+  .rellabel { font: 11px/1.4 var(--mono); color: var(--faint); margin-top: 3px; }
+
+  .body { padding: 4px 4px 22px 58px; }
+  .summary-txt { max-width: 66ch; color: #333; }
+  .kv { color: var(--muted); font-size: 13.5px; margin: 8px 0; }
+  .kv b { color: #333; font-weight: 600; }
+  .recap { background: var(--fill); border-left: 3px solid var(--accent); padding: 8px 12px; margin: 12px 0; max-width: 66ch; }
+  .crit-h { font: 600 11.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin: 18px 0 8px; }
+  .crit { display: grid; grid-template-columns: 96px 1fr; gap: 10px; padding: 7px 0; border-top: 1px dotted var(--rule); }
+  .cl { font-size: 12px; font-weight: 600; align-self: start; }
+  .cl::before { content: "● "; }
+  .cl-good { color: var(--good); } .cl-bad { color: var(--bad); }
+  .cl-warn { color: var(--warn); } .cl-neutral { color: var(--neutral); }
+  .crit .ctext { font-size: 14px; }
+  .crit .just { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .unavailable { color: var(--faint); font-style: italic; padding: 6px 0; }
+  details.cot { margin-top: 16px; }
+  details.cot > summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+  details.cot pre { white-space: pre-wrap; font: 12.5px/1.5 var(--mono); color: #444; background: var(--fill);
+            border: 1px solid var(--rule); border-radius: 8px; padding: 12px; max-width: 80ch; overflow-x: auto; }
+
+  footer.band { border-top: 1px solid var(--rule); margin-top: 16px; padding: 16px 0; color: var(--faint); font: 12px/1.5 var(--mono); }
+
+  @media print {
+    .no-print { display: none !important; }
+    details.trial, details.cot, .crit { break-inside: avoid; page-break-inside: avoid; }
+    .toolbar { position: static; }
+    a::after { content: " (" attr(href) ")"; font-size: 11px; color: #666; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="band" id="report-header"></header>
+  <div class="toolbar no-print">
+    <input id="search" type="search" placeholder="Search trials by title, id, or condition…" aria-label="Search trials">
+    <button id="expand-all" type="button">Expand all</button>
+    <button id="collapse-all" type="button">Collapse all</button>
+    <span class="count" id="count" aria-live="polite"></span>
+  </div>
+  <main id="trial-list"></main>
+  <footer class="band" id="report-footer"></footer>
+</div>
+
+<script type="application/json" id="report-data">__REPORT_DATA__</script>
+<script>
+"use strict";
+const DATA = JSON.parse(document.getElementById("report-data").textContent);
+
+function el(tag, attrs, kids) {
+  const n = document.createElement(tag);
+  if (attrs) for (const k in attrs) {
+    if (k === "class") n.className = attrs[k];
+    else if (k === "text") n.textContent = attrs[k];
+    else if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+  }
+  for (const c of (kids || [])) if (c != null) n.append(c);
+  return n;
+}
+function chips(items) {
+  return (items || []).map(c => el("span", { class: "chip", text: c }));
+}
+function verdictClass(d) {
+  const s = (d || "").toLowerCase();
+  if (s.startsWith("eligible")) return "v-eligible";
+  if (s.includes("likely eligible")) return "v-likely-eligible";
+  if (s.includes("likely ineligible")) return "v-likely-ineligible";
+  if (s.startsWith("ineligible")) return "v-ineligible";
+  return "v-unknown";
+}
+function classKind(c) {
+  const s = (c || "").toLowerCase();
+  if (s === "met" || s === "not violated") return "cl-good";
+  if (s === "not met" || s === "violated") return "cl-bad";
+  if (s === "unclear") return "cl-warn";
+  return "cl-neutral";
+}
+
+// --- header ---
+function renderHeader() {
+  const p = DATA.patient || {};
+  const h = document.getElementById("report-header");
+  h.append(
+    el("div", { class: "eyebrow", text: "TrialMatchAI — Match Report" }),
+    el("h1", { text: "Patient " + (p.id != null ? p.id : "—") }),
+    el("div", { class: "pt-meta" }, [
+      p.age != null ? document.createTextNode("Age " + p.age + "  ·  ") : null,
+      document.createTextNode("Sex " + (p.sex || "—")),
+    ]),
+  );
+  if ((p.main_conditions || []).length || (p.other_conditions || []).length)
+    h.append(el("div", { class: "chips" }, chips([...(p.main_conditions || []), ...(p.other_conditions || [])])));
+  if (p.narrative) h.append(el("p", { class: "narrative", text: p.narrative }));
+  h.append(el("p", { class: "note", text:
+    "Trials are ordered by eligibility then retrieval relevance. The eligibility verdict is an automated "
+    + "assessment from the model's reasoning — decision support, not a clinical eligibility determination." }));
+}
+
+// --- one trial row ---
+const maxRel = Math.max(1e-9, ...DATA.trials.map(t => Number(t.reranker_score) || 0));
+
+function critList(title, items) {
+  if (!items || !items.length) return null;
+  const rows = items.map(it => el("div", { class: "crit" }, [
+    el("div", { class: "cl " + classKind(it.classification), text: it.classification || "—" }),
+    el("div", {}, [
+      el("div", { class: "ctext", text: it.criterion }),
+      it.justification ? el("div", { class: "just", text: it.justification }) : null,
+    ]),
+  ]));
+  return el("div", {}, [el("div", { class: "crit-h", text: title }), ...rows]);
+}
+
+function renderTrial(t) {
+  const m = t.meta || {};
+  const title = m.brief_title || (t.metadata_available ? t.trial_id : t.trial_id + " (no metadata available)");
+  const sub = el("div", { class: "t-sub" });
+  sub.append(el("span", { class: "mono", text: t.trial_id }));
+  for (const v of [m.phase, m.overall_status, m.study_type]) if (v) {
+    sub.append(el("span", { class: "dot", text: "·" }), document.createTextNode(v));
+  }
+
+  const rel = Math.round(((Number(t.reranker_score) || 0) / maxRel) * 100);
+  const scoreblock = el("div", { class: "scoreblock" }, [
+    el("span", { class: "verdict " + verdictClass(t.final_decision),
+                 text: t.final_decision || (t.reasoning_available ? "Assessed" : "No reasoning") }),
+    el("div", { class: "relevance" }, [
+      el("div", { class: "relbar" }, [el("i", { style: "width:" + rel + "%" })]),
+      el("div", { class: "rellabel", text: "relevance " + rel + "%" }),
+    ]),
+  ]);
+
+  const summary = el("summary", {}, [
+    el("div", { class: "rank", text: t.rank }),
+    el("div", {}, [el("h3", { class: "t-title", text: title }), sub]),
+    scoreblock,
+  ]);
+
+  const body = el("div", { class: "body" });
+  if (m.brief_summary) body.append(el("p", { class: "summary-txt", text: m.brief_summary }));
+  if (m.condition) body.append(el("div", { class: "kv" }, [el("b", { text: "Conditions: " }), document.createTextNode(m.condition)]));
+  if ((m.interventions || []).length) body.append(el("div", { class: "kv" }, [el("b", { text: "Interventions: " }), document.createTextNode(m.interventions.join(", "))]));
+  if (t.recap) body.append(el("div", { class: "recap", text: t.recap }));
+
+  if (!t.reasoning_available) {
+    body.append(el("p", { class: "unavailable", text: "Per-criterion reasoning unavailable for this trial." }));
+  } else {
+    const inc = critList("Inclusion criteria", t.inclusion);
+    const exc = critList("Exclusion criteria", t.exclusion);
+    if (inc) body.append(inc);
+    if (exc) body.append(exc);
+    if (t.cot) {
+      const d = el("details", { class: "cot" });
+      d.append(el("summary", { text: "Show full model reasoning (chain-of-thought)" }), el("pre", { text: t.cot }));
+      body.append(d);
+    }
+  }
+
+  const det = el("details", { class: "trial" });
+  det.dataset.text = (title + " " + t.trial_id + " " + (m.condition || "")).toLowerCase();
+  det.append(summary, body);
+  return det;
+}
+
+// --- list + search ---
+const list = document.getElementById("trial-list");
+const countEl = document.getElementById("count");
+function render(query) {
+  list.textContent = "";
+  const q = (query || "").trim().toLowerCase();
+  let shown = 0;
+  for (const t of DATA.trials) {
+    if (q) {
+      const hay = (t.meta.brief_title || "") + " " + t.trial_id + " " + (t.meta.condition || "");
+      if (!hay.toLowerCase().includes(q)) continue;
+    }
+    list.append(renderTrial(t));
+    shown++;
+  }
+  countEl.textContent = "Showing " + shown + " of " + DATA.trials.length + " trials";
+}
+
+function renderFooter() {
+  const r = DATA.run || {};
+  const bits = ["Generated " + (DATA.generated_at || "")];
+  if (r.model) bits.push("model " + r.model);
+  if (r.git) bits.push("git " + r.git);
+  document.getElementById("report-footer").textContent = bits.join("  ·  ") + "  ·  TrialMatchAI";
+}
+
+renderHeader();
+render("");
+renderFooter();
+document.getElementById("search").addEventListener("input", e => render(e.target.value));
+document.getElementById("expand-all").addEventListener("click", () =>
+  list.querySelectorAll("details.trial").forEach(d => d.open = true));
+document.getElementById("collapse-all").addEventListener("click", () =>
+  list.querySelectorAll("details.trial").forEach(d => d.open = false));
+</script>
+</body>
+</html>
