@@ -28,7 +28,8 @@ do work that is not already done, and resume cleanly after an interruption.
   clinical trials — embeddings, biomedical entity annotations, and parsed
   eligibility constraints — and builds a local search index.
 - **Match** ingests a patient, retrieves candidate trials, and reasons over each
-  trial's eligibility criteria to produce a ranked, explained shortlist.
+  trial's eligibility criteria to produce a ranked, explained shortlist — rendered
+  as a self-contained HTML report you can open in any browser.
 
 Trials, models, indexes, and results all live on your own machine.
 
@@ -141,6 +142,11 @@ trialmatchai e2e --input data/patients/omop_extract
 
 Results land in `results/<patient_id>/` (ranked trials + eligibility
 explanations). Re-running skips patients already matched.
+
+Each run also writes a self-contained HTML report you can open in a browser:
+`results/index.html` is a front page over every matched patient, and
+`results/<patient_id>/report.html` is one patient on its own. (Disable with
+`reporting.emit_html: false`.)
 
 ### Keeping trials current
 
@@ -280,6 +286,7 @@ The commands below are convenience presets over that pipeline.
 | `trialmatchai e2e` | Ingest a patient and match end-to-end (idempotent, per-patient resume) |
 | `trialmatchai import-patient` | Import text, FHIR, Phenopacket, or OMOP patient data into a profile |
 | `trialmatchai run` | Match already-staged patient profiles |
+| `trialmatchai report` | Render a self-contained HTML match report — one patient (`--patient <id>`) or a unified front page over all (`--all`) |
 | `trialmatchai trec` | Benchmark: end-to-end evaluation on the official TREC Clinical Trials tracks |
 
 **Utility**

@@ -29,7 +29,7 @@ many times** — and both are idempotent: finished work is never redone.
 trialmatchai bootstrap-data            # fetch the prepared corpus + adapters (Zenodo)
 trialmatchai build --concepts          # prepare + index + concept store (resumable)
 trialmatchai e2e --input patient.txt   # ingest + match one patient
-# -> results/<patient_id>/ranked_trials.json
+# -> results/<patient_id>/ranked_trials.json  +  a self-contained results/index.html
 ```
 
 ## One pipeline, maximally modular
