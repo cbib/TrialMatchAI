@@ -27,7 +27,7 @@
   .report { display: grid; grid-template-columns: 300px minmax(0, 720px); gap: 32px;
             max-width: 1080px; margin-inline: auto; padding: 24px; align-items: start; }
   .sidebar { position: sticky; top: 24px; align-self: start; max-height: calc(100vh - 48px); overflow-y: auto; }
-  .brand-logo { height: 48px; width: auto; display: block; margin-bottom: 16px; }
+  .brand-logo { height: 64px; width: auto; max-width: 100%; display: block; margin-bottom: 18px; }
 
   /* ---- patient context card ---- */
   .pcard { border: 1px solid var(--rule); border-radius: 12px; background: var(--bg); padding: 20px; }
@@ -63,11 +63,13 @@
   summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .rank { font: 400 13px/1.5 var(--mono); color: var(--faint); text-align: right; font-variant-numeric: tabular-nums; }
   .identity { min-width: 0; }
-  .t-title { margin: 0; font-size: 16.5px; font-weight: 600; color: var(--ink);
-             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .t-sub { color: var(--muted); font-size: 13px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .t-title { margin: 0; font-size: 16.5px; font-weight: 600; color: var(--ink); line-height: 1.3; }
+  .t-sub { color: var(--muted); font-size: 13px; margin-top: 5px; line-height: 1.5; }
   .t-sub .mono { font-family: var(--mono); }
   .t-sub .dot { color: var(--faint); padding: 0 6px; }
+  .t-sub .tlink { color: var(--accent); text-decoration: none; }
+  .t-sub .tlink:hover { text-decoration: underline; }
+  .t-sub .ext { color: var(--faint); font-size: 11px; }
 
   .rail { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
   .statuspill { font: 600 11px/1 var(--mono); border-radius: 999px; padding: 3px 9px; white-space: nowrap; border: 1px solid transparent; }
@@ -85,8 +87,8 @@
   .body { padding: 0 4px 22px 44px; }
   .metrics { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; margin-bottom: 16px; }
   .facts { margin-bottom: 24px; }
-  .summary-txt { max-width: 66ch; color: #333; margin: 0 0 10px; }
-  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 8px; font-size: 13.5px; margin: 4px 0; }
+  .kv { display: grid; grid-template-columns: 104px 1fr; gap: 6px 16px; font-size: 13.5px; margin: 7px 0; align-items: start; }
+  .kv span { max-width: 70ch; }
   .kv b { color: var(--muted); font-weight: 600; }
   .kv span { color: #333; }
   .crit-h { font: 600 11.5px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin: 0 0 8px; }
@@ -101,10 +103,18 @@
   .crit .just { color: var(--muted); font-size: 13px; margin-top: 3px; }
   .unavailable { color: var(--faint); font-style: italic; padding: 2px 0; }
   .empty { color: var(--faint); padding: 24px 4px; }
-  details.cot { margin-top: 18px; }
-  details.cot > summary { cursor: pointer; color: var(--accent); font-size: 13px; }
-  details.cot pre { white-space: pre-wrap; font: 12.5px/1.5 var(--mono); color: #444; background: var(--fill);
-            border: 1px solid var(--rule); border-radius: 8px; padding: 12px; max-width: 80ch; overflow-x: auto; }
+  details.cot { margin-top: 20px; }
+  details.cot > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+            font-size: 12.5px; font-weight: 600; color: var(--accent); padding: 5px 12px 5px 10px;
+            border: 1px solid var(--rule); border-radius: 999px; background: var(--bg); user-select: none; }
+  details.cot > summary::-webkit-details-marker { display: none; }
+  details.cot > summary:hover { background: var(--fill); }
+  details.cot .cot-ic { display: inline-block; transition: transform .15s ease; font-size: 10px; color: var(--faint); }
+  details.cot[open] .cot-ic { transform: rotate(90deg); }
+  details.cot[open] > summary { margin-bottom: 10px; }
+  .cot-panel { white-space: pre-wrap; font: 13px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #4a4a4a; background: #fafbfc; border: 1px solid var(--rule); border-left: 3px solid var(--accent);
+            border-radius: 10px; padding: 14px 16px; max-width: 78ch; max-height: 340px; overflow-y: auto; }
 
   footer.band { border-top: 1px solid var(--rule); margin-top: 16px; padding: 16px 0; color: var(--faint); font: 12px/1.5 var(--mono); }
   footer.band .note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: var(--muted); margin-bottom: 6px; }
@@ -248,11 +258,22 @@ function critList(title, items) {
   });
   return el("div", { class: "critgroup" }, [el("div", { class: "crit-h", text: title }), ...rows]);
 }
+function trialUrl(id) {
+  return /^NCT\d+$/i.test(id) ? "https://clinicaltrials.gov/study/" + id.toUpperCase() : null;
+}
 function renderTrial(t) {
   const m = t.meta || {};
   const title = m.brief_title || t.trial_id;
-  const sub = el("div", { class: "t-sub" }, [el("span", { class: "mono", text: t.trial_id })]);
-  const tail = [m.phase, m.condition].filter(Boolean);
+  const sub = el("div", { class: "t-sub" });
+  const url = trialUrl(t.trial_id);
+  if (url) {
+    const a = el("a", { class: "mono tlink", href: url, target: "_blank", rel: "noopener" });
+    a.append(document.createTextNode(t.trial_id), el("span", { class: "ext", text: " ↗" }));
+    sub.append(a);
+  } else {
+    sub.append(el("span", { class: "mono", text: t.trial_id }));
+  }
+  const tail = [m.phase].filter(Boolean);
   if (!tail.length && !t.metadata_available) tail.push("no metadata");
   for (const v of tail) sub.append(el("span", { class: "dot", text: "·" }), document.createTextNode(v));
 
@@ -270,15 +291,8 @@ function renderTrial(t) {
   ]);
 
   const body = el("div", { class: "body" });
-  if (t.reasoning_available) {
-    const c = critCounts(t), total = c.good + c.bad + c.warn, parts = [];
-    if (total) parts.push(c.good + " of " + total + " criteria met");
-    if (c.warn) parts.push(c.warn + " unclear");
-    if (t.reranker_score != null) parts.push("relevance " + Number(t.reranker_score).toFixed(2));
-    if (parts.length) body.append(el("div", { class: "metrics", text: parts.join("  ·  ") }));
-  }
   const facts = el("div", { class: "facts" });
-  if (m.brief_summary) facts.append(el("p", { class: "summary-txt", text: m.brief_summary }));
+  if (m.brief_summary) facts.append(kv("Summary", m.brief_summary));
   if (m.condition) facts.append(kv("Conditions", m.condition));
   if ((m.interventions || []).length) facts.append(kv("Interventions", m.interventions.join(", ")));
   if (m.study_type) facts.append(kv("Study type", m.study_type));
@@ -287,15 +301,22 @@ function renderTrial(t) {
   if (!t.reasoning_available) {
     body.append(el("p", { class: "unavailable", text: "Per-criterion reasoning unavailable for this trial." }));
   } else {
+    const c = critCounts(t), total = c.good + c.bad + c.warn, parts = [];
+    if (total) parts.push(c.good + " of " + total + " criteria met");
+    if (c.warn) parts.push(c.warn + " unclear");
+    if (t.reranker_score != null) parts.push("relevance " + Number(t.reranker_score).toFixed(2));
+    if (parts.length) body.append(el("div", { class: "metrics", text: parts.join("  ·  ") }));
     const inc = critList("Inclusion criteria", t.inclusion);
     const exc = critList("Exclusion criteria", t.exclusion);
     if (inc) body.append(inc);
     if (exc) body.append(exc);
-    if (t.cot) {
-      const d = el("details", { class: "cot" });
-      d.append(el("summary", { text: "Show full model reasoning (chain-of-thought)" }), el("pre", { text: t.cot }));
-      body.append(d);
-    }
+  }
+  if (t.cot) {
+    const d = el("details", { class: "cot" });
+    const sm = el("summary", {});
+    sm.append(el("span", { class: "cot-ic", text: "▸" }), el("span", { text: "Model reasoning" }));
+    d.append(sm, el("div", { class: "cot-panel", text: t.cot }));
+    body.append(d);
   }
   const det = el("details", { class: "trial" });
   det.append(summary, body);

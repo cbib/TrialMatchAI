@@ -43,6 +43,26 @@ def _read_json(path: Path) -> Any | None:
         return None
 
 
+def _read_cot(path: Path) -> str | None:
+    """Extract the model's <think>…</think> reasoning from a per-trial .txt.
+
+    Returns None when the file is absent or has no thinking block (e.g. no-think
+    runs), so the reasoning panel only appears when there is something to show.
+    """
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+    low = raw.lower()
+    i = low.find("<think>")
+    if i == -1:
+        return None
+    start = i + len("<think>")
+    end = low.find("</think>", start)
+    text = (raw[start:end] if end != -1 else raw[start:]).strip()
+    return text or None
+
+
 def _ranked_records(ranked_json: Any) -> list[dict]:
     """``ranked_trials.json`` is ``{"RankedTrials": [...]}`` or a bare list."""
     if isinstance(ranked_json, Mapping):
@@ -93,6 +113,7 @@ def build_report_model(
     ranked: Any,
     eligibility_by_id: Mapping[str, Any],
     meta_by_id: Mapping[str, Any],
+    cot_by_id: Mapping[str, Any] | None = None,
     generated_at: str,
     run_info: Mapping[str, Any] | None = None,
 ) -> dict:
@@ -123,6 +144,7 @@ def build_report_model(
                 "inclusion": _criteria(elig.get("Inclusion_Criteria_Evaluation")) if reasoning_ok else [],
                 "exclusion": _criteria(elig.get("Exclusion_Criteria_Evaluation")) if reasoning_ok else [],
                 "reasoning_available": reasoning_ok,
+                "cot": (cot_by_id or {}).get(tid),
             }
         )
     return {
@@ -189,6 +211,7 @@ def profile_to_html_report(
 
     eligibility_by_id: dict[str, Any] = {}
     meta_by_id: dict[str, Any] = {}
+    cot_by_id: dict[str, Any] = {}
     for rec in records:
         tid = str(rec.get("TrialID", "")).strip()
         if not tid:
@@ -200,6 +223,9 @@ def profile_to_html_report(
             meta = _load_meta(tid, folders)
             if meta:
                 meta_by_id[tid] = meta
+        cot = _read_cot(patient_dir / f"{tid}.txt")
+        if cot:
+            cot_by_id[tid] = cot
 
     patient_id = patient_dir.name
     summary = _read_json(Path(summary_dir) / f"{patient_id}.json") if summary_dir else None
@@ -210,6 +236,7 @@ def profile_to_html_report(
         ranked=ranked,
         eligibility_by_id=eligibility_by_id,
         meta_by_id=meta_by_id,
+        cot_by_id=cot_by_id,
         generated_at=generated_at or datetime.now().strftime("%Y-%m-%d %H:%M"),
         run_info=run_info,
     )

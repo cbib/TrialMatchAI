@@ -187,3 +187,28 @@ def test_maybe_write_report_respects_gate(tmp_path):
     # default-on; never raises even with no metadata folder present
     _maybe_write_report(pdir, {"paths": {"trials_json_folder": str(tmp_path / "meta")}, "patient_inputs": {}})
     assert (pdir / "report.html").exists()
+
+
+def test_read_cot_extracts_thinking(tmp_path):
+    from trialmatchai.interop.exporters.html_report import _read_cot
+
+    p = tmp_path / "NCT1.txt"
+    p.write_text("<think>step one\nstep two</think>\n{\"Final Decision\": \"Eligible\"}", encoding="utf-8")
+    assert _read_cot(p) == "step one\nstep two"
+    p.write_text('{"no": "thinking here"}', encoding="utf-8")
+    assert _read_cot(p) is None  # no <think> block -> no panel
+    assert _read_cot(tmp_path / "missing.txt") is None
+
+
+def test_build_report_model_includes_cot():
+    from trialmatchai.interop.exporters.html_report import build_report_model
+
+    m = build_report_model(
+        patient_summary={"patient_id": "P1"},
+        ranked={"RankedTrials": [{"TrialID": "NCT1", "Score": 1.0}]},
+        eligibility_by_id={"NCT1": {"Final Decision": "Eligible", "Inclusion_Criteria_Evaluation": []}},
+        meta_by_id={},
+        cot_by_id={"NCT1": "the model's reasoning"},
+        generated_at="x",
+    )
+    assert m["trials"][0]["cot"] == "the model's reasoning"
