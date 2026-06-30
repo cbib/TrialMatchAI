@@ -16,7 +16,9 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 _TEMPLATE = Path(__file__).parent / "templates" / "report.html"
+_LOGO = Path(__file__).parent / "templates" / "logo.png"
 _DATA_PLACEHOLDER = "__REPORT_DATA__"
+_LOGO_PLACEHOLDER = "__LOGO_SRC__"
 # the sentinel eligibility_base writes for an unparseable model response
 _ERROR_SENTINEL = "invalid_json_response"
 _META_FIELDS = (
@@ -139,13 +141,24 @@ def build_report_model(
     }
 
 
+def _logo_data_uri() -> str:
+    """Inline the logo thumbnail as a base64 data URI (empty string if missing)."""
+    try:
+        import base64
+
+        return "data:image/png;base64," + base64.b64encode(_LOGO.read_bytes()).decode("ascii")
+    except Exception:
+        return ""
+
+
 def render_html_report(model: Mapping[str, Any]) -> str:
     """Embed the model as a tag-safe JSON island in the static template."""
     data = json.dumps(model, ensure_ascii=False, default=str)
     # neutralize </script> injection — LLM free text may contain "</script>";
     # JSON.parse reads the escaped sequences back unchanged.
     data = data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    return _TEMPLATE.read_text(encoding="utf-8").replace(_DATA_PLACEHOLDER, data)
+    html = _TEMPLATE.read_text(encoding="utf-8").replace(_DATA_PLACEHOLDER, data)
+    return html.replace(_LOGO_PLACEHOLDER, _logo_data_uri())
 
 
 def _load_meta(trial_id: str, folders: list[Path]) -> dict | None:

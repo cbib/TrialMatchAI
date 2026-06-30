@@ -111,6 +111,7 @@ trialmatchai = [
   "entity_schemas/*.yaml",
   "entities/resources/*.tsv",
   "interop/exporters/templates/*.html",
+  "interop/exporters/templates/*.png",
 ]
 
 [tool.uv]
