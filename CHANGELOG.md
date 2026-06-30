@@ -4,6 +4,39 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-06-30
+
+Adds a clinician-facing results report and deepens retrieval, on top of bug
+fixes and broader test coverage from the 0.2.0 deployment-readiness release.
+
+### Added
+- **Self-contained HTML match report.** `trialmatchai report --patient <id>`
+  renders a portable, offline `report.html` (no server, no build step, no CDN)
+  from a patient's existing results: a ranked, searchable/filterable trial list
+  with per-criterion eligibility verdicts, a collapsible chain-of-thought panel,
+  ClinicalTrials.gov links, and print/PDF styles. Emitted automatically after
+  each match, gated by `reporting.emit_html` (off for TREC sweeps).
+- **Unified multi-patient report.** `trialmatchai report --all` — and the
+  end-of-run auto-emit — writes one self-contained `index.html`: a patient front
+  page that drills into each patient's report client-side. New 13th subcommand:
+  `report`.
+- **BM25 + heuristic text-score fusion** in the LanceDB retrieval backend.
+
+### Changed
+- **Deeper TREC funnel** (1000 → 500 → 250 across first-level → rerank → CoT) via
+  a configurable `search.second_level_keep_divisor`, with concept linking enabled.
+- **`python-dotenv` is now a declared dependency**, so `.env` files (HF_TOKEN, API
+  keys, path overrides) load on a core-only `pip install trialmatchai` — it was
+  previously imported but undeclared.
+
+### Fixed
+- P0 and medium-severity bugs surfaced by the codebase audit (RRF dedup key,
+  atomic `write_text_file`, and others).
+
+### Tests
+- Coverage for production retrieval/inference paths, crash-safe resume, and
+  variant-recognizer / embedder / metrics hardening.
+
 ## [0.2.0] — 2026-06-28
 
 The **deployment-readiness** release: TrialMatchAI becomes one installable,
