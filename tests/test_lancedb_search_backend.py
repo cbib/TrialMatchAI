@@ -55,6 +55,24 @@ def test_flatten_entities_thresholds_low_score_candidates():
     assert "keepme" in syn2
 
 
+def test_coerce_vector_columns_normalizes_ragged_embeddings():
+    from trialmatchai.search.lancedb_backend import _coerce_vector_columns
+
+    rows = [
+        {"nct_id": "A", "condition_vector": [1.0, 2.0, 3.0]},
+        {"nct_id": "B", "condition_vector": [4.0, 5.0, 6.0]},  # dominant dim = 3
+        {"nct_id": "C", "condition_vector": []},  # empty (e.g. no eligibility text) -> zero-padded
+        {"nct_id": "D", "condition_vector": None},  # missing -> zero vector
+        {"nct_id": "E", "condition_vector": [1.0, 2.0, 3.0, 4.0]},  # over-long -> truncated
+    ]
+    fixed = _coerce_vector_columns(rows)
+    assert {len(row["condition_vector"]) for row in rows} == {3}  # one fixed size -> LanceDB-safe
+    assert rows[2]["condition_vector"] == [0.0, 0.0, 0.0]
+    assert rows[3]["condition_vector"] == [0.0, 0.0, 0.0]
+    assert rows[4]["condition_vector"] == [1.0, 2.0, 3.0]
+    assert fixed == 3  # C, D, E fixed; A, B already correct
+
+
 def test_lancedb_backend_indexes_and_searches_trials_and_criteria(tmp_path):
     backend = LanceDBSearchBackend(
         tmp_path / "search",

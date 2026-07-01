@@ -380,12 +380,21 @@ class LanceDBSearchBackend:
         *,
         recreate: bool,
     ) -> Any:
+        rows = list(rows)
         if not rows:
             raise ValueError(f"No rows supplied for LanceDB table {table_name}.")
+        fixed = _coerce_vector_columns(rows)
+        if fixed:
+            logger.warning(
+                "Normalized %s inconsistent vector cell(s) to a fixed dimension before "
+                "indexing '%s' (missing/empty embeddings zero-padded).",
+                fixed,
+                table_name,
+            )
         if recreate or not self.table_exists(table_name):
-            return self.db.create_table(table_name, data=list(rows), mode="overwrite")
+            return self.db.create_table(table_name, data=rows, mode="overwrite")
         table = self._open_table(table_name)
-        table.add(list(rows))
+        table.add(rows)
         return table
 
     def _delete_where(self, table_name: str, where: str) -> None:
@@ -839,6 +848,35 @@ def _flatten_entities(entities: Any) -> tuple[str, str]:
                 continue
             synonyms.append(flatten_text(candidate.get("concept_name")))
     return flatten_text(texts), flatten_text(synonyms)
+
+
+def _coerce_vector_columns(rows: list[dict[str, Any]]) -> int:
+    """Make every ``*_vector`` column a single fixed length so LanceDB can build a FixedSizeList.
+
+    A row whose vector is missing / empty / too short is zero-padded to the column's dominant
+    dimension (an over-long one is truncated). Without this, a single trial with an empty
+    embedding (e.g. no eligibility text) aborts the whole index build with LanceDB's
+    'ListType can only be casted to FixedSizeListType' error. Mutates rows; returns cells fixed.
+    """
+    vector_cols = {key for row in rows for key in row if key.endswith("_vector")}
+    fixed = 0
+    for col in vector_cols:
+        lengths: dict[int, int] = {}
+        for row in rows:
+            value = row.get(col)
+            if isinstance(value, (list, tuple)) and value:
+                lengths[len(value)] = lengths.get(len(value), 0) + 1
+        if not lengths:
+            continue
+        dim = max(lengths, key=lengths.get)  # the dominant (modal) embedding dimension
+        for row in rows:
+            value = row.get(col)
+            if isinstance(value, (list, tuple)) and len(value) == dim:
+                continue
+            base = list(value) if isinstance(value, (list, tuple)) else []
+            row[col] = (base + [0.0] * dim)[:dim]
+            fixed += 1
+    return fixed
 
 
 def _json_payload(value: Any) -> str:
