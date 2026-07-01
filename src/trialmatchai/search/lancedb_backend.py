@@ -39,6 +39,12 @@ BM25_FUSION_WEIGHT: float = 0.6
 # Secondary ("other") query terms contribute at this fraction of a field's weight in the
 # vector score, so a patient's primary conditions dominate over ancillary ones.
 SECONDARY_TERM_WEIGHT: float = 0.2
+# Non-top concept-linker candidates are added to the searchable synonym text only when their
+# fused RRF score clears this bar. Scores are bimodal: a candidate corroborated by BOTH retrieval
+# sources lands ~0.9+, while a single-source (often lexically-similar but semantically wrong)
+# candidate caps near 0.5. Keeping only the corroborated ones trims noise from the 1.2-weighted
+# entity_synonyms_text column without losing the real synonyms. Tunable.
+CANDIDATE_SYNONYM_MIN_SCORE: float = 0.6
 
 
 @dataclass(frozen=True)
@@ -824,8 +830,14 @@ def _flatten_entities(entities: Any) -> tuple[str, str]:
         texts.append(flatten_text([entity.get("text"), entity.get("entity")]))
         synonyms.append(flatten_text(entity.get("synonyms")))
         for candidate in entity.get("concept_candidates") or []:
-            if isinstance(candidate, Mapping):
-                synonyms.append(flatten_text(candidate.get("concept_name")))
+            if not isinstance(candidate, Mapping):
+                continue
+            # Only index a candidate corroborated beyond a single retrieval source; below the
+            # threshold the list fills with lexically-similar but wrong concepts.
+            score = candidate.get("score")
+            if isinstance(score, (int, float)) and score < CANDIDATE_SYNONYM_MIN_SCORE:
+                continue
+            synonyms.append(flatten_text(candidate.get("concept_name")))
     return flatten_text(texts), flatten_text(synonyms)
 
 

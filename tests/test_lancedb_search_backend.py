@@ -28,6 +28,33 @@ def test_trial_vector_secondary_terms_field_weighted_and_sparsity_independent():
     assert 0.0 < s_one < 1.0  # uncapped, so the equality is a real property (not both clamped to 1)
 
 
+def test_flatten_entities_thresholds_low_score_candidates():
+    from trialmatchai.search.lancedb_backend import _flatten_entities
+
+    entities = [
+        {
+            "text": "congenital adrenal hyperplasia",
+            "synonyms": ["CAH"],
+            "concept_candidates": [
+                {"concept_name": "congenital adrenal hyperplasia", "score": 1.0},  # top -> kept
+                {"concept_name": "X-linked adrenal hypoplasia", "score": 0.96},    # corroborated -> kept
+                {"concept_name": "congenital hypothyroidism", "score": 0.48},      # single-source noise
+                {"concept_name": "congenital hypoplastic anemia", "score": 0.47},  # single-source noise
+            ],
+        }
+    ]
+    _text, synonyms = _flatten_entities(entities)
+    assert "congenital adrenal hyperplasia" in synonyms  # top candidate name kept
+    assert "X-linked adrenal hypoplasia" in synonyms  # two-source-corroborated candidate kept
+    assert "CAH" in synonyms  # the accepted link's own synonyms are still indexed
+    assert "congenital hypothyroidism" not in synonyms  # low-score lexical lookalike dropped
+    assert "congenital hypoplastic anemia" not in synonyms  # low-score lexical lookalike dropped
+
+    # a candidate without a numeric score is kept (cannot judge confidence -> recall-safe default)
+    _t2, syn2 = _flatten_entities([{"text": "x", "concept_candidates": [{"concept_name": "keepme"}]}])
+    assert "keepme" in syn2
+
+
 def test_lancedb_backend_indexes_and_searches_trials_and_criteria(tmp_path):
     backend = LanceDBSearchBackend(
         tmp_path / "search",
