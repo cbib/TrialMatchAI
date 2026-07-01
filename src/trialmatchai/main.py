@@ -478,6 +478,9 @@ def main_pipeline(
                     model_path=config["model"]["reranker_model_path"],
                     adapter_path=config["model"]["reranker_adapter_path"],
                     device=config["global"]["device"],
+                    gpu_memory_utilization=float(
+                        config.get("LLM_reranker", {}).get("gpu_memory_utilization", 0.4)
+                    ),
                     batch_size=config["rag"]["batch_size"] * 2,
                     revision=config["model"].get("reranker_model_revision"),
                     trust_remote_code=config["model"].get("trust_remote_code", False),

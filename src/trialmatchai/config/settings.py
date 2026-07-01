@@ -203,6 +203,10 @@ class LLMRerankerSettings(BaseModel):
     enabled: bool = True
     backend: Literal["vllm", "transformers"] = "vllm"
     batch_size: int = Field(20, ge=1)
+    # vLLM reranker engine's share of GPU memory. Default matches the historical hardcoded
+    # value; lower it (with a lower vllm.gpu_memory_utilization) to fit both engines on a
+    # smaller card (e.g. 48GB A40/L40) instead of the 80GB H100.
+    gpu_memory_utilization: float = Field(0.4, gt=0.0, le=1.0)
 
 
 class QueryExpansionSettings(BaseModel):
