@@ -23,8 +23,12 @@ class ConceptLinkerSettings(BaseModel):
     enabled: bool = True
     db_path: str = "data/concepts"
     table: str = "concepts"
-    accept_threshold: float = Field(0.8, ge=0.0, le=1.0)
-    reject_threshold: float = Field(0.3, ge=0.0, le=1.0)
+    # Thresholds are on an ABSOLUTE lexical match-quality signal (not the RRF rank score,
+    # which is normalized to 1.0 for the top candidate and cannot gate acceptance).
+    accept_threshold: float = Field(0.7, ge=0.0, le=1.0)
+    reject_threshold: float = Field(0.5, ge=0.0, le=1.0)
+    margin: float = Field(0.05, ge=0.0, le=1.0)
+    rerank: Literal["none", "lexical"] = "lexical"
     search_limit: int = Field(10, ge=1)
 
     @field_validator("reject_threshold")

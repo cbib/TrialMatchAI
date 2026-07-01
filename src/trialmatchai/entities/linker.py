@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence
 
 from trialmatchai.entities.schemas import schema_by_label
 from trialmatchai.entities.types import (
@@ -161,8 +161,11 @@ class ConceptLinker:
         store: ConceptStore | None,
         schemas: Sequence[EntitySchema],
         *,
-        accept_threshold: float = 0.8,
-        reject_threshold: float = 0.3,
+        accept_threshold: float = 0.7,
+        reject_threshold: float = 0.5,
+        margin: float = 0.05,
+        reranker: Callable[[str, Sequence[ConceptCandidate]], Sequence[ConceptCandidate]]
+        | None = None,
         search_limit: int = 10,
     ):
         if reject_threshold > accept_threshold:
@@ -172,6 +175,10 @@ class ConceptLinker:
         self.schemas_by_label = schema_by_label(list(schemas))
         self.accept_threshold = accept_threshold
         self.reject_threshold = reject_threshold
+        self.margin = margin
+        # Optional candidate reranker (e.g. lexical_reranker or a cross-encoder). Reorders
+        # candidates before the accept gate; None keeps the store's RRF/dense ranking.
+        self.reranker = reranker
         self.search_limit = search_limit
 
     def link_annotations(
@@ -205,11 +212,27 @@ class ConceptLinker:
                 linker_status="rejected",
             )
 
+        candidates = list(candidates)
+        if self.reranker is not None:
+            reranked = list(self.reranker(annotation.text, candidates))
+            if reranked:
+                candidates = reranked
         top = candidates[0]
-        status = _status_for_score(
-            top.score,
+
+        # Ranking comes from the store (RRF/dense), but the ACCEPT decision is gated on an
+        # absolute match-quality signal: the store's top score is RRF-normalized to 1.0 and
+        # cannot tell a good link from a poor one. Gate on lexical similarity to the concept
+        # name/synonyms (scispaCy-style) and abstain (NO_ENTITY_ID) when it is not met.
+        quality = _lexical_score(annotation.text, top)
+        runner_up = (
+            _lexical_score(annotation.text, candidates[1]) if len(candidates) > 1 else 0.0
+        )
+        status = gate_status(
+            quality,
+            runner_up=runner_up,
             accept_threshold=self.accept_threshold,
             reject_threshold=self.reject_threshold,
+            margin=self.margin,
         )
         if status == "accepted":
             return replace(
@@ -217,7 +240,7 @@ class ConceptLinker:
                 normalized_id=(top.normalized_id,),
                 synonyms=_candidate_synonyms(top),
                 concept_candidates=tuple(candidates),
-                linker_score=top.score,
+                linker_score=quality,
                 linker_status=status,
             )
         return replace(
@@ -225,7 +248,7 @@ class ConceptLinker:
             normalized_id=(NO_ENTITY_ID,),
             synonyms=(),
             concept_candidates=tuple(candidates),
-            linker_score=top.score,
+            linker_score=quality,
             linker_status=status,
         )
 
@@ -257,14 +280,46 @@ def _candidate_synonyms(candidate: ConceptCandidate) -> tuple[str, ...]:
     return dedupe_strings((candidate.concept_name, *candidate.synonyms))
 
 
-def _status_for_score(
-    score: float, *, accept_threshold: float, reject_threshold: float
+def gate_status(
+    quality: float,
+    *,
+    runner_up: float = 0.0,
+    accept_threshold: float,
+    reject_threshold: float,
+    margin: float = 0.0,
 ) -> str:
-    if score >= accept_threshold:
-        return "accepted"
-    if score < reject_threshold:
+    """Accept / reject / ambiguous on an ABSOLUTE match-quality score in [0, 1].
+
+    Below reject_threshold is a hard reject; the band [reject, accept) is ambiguous. At or
+    above accept_threshold is accepted -- UNLESS a runner-up candidate is also at/above
+    accept_threshold and within ``margin`` of it (two near-tied strong matches -> ambiguous
+    rather than guessing which concept). 'rejected' and 'ambiguous' both abstain
+    (link to NO_ENTITY_ID) downstream; only 'accepted' links.
+    """
+    if quality < reject_threshold:
         return "rejected"
-    return "ambiguous"
+    if quality < accept_threshold:
+        return "ambiguous"
+    if runner_up >= accept_threshold and (quality - runner_up) < margin:
+        return "ambiguous"
+    return "accepted"
+
+
+def lexical_reranker(
+    query: str, candidates: Sequence[ConceptCandidate]
+) -> list[ConceptCandidate]:
+    """Reorder candidates by absolute lexical match to ``query`` (scispaCy-style), stable.
+
+    Hybrid RRF ranking fuses lexical + dense signals; when a lower-ranked candidate is a much
+    stronger literal match (exact concept name or synonym), promote it so the accept gate
+    judges the best achievable match rather than only RRF's #1. Plug a cross-encoder in the
+    same shape (query, candidates) -> reordered candidates via ConceptLinker(reranker=...).
+    """
+    order = sorted(
+        range(len(candidates)),
+        key=lambda i: (-_lexical_score(query, candidates[i]), i),
+    )
+    return [candidates[i] for i in order]
 
 
 def _lexical_score(query: str, concept: ConceptCandidate) -> float:

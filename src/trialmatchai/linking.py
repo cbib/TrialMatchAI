@@ -95,7 +95,11 @@ def link_corpus(
 
 
 def _build_linker(config: dict[str, Any], linker_cfg: dict[str, Any]):
-    from trialmatchai.entities.linker import ConceptLinker, LanceDBConceptStore
+    from trialmatchai.entities.linker import (
+        ConceptLinker,
+        LanceDBConceptStore,
+        lexical_reranker,
+    )
     from trialmatchai.entities.schemas import load_entity_schemas
 
     db_path = linker_cfg.get("db_path")
@@ -115,11 +119,14 @@ def _build_linker(config: dict[str, Any], linker_cfg: dict[str, Any]):
     schema_path = (config.get("entity_extraction") or {}).get("schema_path")
     use_path = schema_path if schema_path and Path(schema_path).exists() else None
     schemas = load_entity_schemas(use_path)
+    rerank_mode = str(linker_cfg.get("rerank", "lexical")).lower()
     return ConceptLinker(
         store,
         schemas,
-        accept_threshold=float(linker_cfg.get("accept_threshold", 0.8)),
-        reject_threshold=float(linker_cfg.get("reject_threshold", 0.3)),
+        accept_threshold=float(linker_cfg.get("accept_threshold", 0.7)),
+        reject_threshold=float(linker_cfg.get("reject_threshold", 0.5)),
+        margin=float(linker_cfg.get("margin", 0.05)),
+        reranker=lexical_reranker if rerank_mode == "lexical" else None,
         search_limit=int(linker_cfg.get("search_limit", 10)),
     )
 

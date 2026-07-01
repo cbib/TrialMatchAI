@@ -13,8 +13,10 @@
     "enabled": true,
     "db_path": "data/concepts",
     "table": "concepts",
-    "accept_threshold": 0.8,
-    "reject_threshold": 0.3,
+    "accept_threshold": 0.7,
+    "reject_threshold": 0.5,
+    "margin": 0.05,
+    "rerank": "lexical",
     "search_limit": 10
   },
   "paths": {
