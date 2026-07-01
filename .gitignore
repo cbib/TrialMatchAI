@@ -37,7 +37,7 @@ __pycache__/
 build/
 dist/
 *.egg-info/
-
+.hf_cache/
 # ============================
 # Temporary / cache files
 # ============================
