@@ -22,6 +22,7 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         top_p: float = 1.0,
         seed: Optional[int] = 1234,
         length_bucket: bool = True,
+        max_model_len: Optional[int] = None,
         lora_request: Optional[Any] = None,
     ):
         """
@@ -40,6 +41,15 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         self.top_p = top_p
         self.seed = seed
         self.length_bucket = length_bucket
+        # Reserve output room so a long-criteria prompt cannot push the CoT/JSON response past
+        # the context window and get dropped as invalid JSON. Only the longest prompts are
+        # trimmed; an unknown window (None) disables trimming and preserves prior behavior.
+        self.max_model_len = max_model_len
+        if max_model_len and max_model_len > 0:
+            reserved = min(self.max_new_tokens, max(1, max_model_len // 4))
+            self._max_prompt_tokens: Optional[int] = max(1, max_model_len - reserved)
+        else:
+            self._max_prompt_tokens = None
 
         # Validate LoRA request during initialization
         self.lora_request = self._init_validate_lora_request(lora_request)
@@ -56,6 +66,30 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
 
     def _progress_desc(self) -> str:
         return "vLLM Processing Trials"
+
+    def _format_prompt(self, criteria_text: str, patient_profile: str) -> str:
+        # Trim only the (long, variable) criteria text so the assembled prompt leaves room for
+        # the model to finish generating; keeps the format schema + patient profile intact.
+        prompt = super()._format_prompt(criteria_text, patient_profile)
+        budget = getattr(self, "_max_prompt_tokens", None)
+        if not budget or not criteria_text or self.tokenizer is None:
+            return prompt
+        try:
+            n = self._token_length(prompt)
+            if n <= budget:
+                return prompt
+            criterion_ids = self.tokenizer(criteria_text, add_special_tokens=False)["input_ids"]
+            keep = max(0, len(criterion_ids) - (n - budget) - 32)  # 32-token chat-template slack
+            trimmed = self.tokenizer.decode(criterion_ids[:keep])
+            logger.warning(
+                "Trimmed long eligibility criteria to fit the context window "
+                "(prompt ~%s tok > budget %s); kept ~%s of %s criteria tokens.",
+                n, budget, keep, len(criterion_ids),
+            )
+            return super()._format_prompt(trimmed, patient_profile)
+        except Exception as exc:  # never let trimming break generation
+            logger.warning("Prompt-fit trimming failed (%s); using the untrimmed prompt.", exc)
+            return prompt
 
     def _init_validate_lora_request(self, lora_request):
         """Validate LoRA request during initialization."""

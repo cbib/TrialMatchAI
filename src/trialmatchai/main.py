@@ -248,7 +248,9 @@ def run_second_level_search(
     config: Dict,
     patient_context: Optional["PatientConstraintContext"] = None,
 ) -> Tuple:
-    queries = list(set(main_conditions + other_conditions + patient_narrative))[:10]
+    # Deterministic, order-preserving dedup (list(set(...)) shuffles under hash randomization,
+    # so which 10 queries -- and the synonym seed queries[0] -- would vary run to run).
+    queries = _dedupe_strings(main_conditions + other_conditions + patient_narrative)[:10]
     logger.info(f"Running second-level retrieval with {len(queries)} queries ...")
 
     # Add synonyms for second level
@@ -376,6 +378,7 @@ def run_rag_processing(
             top_p=vllm_cfg.get("top_p", 1.0),
             seed=vllm_cfg.get("seed", 1234),
             length_bucket=vllm_cfg.get("length_bucket", True),
+            max_model_len=vllm_cfg.get("max_model_len"),
             lora_request=lora_request,
         )
     else:

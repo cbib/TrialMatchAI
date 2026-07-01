@@ -14,6 +14,22 @@ from trialmatchai.interop.models import PatientProfile
 from trialmatchai.interop.narrative import render_patient_narrative
 
 
+def test_space_separated_entity_group_maps_like_underscore_form():
+    # Recognizer/schema groups can arrive space-separated ("sign symptom", "cell type") while
+    # ENTITY_GROUP_TO_CATEGORY keys are underscore-joined; without normalization they fall
+    # through to the "observation" default and mis-type the fact.
+    from trialmatchai.interop.importers.text import _entity_to_fact
+    from trialmatchai.interop.models import Provenance
+
+    prov = Provenance(
+        source_format="text", source_id="p1", source_path="note.txt", source_field="note_text"
+    )
+    assert _entity_to_fact({"entity_group": "sign symptom", "text": "fatigue"}, prov).category == "phenotype"
+    assert _entity_to_fact({"entity_group": "cell type", "text": "T cell"}, prov).category == "phenotype"
+    assert _entity_to_fact({"entity_group": "sign_symptom", "text": "fatigue"}, prov).category == "phenotype"
+    assert _entity_to_fact({"entity_group": "totally unknown", "text": "x"}, prov).category == "observation"
+
+
 class FakeAnnotator:
     def annotate_texts_in_parallel(self, texts, max_workers=1, retries=1, delay=0):
         del max_workers, retries, delay

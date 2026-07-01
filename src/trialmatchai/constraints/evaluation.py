@@ -57,7 +57,14 @@ def evaluate_constraint_set(
     ]
     signals = [evaluation.score_signal for evaluation in evaluations if evaluation.score_signal != 0]
     if signals:
-        signal = _clamp(sum(signals) / len(signals))
+        if constraint_set.polarity == "exclusion":
+            # A single exclusion violation disqualifies the patient, so the negative violation
+            # signal must dominate rather than be averaged with the small +0.25 not-violated
+            # credits -- mean-averaging could dilute, or with enough not-violated items even
+            # sign-flip, a genuine exclusion hit into a positive (trial-boosting) signal.
+            signal = _clamp(min(signals))
+        else:
+            signal = _clamp(sum(signals) / len(signals))
     elif (
         not unknown_is_neutral
         and constraint_set.polarity == "inclusion"
