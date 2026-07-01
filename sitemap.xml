@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://cbib.github.io/TrialMatchAI/</loc>
+         <lastmod>2026-07-01</lastmod>
+    </url>
+    <url>
+         <loc>https://cbib.github.io/TrialMatchAI/api/</loc>
+         <lastmod>2026-07-01</lastmod>
+    </url>
+    <url>
+         <loc>https://cbib.github.io/TrialMatchAI/architecture/</loc>
+         <lastmod>2026-07-01</lastmod>
+    </url>
+    <url>
+         <loc>https://cbib.github.io/TrialMatchAI/finetuning/</loc>
+         <lastmod>2026-07-01</lastmod>
+    </url>
+    <url>
+         <loc>https://cbib.github.io/TrialMatchAI/interoperability/</loc>
+         <lastmod>2026-07-01</lastmod>
+    </url>
+    <url>
+         <loc>https://cbib.github.io/TrialMatchAI/pipeline/</loc>
+         <lastmod>2026-07-01</lastmod>
+    </url>
+    <url>
+         <loc>https://cbib.github.io/TrialMatchAI/registry-updater/</loc>
+         <lastmod>2026-07-01</lastmod>
+    </url>
+    <url>
+         <loc>https://cbib.github.io/TrialMatchAI/release/</loc>
+         <lastmod>2026-07-01</lastmod>
+    </url>
+</urlset>
