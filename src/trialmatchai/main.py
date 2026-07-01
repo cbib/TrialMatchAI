@@ -370,6 +370,7 @@ def run_rag_processing(
             tokenizer=vllm_tokenizer,
             batch_size=vllm_cfg.get("batch_size", 16),
             use_cot=config.get("use_cot_reasoning", True),
+            no_think=rag_cfg.get("no_think", False),
             max_new_tokens=vllm_cfg.get("max_new_tokens", 5000),
             temperature=vllm_cfg.get("temperature", 0.0),
             top_p=vllm_cfg.get("top_p", 1.0),

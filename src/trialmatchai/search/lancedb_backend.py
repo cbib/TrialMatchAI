@@ -36,6 +36,9 @@ CRITERIA_TEXT_WEIGHTS: tuple[tuple[str, float], ...] = (
 # field-weighted lexical heuristic when both are available (the remainder goes to
 # the heuristic). Tunable; validated against the TREC recall@k / nDCG baseline.
 BM25_FUSION_WEIGHT: float = 0.6
+# Secondary ("other") query terms contribute at this fraction of a field's weight in the
+# vector score, so a patient's primary conditions dominate over ancillary ones.
+SECONDARY_TERM_WEIGHT: float = 0.2
 
 
 @dataclass(frozen=True)
@@ -629,7 +632,10 @@ def _bm25_norms(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
     low = min(raw.values())
     high = max(raw.values())
     if high <= low:
-        return {key: 1.0 for key in raw}
+        # An all-equal BM25 column (all-zero no-match, or uniform scores) carries no ranking
+        # signal; omit it so callers fall back to the lexical heuristic instead of scoring
+        # every row as a perfect match.
+        return {}
     span = high - low
     return {key: (value - low) / span for key, value in raw.items()}
 
@@ -698,14 +704,13 @@ def _trial_vector_score(
         score += weight * _max_vector_score(primary_vectors, field_vector)
         weight_total += weight
     if other_vectors:
-        other_field_scores: list[float] = []
-        for field, _ in TRIAL_VECTOR_WEIGHTS:
+        # Field-weight the secondary terms exactly like the primary terms, and fold them in at
+        # a fixed fraction (not into weight_total) so their share is independent of how many
+        # vector fields the trial happens to have populated.
+        for field, weight in TRIAL_VECTOR_WEIGHTS:
             field_vector = _clean_vector(row.get(field))
             if field_vector:
-                other_field_scores.append(_max_vector_score(other_vectors, field_vector))
-        if other_field_scores:
-            score += 0.2 * (sum(other_field_scores) / len(other_field_scores))
-            weight_total += 0.2
+                score += SECONDARY_TERM_WEIGHT * weight * _max_vector_score(other_vectors, field_vector)
     if weight_total == 0:
         return 0.0
     return min(score / weight_total, 1.0)

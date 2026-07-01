@@ -11,6 +11,35 @@ from trialmatchai.search.lancedb_backend import _nct_where
 pytest.importorskip("lancedb")
 
 
+def test_bm25_norms_drops_undifferentiated_batch():
+    from trialmatchai.search.lancedb_backend import _bm25_norms
+
+    # an all-equal BM25 column (all-zero no-match, or uniform) carries no ranking signal ->
+    # omit it so callers fall back to the lexical heuristic instead of scoring all rows perfect.
+    assert _bm25_norms([{"nct_id": "a", "_score": 0.0}, {"nct_id": "b", "_score": 0.0}]) == {}
+    assert _bm25_norms([{"nct_id": "a", "_score": 5.5}, {"nct_id": "b", "_score": 5.5}]) == {}
+    # a differentiated batch still min-max normalizes to [0, 1]
+    norms = _bm25_norms([{"nct_id": "a", "_score": 2.0}, {"nct_id": "b", "_score": 4.0}])
+    assert set(norms.values()) == {0.0, 1.0}
+
+
+def test_trial_vector_secondary_terms_field_weighted_and_sparsity_independent():
+    from trialmatchai.search.lancedb_backend import _trial_vector_score
+
+    q = [0.3, 0.9539392]  # unit vector, cosine 0.3 with the field axis -> uncapped score
+    field = [1.0, 0.0]
+    emb = {"primary": q, "other": q}
+    s_one = _trial_vector_score({"condition_vector": field}, ["primary"], ["other"], emb)
+    s_all = _trial_vector_score(
+        {k: field for k in ("condition_vector", "brief_title_vector",
+                            "brief_summary_vector", "eligibility_criteria_vector")},
+        ["primary"], ["other"], emb,
+    )
+    # the fix: the secondary-term contribution no longer depends on how many fields are populated
+    assert abs(s_one - s_all) < 1e-9
+    assert 0.0 < s_one < 1.0  # uncapped, so the equality is a real property (not both clamped to 1)
+
+
 def test_lancedb_backend_indexes_and_searches_trials_and_criteria(tmp_path):
     backend = LanceDBSearchBackend(
         tmp_path / "search",

@@ -16,6 +16,7 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         tokenizer=None,
         batch_size: int = 16,
         use_cot: bool = True,
+        no_think: bool = False,
         max_new_tokens: int = 5000,
         temperature: float = 0.0,
         top_p: float = 1.0,
@@ -33,6 +34,7 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         self.tokenizer = tokenizer or getattr(self.llm, "get_tokenizer", lambda: None)()
         self.batch_size = batch_size
         self.use_cot = use_cot
+        self.no_think = no_think
         self.max_new_tokens = max_new_tokens
         self.temperature = temperature
         self.top_p = top_p

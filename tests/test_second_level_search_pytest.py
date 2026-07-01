@@ -16,13 +16,40 @@ def test_score_criteria_without_llm_weights():
         inclusion_weight=1.0,
         exclusion_weight=0.25,
     )
+    # Use the real stored short-form values ("inclusion"/"exclusion"/"unknown"), not the
+    # full-phrase headers — the old full-phrase fixtures masked the weighting never firing.
     criteria = [
-        {"_score": 2.0, "_source": {"eligibility_type": "Inclusion Criteria"}},
-        {"_score": 1.0, "_source": {"eligibility_type": "Exclusion Criteria"}},
+        {"_score": 2.0, "_source": {"eligibility_type": "inclusion"}},
+        {"_score": 1.0, "_source": {"eligibility_type": "exclusion"}},
+        {"_score": 2.0, "_source": {"eligibility_type": "unknown"}},
     ]
     scored = retriever.score_criteria_without_llm(criteria)
-    assert scored[0]["llm_score"] == 1.0
-    assert scored[1]["llm_score"] == 0.125
+    assert scored[0]["llm_score"] == 1.0     # inclusion: (2/2) * 1.0
+    assert scored[1]["llm_score"] == 0.125   # exclusion: (1/2) * 0.25
+    assert scored[2]["llm_score"] == 1.0     # unknown: (2/2), no downweight (ES-era fall-through)
+
+
+def test_rerank_criteria_applies_exclusion_weight():
+    class _StubReranker:
+        def rank_pairs(self, pairs):
+            return [1.0 for _ in pairs]
+
+    retriever = SecondStageRetriever(
+        search_backend=InMemorySearchBackend(),
+        llm_reranker=_StubReranker(),
+        embedder=None,
+        inclusion_weight=1.0,
+        exclusion_weight=0.25,
+    )
+    criteria = [
+        {"query": "q", "_source": {"criterion": "c", "eligibility_type": "inclusion"}},
+        {"query": "q", "_source": {"criterion": "c", "eligibility_type": "exclusion"}},
+        {"query": "q", "_source": {"criterion": "c", "eligibility_type": "unknown"}},
+    ]
+    scored = retriever.rerank_criteria(criteria)
+    assert scored[0]["llm_score"] == 1.0     # inclusion
+    assert scored[1]["llm_score"] == 0.25    # exclusion downweighted
+    assert scored[2]["llm_score"] == 1.0     # unknown untouched
 
 
 def test_aggregate_to_trials_weighted():

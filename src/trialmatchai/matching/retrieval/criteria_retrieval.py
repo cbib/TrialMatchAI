@@ -120,10 +120,12 @@ class SecondStageRetriever:
             raise ValueError("Mismatch between LLM scores and pairs!")
         for i, criterion in enumerate(criteria):
             llm_score = llm_scores[i]
+            # stored eligibility_type is the short form "inclusion"/"exclusion"/"unknown"
+            # (criteria_chunking); "unknown" falls through at weight 1.0, matching the ES-era reranker.
             eligibility_type = criterion["_source"].get("eligibility_type", "").lower()
-            if eligibility_type == "inclusion criteria":
+            if eligibility_type == "inclusion":
                 llm_score *= self.inclusion_weight
-            elif eligibility_type == "exclusion criteria":
+            elif eligibility_type == "exclusion":
                 llm_score *= self.exclusion_weight
             criterion["llm_score"] = llm_score
         return criteria
@@ -135,9 +137,9 @@ class SecondStageRetriever:
         for criterion in criteria:
             base = float(criterion.get("_score", 0.0)) / max_es
             eligibility_type = criterion["_source"].get("eligibility_type", "").lower()
-            if eligibility_type == "inclusion criteria":
+            if eligibility_type == "inclusion":
                 base *= self.inclusion_weight
-            elif eligibility_type == "exclusion criteria":
+            elif eligibility_type == "exclusion":
                 base *= self.exclusion_weight
             criterion["llm_score"] = base
         return criteria
@@ -202,6 +204,9 @@ class SecondStageRetriever:
         for criterion in criteria:
             nct_id = criterion["_source"]["nct_id"]
             score = criterion["llm_score"]
+            # Keep a criterion that was relevant BEFORE constraint penalties even if the
+            # penalty pushed it below threshold: constraints penalize (downweight) but do not
+            # hard-exclude at retrieval — the CoT stage makes the final eligibility call.
             threshold_basis = criterion.get("pre_constraint_score", score)
             if score >= threshold or threshold_basis >= threshold:
                 trial_scores[nct_id].append(score)
@@ -276,7 +281,14 @@ class SecondStageRetriever:
         )
         sorted_trials = self.aggregate_to_trials(ranked_criteria)
         top_trials = sorted_trials[:top_n]
-        logger.info(f"Top {top_n} trials retrieved: {top_trials}")
+        if len(sorted_trials) < top_n:
+            logger.warning(
+                "Second-level aggregation produced only %s trials (fewer than the requested top %s).",
+                len(sorted_trials),
+                top_n,
+            )
+        else:
+            logger.info("Aggregated %s trials; returning top %s.", len(sorted_trials), top_n)
         if save_path:
             write_text_file([trial["nct_id"] for trial in top_trials], save_path)
             logger.info(f"Top trials saved to {save_path}")
