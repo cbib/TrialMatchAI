@@ -250,6 +250,67 @@ def count_pending(config: Dict[str, Any]) -> tuple[int, int]:
     return pending, done
 
 
+_MATCH_STATE_VERSION = "1"
+
+
+def _match_signature(config: Dict[str, Any]) -> dict:
+    """Match-relevant config whose change should invalidate cached patient matches."""
+    reranker = config.get("LLM_reranker", {})
+    return {
+        "reranker_backend": reranker.get("backend"),
+        "reranker_enabled": reranker.get("enabled"),
+        "use_cot": config.get("use_cot_reasoning"),
+        "query_expansion": (config.get("query_expansion") or {}).get("enabled"),
+        "candidate_limit": (config.get("search_backend") or {}).get("candidate_limit"),
+    }
+
+
+def _match_corpus_fingerprint(config: Dict[str, Any]) -> str:
+    """Fingerprint of the search index the match queries + match config. Empty on error."""
+    try:
+        db_path = (config.get("search_backend") or {}).get("db_path", "data/search")
+        return digest(
+            _MATCH_STATE_VERSION,
+            dir_fingerprint(db_path, include_dirs=True),
+            _match_signature(config),
+        )
+    except Exception:
+        return ""
+
+
+def _match_state_path(config: Dict[str, Any]) -> Path | None:
+    try:
+        return Path(config["paths"]["output_dir"]) / ".match_state.json"
+    except Exception:
+        return None
+
+
+def _match_corpus_changed(config: Dict[str, Any], corpus_fp: str) -> bool:
+    """True only when a PRIOR match recorded a DIFFERENT corpus fingerprint (stale results).
+
+    Absent record or empty fingerprint -> False, so this is a no-op that leaves the plain
+    per-patient resume untouched unless we can prove the queried corpus changed.
+    """
+    path = _match_state_path(config)
+    if path is None or not corpus_fp:
+        return False
+    try:
+        recorded = json.loads(path.read_text()).get("corpus_fingerprint")
+    except Exception:
+        return False
+    return recorded is not None and recorded != corpus_fp
+
+
+def _record_match_corpus(config: Dict[str, Any], corpus_fp: str) -> None:
+    path = _match_state_path(config)
+    if path is None or not corpus_fp:
+        return
+    try:
+        atomic_write_json(path, {"corpus_fingerprint": corpus_fp, "completed_at": _now_iso()})
+    except Exception as exc:  # pragma: no cover - best-effort bookkeeping
+        logger.debug("match state write skipped: %s", exc)
+
+
 def run_matching(
     config: Dict[str, Any],
     *,
@@ -258,10 +319,18 @@ def run_matching(
 ) -> int:
     """Run the matching pipeline with per-patient resume.
 
-    When resuming, the expensive model stack is not even loaded if every patient
-    is already done.
+    When resuming, the expensive model stack is not even loaded if every patient is already
+    done. The resume is additionally invalidated when the search index the matches were
+    produced against has changed (a rebuilt corpus), so stale ranked_trials.json are not
+    served after a re-index.
     """
     use_resume = resume and not force
+    corpus_fp = _match_corpus_fingerprint(config)
+    if use_resume and _match_corpus_changed(config, corpus_fp):
+        logger.info(
+            "Match resume invalidated: search index changed since last match; re-matching."
+        )
+        use_resume = False
     if use_resume:
         pending, done = count_pending(config)
         if pending == 0:
@@ -272,7 +341,9 @@ def run_matching(
     # path) do not pull in the heavy model stack that main.py imports.
     from trialmatchai.main import main_pipeline
 
-    return main_pipeline(config=config, resume=use_resume)
+    result = main_pipeline(config=config, resume=use_resume)
+    _record_match_corpus(config, corpus_fp)
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -352,6 +423,7 @@ def _load_manifest(path: Path) -> dict:
 # completion, so the next build re-runs it even when inputs + config are unchanged.
 _PREPARE_STATE_VERSION = "1"
 _LINK_STATE_VERSION = "1"
+_INDEX_STATE_VERSION = "1"
 
 
 def _prepare_signature(config: dict) -> dict:
@@ -377,6 +449,20 @@ def _linker_signature(config: dict) -> dict:
             "reject_threshold", "margin", "rerank", "search_limit",
         )
     }
+
+
+def _index_signature(config: dict) -> dict:
+    """Config whose change must invalidate the search index."""
+    search = config.get("search_backend", {})
+    return {
+        key: search.get(key)
+        for key in ("backend", "db_path", "trials_table", "criteria_table", "candidate_limit")
+    }
+
+
+def _index_tables_present(config: dict) -> bool:
+    db_path = Path((config.get("search_backend") or {}).get("db_path", "data/search"))
+    return db_path.exists() and any(db_path.iterdir())
 
 
 def _save_manifest(path: Path, manifest: dict) -> None:
@@ -605,15 +691,31 @@ def build_system(
             }
         _save_manifest(manifest_path, manifest)
 
-    # Stage 2 — build the LanceDB search index (idempotent).
+    # Stage 2 — build the LanceDB search index.
     logger.info("=== build: index stage ===")
-    index_info = build_index(
-        config,
-        processed_trials_folder=pt,
-        processed_criteria_folder=pc,
-        force=force_reindex,
-    )
-    manifest["index"] = {**index_info, "completed_at": _now_iso()}
+    index_upstream = (manifest.get("link") or {}).get("fingerprint") or (
+        manifest.get("prepare") or {}
+    ).get("output_fingerprint", "")
+    index_fp = digest(_INDEX_STATE_VERSION, index_upstream, _index_signature(config))
+    if not force_reindex and stage_is_current(
+        manifest.get("index"), fingerprint=index_fp, output_present=_index_tables_present(config)
+    ):
+        logger.info(
+            "Index stage skipped: corpus + index config + code unchanged (fingerprint match)."
+        )
+        index_info = dict(manifest["index"])
+    else:
+        # Fingerprint changed (or forced): rebuild so the index reflects the CURRENT corpus.
+        # The old table-existence-only skip would keep a stale index after the corpus changed.
+        index_info = build_index(
+            config, processed_trials_folder=pt, processed_criteria_folder=pc, force=True
+        )
+        manifest["index"] = {
+            **index_info,
+            "status": "complete",
+            "fingerprint": index_fp,
+            "completed_at": _now_iso(),
+        }
     _save_manifest(manifest_path, manifest)
 
     state = build_state(

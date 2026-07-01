@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from trialmatchai.entities.builder import (
 )
 from trialmatchai.models.embedding import build_embedder
 from trialmatchai.utils.logging_config import setup_logging
+from trialmatchai.utils.pipeline_state import atomic_write_json, digest
 
 logger = setup_logging(__name__)
 
@@ -101,6 +103,26 @@ def main() -> int:
         return 2  # pragma: no cover - parser.error exits
 
 
+_CONCEPTS_STATE_VERSION = "1"
+
+
+def _concepts_fingerprint(sources, dictionary, vocabulary) -> str:
+    return digest(
+        _CONCEPTS_STATE_VERSION,
+        sources,
+        sorted(str(d) for d in dictionary),
+        sorted(str(v) for v in vocabulary),
+    )
+
+
+def _read_concepts_fingerprint(db_path: str) -> str | None:
+    try:
+        data = json.loads((Path(db_path) / ".concepts_state.json").read_text())
+        return data.get("fingerprint")
+    except Exception:
+        return None
+
+
 def run_build_concepts(
     config: dict,
     *,
@@ -129,9 +151,14 @@ def run_build_concepts(
     if not concept_csv and not dictionary and not sources:
         raise ValueError("provide concept_csv, sources, and/or at least one dictionary")
 
+    concepts_fp = _concepts_fingerprint(sources, dictionary, vocabulary)
     if not force and not concept_csv:
         ready, rows_present = _concept_table_ready(db_path, table_name)
-        if ready:
+        recorded = _read_concepts_fingerprint(db_path)
+        # Backward-compatible: a store built before this marker existed (recorded is None)
+        # still skips on presence -- only an explicit fingerprint MISMATCH rebuilds, so an
+        # existing 600k-concept store is never needlessly re-embedded.
+        if ready and (recorded is None or recorded == concepts_fp):
             logger.info(
                 "Concept store already present at %s/%s (%s concepts); skipping. "
                 "Pass force=True to rebuild.",
@@ -140,6 +167,8 @@ def run_build_concepts(
                 rows_present,
             )
             return 0
+        if recorded is not None and recorded != concepts_fp:
+            logger.info("Concept sources/config changed since the store was built; rebuilding.")
 
     dictionary_specs: list[tuple[str, str, str]] = [
         _parse_dictionary_spec(spec) for spec in dictionary
@@ -175,6 +204,10 @@ def run_build_concepts(
         table_name=table_name,
         embeddings=embeddings,
         recreate=True,
+    )
+    atomic_write_json(
+        Path(db_path) / ".concepts_state.json",
+        {"fingerprint": concepts_fp, "state_version": _CONCEPTS_STATE_VERSION},
     )
     logger.info("Wrote %s concepts to %s/%s", len(rows), db_path, table_name)
     return 0
