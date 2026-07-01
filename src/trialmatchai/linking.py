@@ -22,12 +22,63 @@ from pathlib import Path
 from typing import Any
 
 from trialmatchai.utils.logging_config import setup_logging
+from trialmatchai.utils.pipeline_state import dir_fingerprint
 
 logger = setup_logging(__name__)
 
 # Statuses that mean "no link decision was ever made against a store" -> (re)link.
 # A linked entity is one of accepted / ambiguous / rejected / not_linkable.
 _RELINK_STATUSES = frozenset({"not_linked", "concept_store_unavailable"})
+
+# Per-trial resume journal: an append-only write-ahead log of trial IDs already linked, so a
+# crashed/partial run resumes by SKIPPING those trials by id (no re-reading their criteria)
+# instead of re-walking the whole corpus. This is the checkpoint / committed-cursor pattern --
+# durable per-record receipts + idempotent re-processing. A header line binds the log to the
+# prepared-corpus fingerprint, so it is discarded when the corpus changes.
+_LINK_PROGRESS_VERSION = "1"
+_LINK_JOURNAL_NAME = ".link_progress.jsonl"
+
+
+def _load_link_journal(path: Path, corpus_fingerprint: str) -> tuple[bool, set[str]]:
+    """Return (header_valid, completed_trial_ids).
+
+    header_valid is False when the journal is missing, a different version, or was recorded
+    against a different corpus -- the caller then starts a fresh journal. A torn final record
+    from a crash is skipped, not fatal.
+    """
+    if not corpus_fingerprint:
+        return False, set()
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            header = handle.readline()
+            meta = json.loads(header) if header.strip() else {}
+            if (
+                meta.get("v") != _LINK_PROGRESS_VERSION
+                or meta.get("corpus_fingerprint") != corpus_fingerprint
+            ):
+                return False, set()
+            completed: set[str] = set()
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    completed.add(json.loads(line)["nct"])
+                except Exception:
+                    continue  # torn final record from a crash -> ignore
+            return True, completed
+    except FileNotFoundError:
+        return False, set()
+    except Exception:
+        return False, set()
+
+
+def _write_link_journal_header(path: Path, corpus_fingerprint: str) -> None:
+    """(Re)start the journal with a fresh header binding it to the current prepared corpus."""
+    path.write_text(
+        json.dumps({"v": _LINK_PROGRESS_VERSION, "corpus_fingerprint": corpus_fingerprint}) + "\n",
+        encoding="utf-8",
+    )
 
 
 def link_corpus(
@@ -65,29 +116,66 @@ def link_corpus(
     trial_dirs = [d for d in sorted(criteria_root.iterdir()) if d.is_dir()]
     tally: dict[str, int] = {}
     cache: dict[tuple[str, str], dict[str, Any]] = {}
-    relinked_trials = skipped_trials = 0
+    relinked_trials = skipped_trials = resumed_skip = 0
 
-    for i, trial_dir in enumerate(trial_dirs, start=1):
-        if not (trials_root / f"{trial_dir.name}.json").exists():
-            skipped_trials += 1  # prepare not finished for this trial yet
-            continue
-        if _link_trial_dir(trial_dir, linker, cache, tally, force=force):
-            relinked_trials += 1
-        if i % log_every == 0:
-            logger.info(
-                "link progress: %s/%s trials (%s relinked); "
-                "accepted=%s ambiguous=%s rejected=%s",
-                i,
-                len(trial_dirs),
-                relinked_trials,
-                tally.get("accepted", 0),
-                tally.get("ambiguous", 0),
-                tally.get("rejected", 0),
-            )
+    # Per-trial resume: skip trials already linked in a prior run BY ID (via the append-only
+    # journal), without re-reading their criteria. The journal is bound to the prepared-corpus
+    # fingerprint, so it is discarded if the corpus changed; ``force`` ignores it.
+    journal_path = criteria_root / _LINK_JOURNAL_NAME
+    corpus_fp = dir_fingerprint(trials_root)
+    header_valid, completed = (
+        (False, set()) if force else _load_link_journal(journal_path, corpus_fp)
+    )
+    if not header_valid:
+        _write_link_journal_header(journal_path, corpus_fp)
+        completed = set()
+    if completed:
+        logger.info(
+            "link resume: %s of %s trials already linked in a prior run; skipping those by id.",
+            len(completed),
+            len(trial_dirs),
+        )
+
+    # Line-buffered append log: each completed trial is a durable receipt flushed on newline,
+    # so a process kill (OOM / timeout) resumes from the last completed trial, not the start.
+    journal = journal_path.open("a", buffering=1, encoding="utf-8")
+    try:
+        for i, trial_dir in enumerate(trial_dirs, start=1):
+            name = trial_dir.name
+            if not (trials_root / f"{name}.json").exists():
+                skipped_trials += 1  # prepare not finished for this trial yet
+                continue
+            if name in completed:
+                resumed_skip += 1  # linked in a prior run -- skip without opening its criteria
+                continue
+            if _link_trial_dir(trial_dir, linker, cache, tally, force=force):
+                relinked_trials += 1
+            completed.add(name)
+            journal.write(json.dumps({"nct": name}) + "\n")
+            if i % log_every == 0:
+                logger.info(
+                    "link progress: %s/%s trials (%s relinked, %s resumed-skip); "
+                    "accepted=%s ambiguous=%s rejected=%s",
+                    i,
+                    len(trial_dirs),
+                    relinked_trials,
+                    resumed_skip,
+                    tally.get("accepted", 0),
+                    tally.get("ambiguous", 0),
+                    tally.get("rejected", 0),
+                )
+    finally:
+        try:
+            journal.flush()
+            os.fsync(journal.fileno())
+        except OSError:
+            pass
+        journal.close()
 
     logger.info(
-        "link complete: %s trials relinked, %s skipped (prepare in-flight). entities: %s",
+        "link complete: %s relinked, %s resumed-skip, %s awaiting prepare. entities: %s",
         relinked_trials,
+        resumed_skip,
         skipped_trials,
         {k: tally[k] for k in sorted(tally)},
     )

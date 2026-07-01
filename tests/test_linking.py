@@ -196,3 +196,98 @@ def test_threshold_sweep_prefers_abstaining_on_weak_nil():
     # accept=0.5 links Z (wrong, gold NIL); accept>=0.7 abstains on Z -> higher macro-F1.
     assert best["accept_threshold"] >= 0.7
     assert best["macro_f1"] > 0.6
+
+
+# --- link stage: per-trial resume journal (crash-safe skip-by-id) ---
+
+
+def test_link_journal_roundtrip_and_invalidation(tmp_path):
+    from trialmatchai import linking as _linking
+
+    journal = tmp_path / ".link_progress.jsonl"
+    _linking._write_link_journal_header(journal, "fp_v1")
+    with journal.open("a") as fh:
+        fh.write(json.dumps({"nct": "NCT1"}) + "\n")
+
+    valid, done = _linking._load_link_journal(journal, "fp_v1")
+    assert valid and done == {"NCT1"}  # same corpus fingerprint -> receipts load
+
+    valid2, done2 = _linking._load_link_journal(journal, "fp_v2")
+    assert not valid2 and done2 == set()  # corpus changed -> journal discarded
+
+    with journal.open("a") as fh:
+        fh.write('{"nct": "NCT2"')  # torn final record (crash mid-write)
+    valid3, done3 = _linking._load_link_journal(journal, "fp_v1")
+    assert valid3 and done3 == {"NCT1"}  # torn record skipped, not fatal
+
+
+def test_link_corpus_resumes_by_id_without_reopening_criteria(tmp_path, monkeypatch):
+    from trialmatchai import linking as _linking
+
+    criteria_root = tmp_path / "criteria"
+    trials_root = tmp_path / "trials"
+    criteria_root.mkdir()
+    trials_root.mkdir()
+    for nct in ["NCT1", "NCT2", "NCT3"]:
+        (trials_root / f"{nct}.json").write_text("{}")  # prepare-complete marker
+        tdir = criteria_root / nct
+        tdir.mkdir()
+        (tdir / "c1.json").write_text(
+            json.dumps(
+                {
+                    "criteria_id": "c1",
+                    "nct_id": nct,
+                    "criterion": "diabetes",
+                    "entities": [
+                        {
+                            "entity_group": "disease",
+                            "text": "diabetes",
+                            "start": 0,
+                            "end": 8,
+                            "score": 0.9,
+                            "linker_status": "concept_store_unavailable",
+                        }
+                    ],
+                }
+            )
+        )
+
+    store = InMemoryConceptStore(
+        [
+            {
+                "concept_id": "DOID:9351",
+                "vocabulary_id": "DOID",
+                "concept_code": "DOID:9351",
+                "concept_name": "diabetes mellitus",
+                "domain_id": "Disease",
+                "synonyms": ["diabetes"],
+            }
+        ]
+    )
+    linker = ConceptLinker(
+        store, load_entity_schemas(None), accept_threshold=0.5, reject_threshold=0.1
+    )
+    monkeypatch.setattr(_linking, "_build_linker", lambda config, linker_cfg: linker)
+    config = {"concept_linker": {"enabled": True}}
+
+    # 1st run links all three and records the journal
+    _linking.link_corpus(
+        config, processed_criteria_folder=criteria_root, processed_trials_folder=trials_root
+    )
+    _, done = _linking._load_link_journal(
+        criteria_root / ".link_progress.jsonl", _linking.dir_fingerprint(trials_root)
+    )
+    assert done == {"NCT1", "NCT2", "NCT3"}
+
+    # 2nd run: no trial dir is re-opened -- every trial is skipped by id from the journal
+    opened: list[str] = []
+    real = _linking._link_trial_dir
+    monkeypatch.setattr(
+        _linking,
+        "_link_trial_dir",
+        lambda d, *a, **k: (opened.append(d.name), real(d, *a, **k))[1],
+    )
+    _linking.link_corpus(
+        config, processed_criteria_folder=criteria_root, processed_trials_folder=trials_root
+    )
+    assert opened == []  # criteria never re-read on resume
