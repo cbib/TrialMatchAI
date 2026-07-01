@@ -107,13 +107,6 @@ class LLMReranker:
         )
 
     def _yes_probability(self, output: Any) -> float:
-        # Standard pointwise-reranker score: the two-way softmax over the Yes/No label tokens,
-        # r = p(yes) / (p(yes) + p(no)). vLLM returns RAW full-vocabulary log-probs (log-softmax
-        # at T=1, before the sampling mask/temperature), so this recovers P(Yes | {Yes, No}).
-        # Intentional, and deliberately NOT the legacy full-vocabulary P(Yes): the two-way form
-        # isolates the yes/no decision from probability the model spreads over formatting tokens,
-        # and 0.5 is the natural "leans Yes" boundary. This is the documented standard for
-        # pointwise LLM rerankers; kept over legacy for correctness, not faithfulness.
         try:
             token_logprobs = output.outputs[0].logprobs[0]
         except (AttributeError, IndexError, TypeError):
