@@ -20,6 +20,12 @@ from typing import Any, Dict, Iterable, Iterator, Sequence
 from trialmatchai.search import LanceDBSearchBackend
 from trialmatchai.utils.file_utils import is_valid_json_file, write_json_file
 from trialmatchai.utils.logging_config import setup_logging
+from trialmatchai.utils.pipeline_state import (
+    atomic_write_json,
+    digest,
+    dir_fingerprint,
+    stage_is_current,
+)
 
 logger = setup_logging(__name__)
 
@@ -342,8 +348,39 @@ def _load_manifest(path: Path) -> dict:
         return {}
 
 
+# Bump a stage's version when its logic changes in a way that must invalidate a cached
+# completion, so the next build re-runs it even when inputs + config are unchanged.
+_PREPARE_STATE_VERSION = "1"
+_LINK_STATE_VERSION = "1"
+
+
+def _prepare_signature(config: dict) -> dict:
+    """Config whose change must invalidate the prepare stage (embeddings + entities)."""
+    embedder = config.get("embedder", {})
+    entity = config.get("entity_extraction", {})
+    return {
+        "embedder_model": embedder.get("model_name"),
+        "embedder_revision": embedder.get("revision"),
+        "entity_backend": entity.get("backend"),
+        "entity_model": entity.get("model_name"),
+        "entity_threshold": entity.get("threshold"),
+    }
+
+
+def _linker_signature(config: dict) -> dict:
+    """Config whose change must invalidate the link stage."""
+    linker = config.get("concept_linker", {})
+    return {
+        key: linker.get(key)
+        for key in (
+            "enabled", "db_path", "table", "accept_threshold",
+            "reject_threshold", "margin", "rerank", "search_limit",
+        )
+    }
+
+
 def _save_manifest(path: Path, manifest: dict) -> None:
-    write_json_file(manifest, str(path))
+    atomic_write_json(path, manifest)
 
 
 def _count_json(folder: Path) -> int:
@@ -491,7 +528,18 @@ def build_system(
     have_prepared = _count_json(pt) > 0
     have_source = trials_json_folder.exists() and any(trials_json_folder.glob("*.json"))
     logger.info("=== build: prepare stage ===")
-    if have_source:
+    # Skip the whole stage when its inputs (source corpus path+size+mtime), config, and code
+    # version are unchanged since the last completed prepare -- no per-trial rescan/model load.
+    prepare_fp = digest(
+        _PREPARE_STATE_VERSION, dir_fingerprint(trials_json_folder), _prepare_signature(config)
+    )
+    if not force_prepare and stage_is_current(
+        manifest.get("prepare"), fingerprint=prepare_fp, output_present=have_prepared
+    ):
+        logger.info(
+            "Prepare stage skipped: source corpus + config + code unchanged (fingerprint match)."
+        )
+    elif have_source:
         # prepare_corpus internally skips already-prepared trials, so calling it
         # whenever source exists safely resumes without redoing finished work.
         stats = prepare_corpus(
@@ -501,10 +549,22 @@ def build_system(
             processed_criteria_folder=pc,
             force=force_prepare,
         )
-        manifest["prepare"] = {**stats, "completed_at": _now_iso()}
+        manifest["prepare"] = {
+            **stats,
+            "status": "complete",
+            "fingerprint": prepare_fp,
+            "output_fingerprint": dir_fingerprint(pt),
+            "completed_at": _now_iso(),
+        }
     elif have_prepared:
         logger.info("Prepare skipped: %s already populated (no trials_jsons source).", pt)
-        manifest["prepare"] = {"skipped_existing": True, "completed_at": _now_iso()}
+        manifest["prepare"] = {
+            "skipped_existing": True,
+            "status": "complete",
+            "fingerprint": prepare_fp,
+            "output_fingerprint": dir_fingerprint(pt),
+            "completed_at": _now_iso(),
+        }
     else:
         raise RuntimeError(
             f"Nothing to prepare: {pt} is empty and no trial JSONs at "
@@ -519,12 +579,30 @@ def build_system(
     # skipped, so this also relinks an already-prepared NER-only corpus.
     if link_concepts:
         logger.info("=== build: link stage ===")
-        from trialmatchai.linking import link_corpus
+        # Chain off prepare's output fingerprint: when the prepared corpus, linker config, and
+        # link code are unchanged since the last completed link, skip the whole stage instead
+        # of re-reading every criterion file just to confirm it is already linked.
+        upstream_fp = (manifest.get("prepare") or {}).get("output_fingerprint", "")
+        link_fp = digest(_LINK_STATE_VERSION, upstream_fp, _linker_signature(config))
+        if not force_prepare and stage_is_current(
+            manifest.get("link"), fingerprint=link_fp, output_present=_count_subdirs(pc) > 0
+        ):
+            logger.info(
+                "Link stage skipped: prepared corpus + linker config + code unchanged "
+                "(fingerprint match) -- not re-reading the criteria corpus."
+            )
+        else:
+            from trialmatchai.linking import link_corpus
 
-        link_tally = link_corpus(
-            config, processed_criteria_folder=pc, processed_trials_folder=pt
-        )
-        manifest["link"] = {**link_tally, "completed_at": _now_iso()}
+            link_tally = link_corpus(
+                config, processed_criteria_folder=pc, processed_trials_folder=pt
+            )
+            manifest["link"] = {
+                **link_tally,
+                "status": "complete",
+                "fingerprint": link_fp,
+                "completed_at": _now_iso(),
+            }
         _save_manifest(manifest_path, manifest)
 
     # Stage 2 — build the LanceDB search index (idempotent).

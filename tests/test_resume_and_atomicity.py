@@ -338,3 +338,57 @@ def test_save_outputs_writes_error_sidecar_on_invalid_json(tmp_path):
     data = json.loads((tmp_path / "NCT9.json").read_text())
     assert data.get("error") == "invalid_json_response"
     assert (tmp_path / "NCT9.txt").exists()  # raw reasoning still preserved
+
+
+# --- pipeline_state: stage-level skip/resume via fingerprinted completion state ---
+
+
+def test_dir_fingerprint_detects_add_remove_modify(tmp_path):
+    from trialmatchai.utils.pipeline_state import dir_fingerprint
+
+    (tmp_path / "a.json").write_text("1")
+    (tmp_path / "b.json").write_text("2")
+    fp0 = dir_fingerprint(tmp_path)
+    assert fp0 and dir_fingerprint(tmp_path) == fp0  # stable when nothing changes
+
+    (tmp_path / "c.json").write_text("3")  # add
+    assert dir_fingerprint(tmp_path) != fp0
+
+    (tmp_path / "c.json").unlink()  # remove -> same fileset as fp0
+    assert dir_fingerprint(tmp_path) == fp0
+
+    (tmp_path / "a.json").write_text("changed content")  # modify (size differs)
+    assert dir_fingerprint(tmp_path) != fp0
+
+    assert dir_fingerprint(tmp_path / "missing") == ""  # missing/empty dir -> ""
+
+
+def test_digest_stable_and_order_sensitive():
+    from trialmatchai.utils.pipeline_state import digest
+
+    assert digest("a", {"x": 1}) == digest("a", {"x": 1})  # stable
+    assert digest("a", {"x": 1, "y": 2}) == digest("a", {"y": 2, "x": 1})  # dict key order irrelevant
+    assert digest("a", "b") != digest("b", "a")  # positional order matters
+
+
+def test_atomic_write_json_roundtrips_overwrites_no_temp_left(tmp_path):
+    from trialmatchai.utils.pipeline_state import atomic_write_json
+
+    target = tmp_path / "state" / "manifest.json"
+    atomic_write_json(target, {"stage": "link", "n": 1})
+    assert json.loads(target.read_text()) == {"stage": "link", "n": 1}
+    atomic_write_json(target, {"stage": "link", "n": 2})
+    assert json.loads(target.read_text())["n"] == 2
+    assert not list(target.parent.glob("*.tmp.*"))  # temp file cleaned up
+
+
+def test_stage_is_current_gates_on_fingerprint_and_output():
+    from trialmatchai.utils.pipeline_state import stage_is_current
+
+    entry = {"status": "complete", "fingerprint": "abc"}
+    assert stage_is_current(entry, fingerprint="abc", output_present=True)  # all match -> skip
+    assert not stage_is_current(entry, fingerprint="xyz", output_present=True)  # inputs/config/code changed
+    assert not stage_is_current(entry, fingerprint="abc", output_present=False)  # output vanished
+    assert not stage_is_current(None, fingerprint="abc", output_present=True)  # never recorded
+    assert not stage_is_current({"fingerprint": "abc"}, fingerprint="abc", output_present=True)  # not complete
+    assert not stage_is_current(entry, fingerprint="", output_present=True)  # empty fingerprint never skips
