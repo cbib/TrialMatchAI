@@ -632,10 +632,12 @@ def _bm25_norms(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
     low = min(raw.values())
     high = max(raw.values())
     if high <= low:
-        # An all-equal BM25 column (all-zero no-match, or uniform scores) carries no ranking
-        # signal; omit it so callers fall back to the lexical heuristic instead of scoring
-        # every row as a perfect match.
-        return {}
+        # Rows without a BM25 score were already dropped above, so every row here matched FTS
+        # (commonly a lone match: raw has one entry). min-max is undefined at zero span; map
+        # them all to 1.0 so a matched-but-undifferentiated row keeps its BM25 credit instead
+        # of being stripped to the pure heuristic. The term is constant across the batch, so
+        # this sets only the floor -- the heuristic still breaks ties within it.
+        return {key: 1.0 for key in raw}
     span = high - low
     return {key: (value - low) / span for key, value in raw.items()}
 

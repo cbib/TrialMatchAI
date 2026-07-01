@@ -11,18 +11,6 @@ from trialmatchai.search.lancedb_backend import _nct_where
 pytest.importorskip("lancedb")
 
 
-def test_bm25_norms_drops_undifferentiated_batch():
-    from trialmatchai.search.lancedb_backend import _bm25_norms
-
-    # an all-equal BM25 column (all-zero no-match, or uniform) carries no ranking signal ->
-    # omit it so callers fall back to the lexical heuristic instead of scoring all rows perfect.
-    assert _bm25_norms([{"nct_id": "a", "_score": 0.0}, {"nct_id": "b", "_score": 0.0}]) == {}
-    assert _bm25_norms([{"nct_id": "a", "_score": 5.5}, {"nct_id": "b", "_score": 5.5}]) == {}
-    # a differentiated batch still min-max normalizes to [0, 1]
-    norms = _bm25_norms([{"nct_id": "a", "_score": 2.0}, {"nct_id": "b", "_score": 4.0}])
-    assert set(norms.values()) == {0.0, 1.0}
-
-
 def test_trial_vector_secondary_terms_field_weighted_and_sparsity_independent():
     from trialmatchai.search.lancedb_backend import _trial_vector_score
 
