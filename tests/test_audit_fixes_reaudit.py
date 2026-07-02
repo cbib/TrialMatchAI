@@ -4,10 +4,33 @@ Generated from the per-file fix agents; each pins a specific finding's corrected
 """
 
 from __future__ import annotations
+import trialmatchai.cli.build_concepts as build_concepts
+from trialmatchai.constraints import (
+    build_patient_constraint_context,
+    evaluate_constraint_set,
+)
+from trialmatchai.constraints.evaluation import _parse_numeric_value
+from trialmatchai.constraints.models import Constraint, ConstraintSet
+from trialmatchai.interop.models import (
+    ClinicalFact,
+    Demographics,
+    PatientProfile,
+    Provenance,
+)
+from trialmatchai.constraints.extraction import _lab_constraints, _biomarker_constraints
+from trialmatchai.entities.annotator import build_entity_annotator
+from trialmatchai.entities.linker import lexical_reranker
+import json
+import os
+import trialmatchai.entities as ent_mod
+import trialmatchai.models.embedding as emb_mod
+import trialmatchai.registry.preparation as prep_mod
+from trialmatchai.orchestration import _trial_needs_prepare, prepare_corpus
+from trialmatchai.utils.file_utils import write_json_file, write_text_file
+
 
 # ==== src/trialmatchai/cli/build_concepts.py ====
 
-import trialmatchai.cli.build_concepts as build_concepts
 
 
 def test_concepts_fingerprint_changes_when_embedder_model_swapped():
@@ -90,7 +113,6 @@ def test_cli_run_delegates_to_run_matching_for_corpus_invalidation(monkeypatch):
     from trialmatchai import orchestration as orch
     from trialmatchai.cli import run as run_cli
 
-    sentinel_config = {"sentinel": True, "path": None}
     monkeypatch.setattr(cfg_mod, "load_config", lambda p: {"sentinel": True, "path": p})
     calls = []
     monkeypatch.setattr(orch, "run_matching", lambda config, **kw: calls.append((config, kw)) or 0)
@@ -130,20 +152,7 @@ def test_cli_run_force_disables_resume(monkeypatch):
 
 
 # ==== src/trialmatchai/constraints/evaluation.py ====
-import pytest
 
-from trialmatchai.constraints import (
-    build_patient_constraint_context,
-    evaluate_constraint_set,
-)
-from trialmatchai.constraints.evaluation import _parse_numeric_value
-from trialmatchai.constraints.models import Constraint, ConstraintSet
-from trialmatchai.interop.models import (
-    ClinicalFact,
-    Demographics,
-    PatientProfile,
-    Provenance,
-)
 
 
 def _clinical_fact(fact_id, category, label, **kwargs):
@@ -276,7 +285,6 @@ def test_ecog_score_still_extracted_from_common_phrasings():
 
 
 # ==== src/trialmatchai/constraints/extraction.py ====
-from trialmatchai.constraints.extraction import _lab_constraints, _biomarker_constraints
 
 
 def test_lab_constraint_parses_thousands_separator_comma():
@@ -319,8 +327,6 @@ def test_biomarker_with_explicit_status_token_still_emitted():
 
 # ==== src/trialmatchai/entities/annotator.py ====
 
-from trialmatchai.entities.annotator import build_entity_annotator
-from trialmatchai.entities.linker import lexical_reranker
 
 
 def test_build_entity_annotator_wires_lexical_reranker_by_default():
@@ -590,13 +596,7 @@ def test_query_expansion_unbalanced_brace_inside_thinking_does_not_discard_answe
 
 
 # ==== src/trialmatchai/orchestration.py ====
-import json
-import os
 
-import trialmatchai.entities as ent_mod
-import trialmatchai.models.embedding as emb_mod
-import trialmatchai.registry.preparation as prep_mod
-from trialmatchai.orchestration import _trial_needs_prepare, prepare_corpus
 
 
 def test_trial_needs_prepare_reprepares_edited_source(tmp_path):
@@ -785,10 +785,7 @@ def test_import_topics_skips_only_when_every_topic_present(tmp_path, monkeypatch
 
 
 # ==== src/trialmatchai/utils/file_utils.py ====
-import os
-from pathlib import Path
 
-from trialmatchai.utils.file_utils import write_json_file, write_text_file
 
 
 def test_orphaned_json_temp_not_matched_by_artifact_glob(tmp_path, monkeypatch):

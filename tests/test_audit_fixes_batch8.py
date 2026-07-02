@@ -5,9 +5,26 @@ behaviour. Grouped by source file via '# ====' banners.
 """
 
 from __future__ import annotations
+from trialmatchai.interop.importers.fhir import _value_x, _genomic_label
+from dataclasses import replace
+from trialmatchai.entities.linker import (
+    ConceptLinker,
+    LanceDBConceptStore,
+    _lexical_score,
+)
+from trialmatchai.entities.schemas import load_entity_schemas
+from trialmatchai.entities.types import ConceptCandidate, EntityAnnotation
+import pytest
+from trialmatchai.interop.models import PatientProfile
+from trialmatchai.matching.retrieval.trial_retrieval import ClinicalTrialSearch
+from trialmatchai.search import InMemorySearchBackend
+from trialmatchai.models.embedding import HashingTextEmbedder
+import json
+from trialmatchai.trec.qrels import _retrieved_for_patient
+from trialmatchai import orchestration as orch
+
 
 # ==== src/trialmatchai/interop/importers/fhir.py ====
-from trialmatchai.interop.importers.fhir import _value_x, _genomic_label
 
 
 def test_value_range_preserves_negative_low_sign():
@@ -204,15 +221,7 @@ def test_balanced_parens_still_masked():
 
 
 # ==== src/trialmatchai/entities/linker.py ====
-from dataclasses import replace
 
-from trialmatchai.entities.linker import (
-    ConceptLinker,
-    LanceDBConceptStore,
-    _lexical_score,
-)
-from trialmatchai.entities.schemas import load_entity_schemas
-from trialmatchai.entities.types import ConceptCandidate, EntityAnnotation
 
 
 def test_lexical_score_substring_no_longer_flatscores_to_accept():
@@ -269,9 +278,7 @@ def test_embed_query_empty_string_degrades_instead_of_raising():
 
 
 # ==== src/trialmatchai/main.py ====
-import pytest
 
-from trialmatchai.interop.models import PatientProfile
 
 
 def _make_scored_retriever(scored):
@@ -416,8 +423,6 @@ def test_first_level_none_counted_as_failed_on_resume(tmp_path, monkeypatch):
 
 
 # ==== src/trialmatchai/matching/retrieval/trial_retrieval.py ====
-from trialmatchai.matching.retrieval.trial_retrieval import ClinicalTrialSearch
-from trialmatchai.search import InMemorySearchBackend
 
 
 def _make_search():
@@ -474,7 +479,6 @@ def test_search_trials_unparseable_age_warns_and_continues(caplog):
 
 
 # ==== src/trialmatchai/models/embedding/text_embedder.py ====
-from trialmatchai.models.embedding import HashingTextEmbedder
 
 
 def test_hashing_embedder_non_alphanumeric_is_nonzero_and_normalized():
@@ -495,9 +499,7 @@ def test_hashing_embedder_non_alphanumeric_nonzero_without_normalize():
 
 
 # ==== src/trialmatchai/trec/qrels.py ====
-import json
 
-from trialmatchai.trec.qrels import _retrieved_for_patient
 
 
 def test_retrieved_for_patient_ranked_trials_dict_fallback(tmp_path):
@@ -588,9 +590,6 @@ def test_inclusion_violation_dominates_matched_credits_not_averaged():
 
 
 # ==== src/trialmatchai/orchestration.py ====
-import json
-import pytest
-from trialmatchai import orchestration as orch
 
 
 def test_build_index_validates_criteria_before_writing_trials(tmp_path, monkeypatch):
