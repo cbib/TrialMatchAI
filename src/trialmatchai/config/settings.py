@@ -197,6 +197,10 @@ class VllmSettings(BaseModel):
     gpu_memory_utilization: float = Field(0.5, gt=0.0, le=1.0)
     max_model_len: int = Field(8192, ge=256)
     tensor_parallel_size: int = Field(1, ge=1)
+    # fp8 KV cache halves KV memory so a large window (e.g. 8192) fits on one 48GB card;
+    # max_num_seqs caps concurrency so that tight KV budget does not thrash.
+    kv_cache_dtype: Literal["auto", "fp8", "fp8_e4m3", "fp8_e5m2"] | None = None
+    max_num_seqs: int | None = Field(None, ge=1)
 
 
 class CotSettings(BaseModel):
@@ -210,6 +214,7 @@ class LLMRerankerSettings(BaseModel):
     # vLLM reranker engine's share of GPU memory; lower it (with vllm.gpu_memory_utilization)
     # to fit both engines on a smaller card (e.g. 48GB A40/L40).
     gpu_memory_utilization: float = Field(0.4, gt=0.0, le=1.0)
+    tensor_parallel_size: int = Field(1, ge=1)
 
 
 class QueryExpansionSettings(BaseModel):

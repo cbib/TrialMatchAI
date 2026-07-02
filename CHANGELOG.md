@@ -4,6 +4,19 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.3] — 2026-07-02
+
+### Fixed
+- **Config knobs were silently dropped by settings validation.** `VllmSettings` and
+  `LLMRerankerSettings` only preserve declared fields, so `LLM_reranker.tensor_parallel_size`
+  (added in 0.3.2) never survived `load_config` and the reranker stayed single-GPU. It is now
+  declared and reaches the engine. A regression test pins that these knobs round-trip.
+
+### Added
+- **fp8 KV cache + concurrency cap for vLLM.** New `vllm.kv_cache_dtype` (`fp8` / `fp8_e4m3` /
+  `fp8_e5m2`) halves KV-cache memory so a large context window (e.g. 8192) fits on a single
+  48 GB card, and `vllm.max_num_seqs` caps concurrency so that tight KV budget does not thrash.
+
 ## [0.3.2] — 2026-07-02
 
 ### Fixed

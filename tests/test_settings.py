@@ -14,6 +14,20 @@ class TestConfigLoading(unittest.TestCase):
         self.assertIn("embedder", config)
         self.assertIn("paths", config)
 
+    def test_multigpu_and_kv_knobs_survive_validation(self) -> None:
+        # These fields must be DECLARED on the settings models, or the validate->model_dump
+        # round-trip silently drops them (which made 0.3.2's reranker tensor_parallel_size a
+        # no-op and would strip the fp8 kv_cache_dtype / max_num_seqs before they reach vLLM).
+        from trialmatchai.config.settings import LLMRerankerSettings, VllmSettings
+
+        v = VllmSettings.model_validate(
+            {"kv_cache_dtype": "fp8", "max_num_seqs": 16, "tensor_parallel_size": 2}
+        )
+        self.assertEqual(v.model_dump()["kv_cache_dtype"], "fp8")
+        self.assertEqual(v.model_dump()["max_num_seqs"], 16)
+        r = LLMRerankerSettings.model_validate({"tensor_parallel_size": 2})
+        self.assertEqual(r.model_dump()["tensor_parallel_size"], 2)
+
     def test_env_overrides(self) -> None:
         raw = {
             "search_backend": {

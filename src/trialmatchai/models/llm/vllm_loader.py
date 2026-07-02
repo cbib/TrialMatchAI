@@ -135,6 +135,10 @@ def load_vllm_engine(
         or 0.95
     )
     max_lora_rank = _as_int(vllm_cfg.get("max_lora_rank", 64), "max_lora_rank") or 64
+    # Optional: fp8 KV cache halves KV memory so a large window fits on a single 48GB card;
+    # max_num_seqs caps concurrency to keep that tight KV budget from thrashing.
+    kv_cache_dtype = _as_str(vllm_cfg.get("kv_cache_dtype", ""), "kv_cache_dtype") or ""
+    max_num_seqs = _as_int(vllm_cfg.get("max_num_seqs", None), "max_num_seqs")
 
     # Optional max_model_len with safe cap based on HF config (unless overridden)
     requested_len = _as_int(vllm_cfg.get("max_model_len", None), "max_model_len")
@@ -163,6 +167,10 @@ def load_vllm_engine(
         engine_kwargs["revision"] = _as_str(revision, "revision")
     if requested_len is not None:
         engine_kwargs["max_model_len"] = requested_len
+    if kv_cache_dtype:
+        engine_kwargs["kv_cache_dtype"] = kv_cache_dtype
+    if max_num_seqs is not None and max_num_seqs > 0:
+        engine_kwargs["max_num_seqs"] = max_num_seqs
 
     # Return a cached engine when the same model/adapter/params were already built.
     cache_adapter = _as_str(
@@ -177,6 +185,8 @@ def load_vllm_engine(
         round(gmu, 4),
         str(engine_kwargs.get("max_model_len", "default")),
         str(engine_kwargs.get("revision", "")),
+        kv_cache_dtype,
+        str(engine_kwargs.get("max_num_seqs", "default")),
     )
     cached = _ENGINE_CACHE.get(cache_key)
     if cached is not None:
