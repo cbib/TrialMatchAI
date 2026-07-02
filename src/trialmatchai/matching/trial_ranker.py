@@ -12,15 +12,13 @@ def load_trial_data(
 ) -> List[Dict]:
     """Load per-trial eligibility outputs from a patient's result folder.
 
-    ``allowed_ids`` scopes loading to the current shortlist, so per-trial files
-    left over from a prior run with a different shortlist (e.g. after the index
-    changed) are ignored instead of being scored into the final ranking.
+    ``allowed_ids`` scopes to the current shortlist so stale per-trial files from a
+    prior run (different shortlist) are not scored into the final ranking.
     """
     trial_data = []
     for file_name in os.listdir(json_folder):
-        # Only NCT-named files are trials; skip run sidecars written to the same
-        # folder (keywords.json, patient_profile.json, first_level_scores.json,
-        # rag_output.json), which would otherwise be scored as bogus trials.
+        # Only NCT-named files are trials; skip run sidecars (keywords.json, etc.)
+        # that would otherwise be scored as bogus trials.
         if file_name.endswith(".json") and file_name.upper().startswith("NCT"):
             file_path = os.path.join(json_folder, file_name)
             trial_id = os.path.splitext(file_name)[0]
@@ -35,21 +33,15 @@ def load_trial_data(
     return trial_data
 
 
-# Eligibility scoring contract (see REFACTOR_PLAN.md PR1, audit finding C1).
-#
-# The eligibility model classifies each inclusion criterion as one of
-# {Met, Not Met, Unclear, Irrelevant} and each exclusion criterion as one of
-# {Violated, Not Violated, Unclear, Irrelevant}. A single Violated exclusion
-# makes the patient ineligible, so it HARD-DISQUALIFIES the trial rather than
-# being averaged against the inclusion score (the previous behavior, which let a
-# violated trial outrank an eligible one). Eligible trials are ranked in [0, 1]
-# by the fraction of decided inclusion criteria (Met or Not Met) that are Met.
+# Eligibility scoring contract (REFACTOR_PLAN.md PR1, audit C1): a single Violated
+# exclusion HARD-DISQUALIFIES the trial (not averaged in, which let a violated trial
+# outrank an eligible one); eligible trials score in [0, 1] by the fraction of decided
+# inclusion criteria (Met/Not Met) that are Met.
 DISQUALIFIED_SCORE = -1.0
 
 _DECIDED_INCLUSION = {"met", "not met"}
 
-# Model classifications vary in case, surrounding markdown, and trailing
-# punctuation (e.g. "violated", "**Violated**", "Met."); normalize before matching
+# Classifications vary in case/markdown/punctuation ("**Violated**", "Met."); normalize
 # so a disqualifying exclusion is never missed on a formatting variant.
 _CLASSIFICATION_STRIP = " \t\r\n*_`.,;:!\"'"
 
@@ -59,13 +51,24 @@ def _normalize_classification(value: object) -> str:
 
 
 def score_trial(trial: Dict) -> float:
+    inclusion = trial.get("Inclusion_Criteria_Evaluation")
+    exclusion = trial.get("Exclusion_Criteria_Evaluation")
+    # An error-output trial (no eval lists) was never assessed; disqualify rather than
+    # score 0.0, which would rank it above genuinely evaluated trials.
+    if not inclusion and not exclusion:
+        return DISQUALIFIED_SCORE if "error" in trial else 0.0
+
+    # Guard off-shape LLM output (bare strings/nulls): score only dict criteria, else
+    # c.get raises AttributeError and discards every ranked trial for the patient.
     inclusion = [
         _normalize_classification(c.get("Classification"))
-        for c in trial.get("Inclusion_Criteria_Evaluation", [])
+        for c in (inclusion or [])
+        if isinstance(c, dict)
     ]
     exclusion = [
         _normalize_classification(c.get("Classification"))
-        for c in trial.get("Exclusion_Criteria_Evaluation", [])
+        for c in (exclusion or [])
+        if isinstance(c, dict)
     ]
 
     # Any violated exclusion is a hard disqualifier: rank below all eligible trials.
@@ -80,37 +83,59 @@ def score_trial(trial: Dict) -> float:
     return met / len(decided)
 
 
+# Fraction of the gap to the next eligibility band the normalized reranker score may
+# occupy. Strictly < 1.0 keeps a high-reranker trial from crossing bands, so the CoT
+# decision stays primary and the reranker only breaks within-band ties.
+_BLEND_HEADROOM = 0.9
+
+
 def rank_trials(
     trial_data: List[Dict],
     *,
     first_level_scores: Dict[str, float] | None = None,
     second_level_scores: Dict[str, float] | None = None,
 ) -> List[Dict]:
-    """Rank trials by eligibility, breaking ties deterministically.
+    """Rank by eligibility, folding the reranker score in to break the coarse ties.
 
-    The eligibility score is coarse (small rationals), so many trials tie. Rather
-    than let ties resolve by arbitrary filesystem order, break them by the
-    continuous second-level reranker probability, then the first-level retrieval
-    score, then the NCT id — a meaningful order within each eligibility bucket
-    that is fully reproducible. (Tie-aware nDCG further ensures genuine ties are
-    scored fairly regardless of this order.)
+    ``score_trial`` yields a coarse band (many trials collapse onto one value, e.g. all-Met
+    = 1.0) that a tie-aware nDCG can't credit. So the continuous reranker probability is
+    folded into ``Score`` as a within-band refinement: normalized to [0, 1] and scaled by
+    ``_BLEND_HEADROOM`` to stay inside the gap to the next band. Bands never cross; ``Score``
+    becomes continuous while ``EligibilityScore`` keeps the raw band.
     """
     first_level_scores = first_level_scores or {}
     second_level_scores = second_level_scores or {}
+
+    entries = [
+        (
+            t.get("TrialID", "Unknown"),
+            score_trial(t),
+            float(second_level_scores.get(t.get("TrialID", "Unknown"), 0.0)),
+            float(first_level_scores.get(t.get("TrialID", "Unknown"), 0.0)),
+        )
+        for t in trial_data
+    ]
+    reranker_vals = [rer for _, _, rer, _ in entries]
+    lo, hi = (min(reranker_vals), max(reranker_vals)) if reranker_vals else (0.0, 0.0)
+    span = (hi - lo) or 1.0
+    bands = sorted({band for _, band, _, _ in entries})
+    min_gap = min((b - a for a, b in zip(bands, bands[1:])), default=1.0)
+    delta = min_gap * _BLEND_HEADROOM
+
     ranked_trials = []
-    for trial in trial_data:
-        trial_id = trial.get("TrialID", "Unknown")
+    for trial_id, band, reranker, first_level in entries:
+        norm_reranker = (reranker - lo) / span  # [0, 1] continuous second-level signal
         ranked_trials.append(
             {
                 "TrialID": trial_id,
-                "Score": score_trial(trial),
-                "RerankerScore": float(second_level_scores.get(trial_id, 0.0)),
-                "FirstLevelScore": float(first_level_scores.get(trial_id, 0.0)),
+                "Score": round(band + norm_reranker * delta, 10),
+                "EligibilityScore": band,
+                "RerankerScore": reranker,
+                "FirstLevelScore": first_level,
             }
         )
-    # Descending eligibility -> reranker -> first-level; ascending NCT id last
-    # (negate numeric keys so a single ascending sort gives the right order and
-    # the NCT-id tie-break stays ascending).
+    # Blended Score already encodes eligibility-then-reranker; the rest only settle a
+    # rare exact-Score tie (ascending NCT id last).
     ranked_trials.sort(
         key=lambda x: (
             -x["Score"],
@@ -123,8 +148,7 @@ def rank_trials(
 
 
 def save_ranked_trials(ranked_trials: List[Dict], output_file: str):
-    # Do NOT swallow write failures: the caller treats a returned-without-raising
-    # call as a completed patient. A failed final write must surface so the
-    # patient is counted as failed (and retried), not marked done with no marker.
+    # Do NOT swallow write failures: the caller treats a clean return as a completed
+    # patient, so a failed final write must surface to retry it (not mark it done).
     write_json_file({"RankedTrials": ranked_trials}, output_file)
     logger.info(f"Ranked trials saved to {output_file}")

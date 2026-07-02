@@ -54,6 +54,12 @@ class HashingTextEmbedder:
     def _embed(self, text: str) -> List[float]:
         vector = [0.0] * self.dimensions
         tokens = re.findall(r"[A-Za-z0-9]+", text.casefold())
+        if not tokens:
+            # No alphanumeric tokens (e.g. "!!!"): hash the raw text to avoid
+            # a degenerate all-zero embedding.
+            stripped = text.casefold().strip()
+            if stripped:
+                tokens = [stripped]
         for token in tokens:
             digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
             bucket = int.from_bytes(digest[:4], "big") % self.dimensions
@@ -138,11 +144,7 @@ def _batched(items: Sequence[str], batch_size: int) -> Iterable[Sequence[str]]:
 
 
 def build_embedder(config: dict) -> TextEmbedder:
-    """Construct a TextEmbedder from the ``embedder`` section of a config dict.
-
-    Single source for the embedder wiring previously copy-pasted across main.py
-    and the index/build-concepts/update-registry CLIs.
-    """
+    """Construct a TextEmbedder (or HashingTextEmbedder) from a config dict's ``embedder`` section."""
     embedder_cfg = config.get("embedder", {}) or {}
     backend = embedder_cfg.get("backend", "hf")
     if backend == "hashing":

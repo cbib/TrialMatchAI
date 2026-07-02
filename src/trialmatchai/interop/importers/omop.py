@@ -42,9 +42,7 @@ def import_omop_extract(
             raise ValueError(f"OMOP extract is missing PERSON table: {root}")
         return []
 
-    # Group each child table by normalized person_id ONCE, so each patient is an
-    # O(1) lookup instead of a full-table scan (no N+1), and the join is robust
-    # to float promotion from null person_id and to id sanitization.
+    # Group each child table by normalized person_id once for O(1) per-patient lookup (no N+1), robust to float-promoted ids.
     grouped = {
         name: _group_by_person(tables.get(name))
         for name in (
@@ -54,9 +52,12 @@ def import_omop_extract(
             "procedure_occurrence",
             "observation",
             "note",
-            "note_nlp",
         )
     }
+    # NOTE_NLP has no person_id in the standard CDM; resolve note_id -> NOTE.person_id instead.
+    grouped["note_nlp"] = _group_note_nlp_by_person(
+        tables.get("note_nlp"), _note_person_index(tables.get("note"))
+    )
 
     profiles: list[PatientProfile] = []
     for row in person.to_dict("records"):
@@ -125,14 +126,32 @@ def _concept_lookup(table: pd.DataFrame | None) -> dict[Any, dict[str, Any]]:
     }
 
 
+def _int_part(value: Any, default: int) -> int:
+    """Nullable OMOP integer column -> int, NaN/None -> ``default`` (NaN is truthy, so guard with isna)."""
+    return default if value is None or pd.isna(value) else int(value)
+
+
+def _term_negated(value: Any) -> bool:
+    """True when OMOP note_nlp.term_exists asserts a negation.
+
+    Collapse integral floats first: a null promotes the column to float, so an
+    asserted-negative ``0`` arrives as ``0.0`` and would miss the match set.
+    """
+    if isinstance(value, float) and not pd.isna(value) and value.is_integer():
+        value = int(value)
+    return str(value).strip().casefold() in {"n", "no", "false", "0", "f"}
+
+
 def _person_birth_date(row) -> Any:
-    if row.get("birth_datetime"):
-        return parse_date(row.get("birth_datetime"))
+    birth_datetime = row.get("birth_datetime")
+    # NaN is truthy, so isna-guard before parse_date or the y/m/d fallback is skipped.
+    if birth_datetime is not None and not pd.isna(birth_datetime):
+        return parse_date(birth_datetime)
     year = row.get("year_of_birth")
     if pd.isna(year):
         return None
-    month = int(row.get("month_of_birth") or 1)
-    day = int(row.get("day_of_birth") or 1)
+    month = _int_part(row.get("month_of_birth"), 1)
+    day = _int_part(row.get("day_of_birth"), 1)
     return parse_date(f"{int(year):04d}-{month:02d}-{day:02d}")
 
 
@@ -303,21 +322,14 @@ def _add_note_nlp_rows(
                 provenance=_row_provenance(root, profile.patient_id, "NOTE_NLP"),
                 evidence_text=clean_text(row.get("snippet")) or None,
                 evidence_start=_int_or_none(row.get("offset")),
-                # OMOP note_nlp.term_exists marks whether the term is asserted:
-                # "N"/"No"/"0"/"False" mean it is NEGATED (e.g. "no metastasis").
-                negated=str(row.get("term_exists")).strip().casefold()
-                in {"n", "no", "false", "0", "f"},
+                # term_exists "N"/"No"/"0"/"False" mean the term is NEGATED ("no metastasis").
+                negated=_term_negated(row.get("term_exists")),
             )
         )
 
 
 def _normalize_join_id(value: Any) -> str:
-    """Canonicalize a person_id for joining across tables.
-
-    Robust to float promotion (a null in the column makes person_id 1 -> 1.0)
-    and to the raw-vs-string mismatch, so PERSON and child tables join on the
-    same key regardless of dtype.
-    """
+    """Canonicalize a person_id for joining across tables, robust to float promotion (1 -> 1.0) and dtype mismatch."""
     if value is None:
         return ""
     if isinstance(value, float):
@@ -390,6 +402,40 @@ def _group_by_person(table: pd.DataFrame | None) -> dict[str, list[dict[str, Any
     return grouped
 
 
+def _note_person_index(table: pd.DataFrame | None) -> dict[str, str]:
+    """Map normalized note_id -> person_id from NOTE; NOTE_NLP has no person_id, so facts attribute through this."""
+    if table is None or table.empty:
+        return {}
+    if "note_id" not in table.columns or "person_id" not in table.columns:
+        return {}
+    index: dict[str, str] = {}
+    for record in table.to_dict("records"):
+        note_key = _normalize_join_id(record.get("note_id"))
+        person_key = _normalize_join_id(record.get("person_id"))
+        if note_key and person_key:
+            index.setdefault(note_key, person_key)
+    return index
+
+
+def _group_note_nlp_by_person(
+    table: pd.DataFrame | None,
+    note_person_index: dict[str, str],
+) -> dict[str, list[dict[str, Any]]]:
+    """Group NOTE_NLP rows by person via note_id -> NOTE.person_id, with a row-level person_id fallback for non-standard extracts."""
+    if table is None or table.empty:
+        return {}
+    has_person_id = "person_id" in table.columns
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for record in table.to_dict("records"):
+        key = note_person_index.get(_normalize_join_id(record.get("note_id")), "")
+        if not key and has_person_id:
+            key = _normalize_join_id(record.get("person_id"))
+        if not key:
+            continue
+        grouped.setdefault(key, []).append(record)
+    return grouped
+
+
 def _row_provenance(root: Path, patient_id: str, table_name: str) -> Provenance:
     return Provenance(
         source_format="omop",
@@ -402,6 +448,12 @@ def _row_provenance(root: Path, patient_id: str, table_name: str) -> Provenance:
 def _omop_code(concept_id: Any, concepts: dict[Any, dict[str, Any]]) -> NormalizedCode | None:
     if concept_id is None or pd.isna(concept_id):
         return None
+    # concept_id 0 is OMOP's "No matching concept"; don't mint a spurious OMOP:0 code.
+    try:
+        if int(float(concept_id)) == 0:
+            return None
+    except (TypeError, ValueError):
+        pass
     concept = concepts.get(concept_id)
     if not concept:
         return NormalizedCode(

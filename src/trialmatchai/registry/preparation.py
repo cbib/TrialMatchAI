@@ -7,6 +7,7 @@ import re
 import shutil
 import tempfile
 from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -106,9 +107,7 @@ def prepare_criteria_documents(
     texts: list[str] = []
     criteria = doc.get("criteria")
     if not criteria:
-        # Trial doc carries only raw eligibility text (e.g. normalized JSON that
-        # predates in-normalizer chunking): chunk it here, on the unflattened
-        # text so line structure is preserved, keeping preparation self-sufficient.
+        # No pre-chunked criteria: chunk the raw text here, unflattened to keep line structure.
         raw = doc.get("eligibility_criteria")
         criteria = split_eligibility_criteria(raw) if isinstance(raw, str) else []
     for criterion in criteria or []:
@@ -189,10 +188,8 @@ def write_prepared_criteria(rows: Sequence[dict[str, Any]], folder: str | Path) 
     if not rows:
         return 0
     trial_folder = Path(folder) / str(rows[0]["nct_id"])
-    # Clear stale criteria from a prior prepare first: criteria_id = sha256(nct:text),
-    # so changed chunking/text yields new files while orphaning the old ones, which
-    # the index would then ingest as duplicates. The trial-completion marker is
-    # written only after this, so a crash here is simply re-prepared on resume.
+    # Clear stale criteria first: criteria_id = sha256(nct:text), so changed text
+    # orphans old files the index would otherwise ingest as duplicates.
     if trial_folder.exists():
         shutil.rmtree(trial_folder, ignore_errors=True)
     for row in rows:
@@ -279,7 +276,12 @@ def _to_iso_date(value: Any) -> str | None:
     if not value:
         return None
     try:
-        return dateutil.parser.parse(str(value)).date().isoformat()
+        # Fixed default so partial dates ("2021-03", "2021") don't inherit today's day/month.
+        return (
+            dateutil.parser.parse(str(value), default=datetime(1900, 1, 1))
+            .date()
+            .isoformat()
+        )
     except (TypeError, ValueError, dateutil.parser.ParserError):
         return None
 

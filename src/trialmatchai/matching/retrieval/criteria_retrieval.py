@@ -25,7 +25,7 @@ class SecondStageRetriever:
     def __init__(
         self,
         search_backend: TrialSearchBackend,
-        llm_reranker: Optional[LLMReranker],  # Make optional
+        llm_reranker: Optional[LLMReranker],
         embedder: Optional[TextEmbedder],
         size: int = 250,
         inclusion_weight: float = 1.0,
@@ -34,7 +34,7 @@ class SecondStageRetriever:
         search_mode: str = "hybrid",
     ):
         self.search_backend = search_backend
-        self.llm_reranker = llm_reranker  # Can be None
+        self.llm_reranker = llm_reranker
         self.embedder = embedder
         self.size = size
         self.inclusion_weight = inclusion_weight
@@ -120,8 +120,8 @@ class SecondStageRetriever:
             raise ValueError("Mismatch between LLM scores and pairs!")
         for i, criterion in enumerate(criteria):
             llm_score = llm_scores[i]
-            # stored eligibility_type is the short form "inclusion"/"exclusion"/"unknown"
-            # (criteria_chunking); "unknown" falls through at weight 1.0, matching the ES-era reranker.
+            # eligibility_type is "inclusion"/"exclusion"/"unknown"; "unknown" falls
+            # through at weight 1.0, matching the ES-era reranker.
             eligibility_type = criterion["_source"].get("eligibility_type", "").lower()
             if eligibility_type == "inclusion":
                 llm_score *= self.inclusion_weight
@@ -200,16 +200,34 @@ class SecondStageRetriever:
     def aggregate_to_trials(
         self, criteria: List[Dict], threshold: float = 0.5, method: str = "weighted"
     ) -> List[Dict]:
-        trial_scores = defaultdict(list)
+        # A criterion matched by several paraphrases appears once per query; collapse to the
+        # best score per UNIQUE criterion first so a trial isn't inflated for matching many
+        # paraphrases (which would skew sqrt/weighted aggregation toward query overlap).
+        best_by_criterion: dict[tuple[str, str], float] = {}
         for criterion in criteria:
-            nct_id = criterion["_source"]["nct_id"]
+            source = criterion.get("_source") or {}
+            nct_id = source.get("nct_id")
+            if nct_id is None:
+                continue
             score = criterion["llm_score"]
-            # Keep a criterion that was relevant BEFORE constraint penalties even if the
-            # penalty pushed it below threshold: constraints penalize (downweight) but do not
-            # hard-exclude at retrieval — the CoT stage makes the final eligibility call.
+            # Keep a criterion relevant BEFORE constraint penalties even if the penalty dropped
+            # it below threshold: constraints downweight but don't hard-exclude; CoT decides.
             threshold_basis = criterion.get("pre_constraint_score", score)
-            if score >= threshold or threshold_basis >= threshold:
-                trial_scores[nct_id].append(score)
+            if not (score >= threshold or threshold_basis >= threshold):
+                continue
+            criteria_id = source.get("criteria_id")
+            # An id-less criterion can't be deduped; give it a per-object key so it still counts.
+            key = (
+                str(nct_id),
+                str(criteria_id) if criteria_id is not None else f"__obj_{id(criterion)}",
+            )
+            prev = best_by_criterion.get(key)
+            if prev is None or score > prev:
+                best_by_criterion[key] = score
+
+        trial_scores = defaultdict(list)
+        for (nct_id, _criteria_id), score in best_by_criterion.items():
+            trial_scores[nct_id].append(score)
         aggregated_scores = {}
         for nct_id, scores in trial_scores.items():
             count = len(scores)
@@ -245,8 +263,8 @@ class SecondStageRetriever:
         patient_context: Optional["PatientConstraintContext"] = None,
         constraints_config: Mapping[str, Any] | None = None,
     ) -> List[Dict]:
-        # Cap queries to prevent memory/performance issues
-        max_queries = 150  # Reasonable limit for second-level search
+        # Cap queries to bound second-level memory/latency.
+        max_queries = 150
         if len(queries) > max_queries:
             logger.warning(
                 f"Capping queries from {len(queries)} to {max_queries} for second-level search"
@@ -260,7 +278,6 @@ class SecondStageRetriever:
                 hit["query"] = query
                 all_criteria.append(hit)
 
-        # Check if reranker is available before trying to use it
         if use_reranker and self.llm_reranker is not None:
             ranked_criteria = self.rerank_criteria(all_criteria)
         else:

@@ -82,9 +82,7 @@ def normalize_polarity(value: str | None) -> ConstraintPolarity:
 def _age_constraints(text: str) -> list[Constraint]:
     constraints: list[Constraint] = []
     lower = text.casefold()
-    # Every numeric age match must carry an explicit age signal — a trailing year
-    # unit OR a preceding "age/aged" cue — so dosing/lab numbers like
-    # "100 to 200 mg" or "at least 100 mg" are not mistaken for ages.
+    # Require an explicit age signal (trailing year unit or age/aged cue) so dosing/lab numbers aren't read as ages.
     year = r"(?:years?|yrs?|y/?o)"
     age_cue = r"(?:age[d]?|years?\s+of\s+age)"
 
@@ -162,6 +160,10 @@ def _age_bound(text: str, match: re.Match[str], comparator: str, value: float) -
 
 def _sex_constraints(text: str) -> list[Constraint]:
     lower = text.casefold()
+    # In a pregnancy/contraception criterion, female/male describes the condition, not a sex restriction;
+    # emitting sex==female here would trip the near-ubiquitous pregnancy exclusion for every woman.
+    if re.search(r"\b(pregnan|breast[\s-]?feed|lactat|contracept|childbearing)", lower):
+        return []
     constraints: list[Constraint] = []
     female = re.search(r"\b(female|females|woman|women)\b", lower)
     male = re.search(r"\b(male|males|man|men)\b", lower)
@@ -244,12 +246,11 @@ def _lab_constraints(text: str) -> list[Constraint]:
     constraints: list[Constraint] = []
     aliases = "|".join(re.escape(alias) for alias in LAB_ALIASES)
     pattern = re.compile(
-        rf"\b({aliases})\b(?:[^0-9<>≤≥=]{{0,40}})(>=|<=|≥|≤|>|<|=|at least|greater than|less than)?\s*([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z/%0-9^µμ.-]+)?",
+        rf"\b({aliases})\b(?:[^0-9<>≤≥=]{{0,40}})(>=|<=|≥|≤|>|<|=|at least|greater than|less than)?\s*([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)\s*([A-Za-z/%0-9^µμ.-]+)?",
         re.IGNORECASE,
     )
     for match in pattern.finditer(text):
-        # Require an explicit comparator: a bare "creatinine 1.5" is directionally
-        # ambiguous (upper- vs lower-bound), and guessing inverts the signal.
+        # Require an explicit comparator: bare "creatinine 1.5" is directionally ambiguous.
         if not match.group(2):
             continue
         label = _canonical_lab_label(match.group(1))
@@ -260,7 +261,8 @@ def _lab_constraints(text: str) -> list[Constraint]:
                 kind="lab",
                 label=label,
                 comparator=comparator,
-                value=float(match.group(3)),
+                # Strip thousands separators ("1,500" -> 1500) so comma-grouped thresholds keep their magnitude.
+                value=float(match.group(3).replace(",", "")),
                 unit=(match.group(4) or "").strip() or None,
                 evidence_text=text[start:end],
                 evidence_start=start,
@@ -281,10 +283,10 @@ def _canonical_lab_label(value: str) -> str:
 
 def _normalize_comparator(value: str) -> str:
     normalized = value.strip().casefold()
-    if normalized in {">=", "≥", "at least", "greater than"}:
+    if normalized in {">=", "≥", "at least"}:
         return "ge"
-    if normalized == ">":
-        return "gt"
+    if normalized in {">", "greater than", "more than", "above"}:
+        return "gt"  # exclusive: a boundary value does not satisfy "greater than"
     if normalized in {"<=", "≤"}:
         return "le"
     if normalized in {"<", "less than"}:
@@ -302,6 +304,9 @@ def _biomarker_constraints(text: str) -> list[Constraint]:
         re.IGNORECASE,
     )
     for match in pattern.finditer(text):
+        # Require an explicit status token: a bare gene in a drug phrase ("EGFR inhibitor") isn't a biomarker requirement.
+        if not match.group(2):
+            continue
         status = (match.group(2) or "").casefold().replace(" ", "-")
         comparator = "present"
         if status in {"mutated", "mutation"}:
@@ -461,6 +466,13 @@ def _dedupe_constraints(constraints: list[Constraint]) -> list[Constraint]:
     seen: set[tuple[Any, ...]] = set()
     output: list[Constraint] = []
     for constraint in constraints:
+        # Include codes in the key so same-label constraints differing only in normalized_codes aren't collapsed.
+        codes_sig = tuple(
+            sorted(
+                (str(c.get("vocabulary", "")), str(c.get("code", "")))
+                for c in (constraint.normalized_codes or [])
+            )
+        )
         key = (
             constraint.kind,
             constraint.label.casefold(),
@@ -468,6 +480,7 @@ def _dedupe_constraints(constraints: list[Constraint]) -> list[Constraint]:
             constraint.value,
             constraint.min_value,
             constraint.max_value,
+            codes_sig,
         )
         if key in seen:
             continue

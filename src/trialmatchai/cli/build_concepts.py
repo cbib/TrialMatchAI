@@ -103,15 +103,31 @@ def main() -> int:
         return 2  # pragma: no cover - parser.error exits
 
 
-_CONCEPTS_STATE_VERSION = "1"
+# v2 folds embedder identity + the FTS-only switch into the fingerprint; v1 omitted
+# them, so a model swap silently left old-model vectors in the store.
+_CONCEPTS_STATE_VERSION = "2"
 
 
-def _concepts_fingerprint(sources, dictionary, vocabulary) -> str:
+def _concepts_fingerprint(
+    sources,
+    dictionary,
+    vocabulary,
+    *,
+    embedder_model: str | None = None,
+    embedder_revision: str | None = None,
+    skip_embeddings: bool = False,
+) -> str:
+    # Embedder identity must be in the fingerprint: stored vectors must share the
+    # query-time embedding space, so a model swap (or toggling embeddings) invalidates
+    # the store. Mirrors _prepare_signature in orchestration.py.
     return digest(
         _CONCEPTS_STATE_VERSION,
         sources,
         sorted(str(d) for d in dictionary),
         sorted(str(v) for v in vocabulary),
+        embedder_model,
+        embedder_revision,
+        bool(skip_embeddings),
     )
 
 
@@ -140,9 +156,9 @@ def run_build_concepts(
 ) -> int:
     """Build the LanceDB concept table (the entity-linking store). Idempotent.
 
-    Importable so the unified pipeline can invoke the concepts stage directly,
-    rather than re-entering the CLI. Skips the expensive re-embed if the table is
-    already present, unless ``force`` (or a new OMOP vocab via ``concept_csv``).
+    Importable so the pipeline's concepts stage can call it directly. Skips the
+    expensive re-embed when the table is present, unless ``force``, a new OMOP vocab
+    (``concept_csv``), or a fingerprint mismatch against the sources/embedder config.
     """
     linker_cfg = config.get("concept_linker", {})
     db_path = db_path or linker_cfg.get("db_path") or "data/concepts"
@@ -151,13 +167,21 @@ def run_build_concepts(
     if not concept_csv and not dictionary and not sources:
         raise ValueError("provide concept_csv, sources, and/or at least one dictionary")
 
-    concepts_fp = _concepts_fingerprint(sources, dictionary, vocabulary)
+    embedder_cfg = config.get("embedder", {}) or {}
+    concepts_fp = _concepts_fingerprint(
+        sources,
+        dictionary,
+        vocabulary,
+        embedder_model=embedder_cfg.get("model_name"),
+        embedder_revision=embedder_cfg.get("revision"),
+        skip_embeddings=skip_embeddings,
+    )
     if not force and not concept_csv:
         ready, rows_present = _concept_table_ready(db_path, table_name)
         recorded = _read_concepts_fingerprint(db_path)
-        # Backward-compatible: a store built before this marker existed (recorded is None)
-        # still skips on presence -- only an explicit fingerprint MISMATCH rebuilds, so an
-        # existing 600k-concept store is never needlessly re-embedded.
+        # Backward-compatible: a pre-marker store (recorded is None) still skips on
+        # presence; only an explicit fingerprint mismatch rebuilds, so a large existing
+        # store is never needlessly re-embedded.
         if ready and (recorded is None or recorded == concepts_fp):
             logger.info(
                 "Concept store already present at %s/%s (%s concepts); skipping. "

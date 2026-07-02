@@ -32,18 +32,15 @@ CRITERIA_TEXT_WEIGHTS: tuple[tuple[str, float], ...] = (
     ("entity_synonyms_text", 1.2),
     ("entity_text", 0.8),
 )
-# Best-of-both text relevance: weight on normalized engine BM25 versus the
-# field-weighted lexical heuristic when both are available (the remainder goes to
-# the heuristic). Tunable; validated against the TREC recall@k / nDCG baseline.
+# Weight on normalized engine BM25 vs. the field-weighted lexical heuristic when both are
+# present (remainder to the heuristic). Tunable; validated on TREC recall@k / nDCG.
 BM25_FUSION_WEIGHT: float = 0.6
-# Secondary ("other") query terms contribute at this fraction of a field's weight in the
-# vector score, so a patient's primary conditions dominate over ancillary ones.
+# Secondary ("other") terms contribute at this fraction of a field's vector weight, so a
+# patient's primary conditions dominate over ancillary ones.
 SECONDARY_TERM_WEIGHT: float = 0.2
-# Non-top concept-linker candidates are added to the searchable synonym text only when their
-# fused RRF score clears this bar. Scores are bimodal: a candidate corroborated by BOTH retrieval
-# sources lands ~0.9+, while a single-source (often lexically-similar but semantically wrong)
-# candidate caps near 0.5. Keeping only the corroborated ones trims noise from the 1.2-weighted
-# entity_synonyms_text column without losing the real synonyms. Tunable.
+# Min fused RRF score for a concept-linker candidate to enter the synonym text. Scores are
+# bimodal: dual-source (corroborated) ~0.9+, single-source (often lexically similar but wrong)
+# ~0.5, so this bar keeps the real synonyms and trims the noise. Tunable.
 CANDIDATE_SYNONYM_MIN_SCORE: float = 0.6
 
 
@@ -203,7 +200,8 @@ class LanceDBSearchBackend:
         self.trials_table = trials_table
         self.criteria_table = criteria_table
         self.candidate_limit = candidate_limit
-        self.db_path.mkdir(parents=True, exist_ok=True)
+        # Do NOT create db_path here: a read-only backend (e.g. healthcheck) must not fabricate
+        # an empty DB and mask a never-built index. _write_rows creates the dir when it indexes.
         self.db = lancedb.connect(str(self.db_path))
 
     @classmethod
@@ -222,10 +220,19 @@ class LanceDBSearchBackend:
     def health(self, *, require_tables: bool = False) -> list[str]:
         issues: list[str] = []
         if not self.db_path.exists():
-            issues.append(f"search_backend.db_path does not exist: {self.db_path}")
+            issues.append(
+                f"search_backend.db_path does not exist (search DB never built): {self.db_path}"
+            )
+            return issues
+        names = set(self._table_names())
+        if not names:
+            # Dir present but no tables -> never-built/wiped index; report unconditionally or the
+            # default healthcheck passes on an index that can answer nothing.
+            issues.append(
+                f"search_backend.db_path has no LanceDB tables (search DB never built): {self.db_path}"
+            )
             return issues
         if require_tables:
-            names = set(self._table_names())
             missing = [
                 name
                 for name in (self.trials_table, self.criteria_table)
@@ -263,6 +270,8 @@ class LanceDBSearchBackend:
         return len(rows)
 
     def upsert_trials(self, docs: Sequence[Mapping[str, Any]]) -> int:
+        # Delete-then-write is not atomic; recovery is upstream: RegistryUpdater marks the study
+        # "failed" on any exception, so a torn upsert is retried next run rather than lost.
         rows = [build_trial_record(doc) for doc in docs]
         if not rows:
             return 0
@@ -383,6 +392,7 @@ class LanceDBSearchBackend:
         rows = list(rows)
         if not rows:
             raise ValueError(f"No rows supplied for LanceDB table {table_name}.")
+        self.db_path.mkdir(parents=True, exist_ok=True)  # create the store lazily, on first write
         fixed = _coerce_vector_columns(rows)
         if fixed:
             logger.warning(
@@ -483,11 +493,12 @@ class LanceDBSearchBackend:
         self, table: Any, *, where: str, limit: int
     ) -> list[dict[str, Any]]:
         try:
-            # Honor the nct_id filter on the fallback path; an unfiltered head
-            # slice could return rows that exclude the requested trials entirely.
+            # Honor the nct_id filter here too, and push the limit into LanceDB: an unfiltered
+            # head slice could miss the requested trials, and a full-table load would be costly.
+            search = table.search()
             if where:
-                return list(table.search().where(where).limit(limit).to_list())
-            return list(table.to_arrow().to_pylist())[:limit]
+                search = search.where(where)
+            return list(search.limit(limit).to_list())
         except Exception as exc:
             logger.warning("Could not scan LanceDB table rows: %s", exc)
             return []
@@ -557,8 +568,7 @@ def _rank_trial_rows(
     bm25_norm = _bm25_norms(rows)
     hits: list[SearchHit] = []
     for raw in rows:
-        # Candidate rows read from the index already carry the derived fields;
-        # only rebuild for callers (e.g. in-memory) that pass raw docs.
+        # Index rows already carry derived fields; rebuild only for raw docs (e.g. in-memory).
         row = dict(raw) if "search_text" in raw else build_trial_record(raw)
         if not _trial_passes_filters(
             row,
@@ -634,9 +644,8 @@ def _combine_scores(mode: str, text_score: float, vector_score: float) -> float:
 
 
 def _bm25_norms(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
-    """Min-max normalize LanceDB FTS ``_score`` (BM25, unbounded) to [0, 1] across
-    the candidate batch, keyed by row. Rows without an engine score are omitted so
-    callers fall back to the lexical heuristic."""
+    """Min-max normalize LanceDB FTS ``_score`` (unbounded BM25) to [0, 1] across the batch,
+    keyed by row; rows without an engine score are omitted (they fall back to the heuristic)."""
     raw: dict[str, float] = {}
     for row in rows:
         score = row.get("_score")
@@ -647,22 +656,18 @@ def _bm25_norms(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
     low = min(raw.values())
     high = max(raw.values())
     if high <= low:
-        # Rows without a BM25 score were already dropped above, so every row here matched FTS
-        # (commonly a lone match: raw has one entry). min-max is undefined at zero span; map
-        # them all to 1.0 so a matched-but-undifferentiated row keeps its BM25 credit instead
-        # of being stripped to the pure heuristic. The term is constant across the batch, so
-        # this sets only the floor -- the heuristic still breaks ties within it.
+        # Zero span (min-max undefined), e.g. a lone FTS match: map all to 1.0 so a matched row
+        # keeps its BM25 credit. Constant across the batch, so this is only a floor -- the
+        # heuristic still breaks ties.
         return {key: 1.0 for key in raw}
     span = high - low
     return {key: (value - low) / span for key, value in raw.items()}
 
 
 def _fuse_text(bm25_norm: float | None, heuristic: float) -> float:
-    """Best-of-both text relevance. Normalized engine BM25 supplies IDF / term
-    saturation / length sensitivity; the field-weighted lexical heuristic supplies
-    phrase/exact-match, query coverage, and per-field focus. When no engine BM25
-    score is present (vector-only candidates, in-memory backend, scan fallback),
-    fall back to the heuristic alone."""
+    """Fuse normalized engine BM25 (IDF, saturation, length) with the field-weighted lexical
+    heuristic (phrase match, coverage, per-field focus); fall back to the heuristic alone when
+    no BM25 score is present (vector-only, in-memory, or scan-fallback candidates)."""
     if bm25_norm is None:
         return heuristic
     fused = BM25_FUSION_WEIGHT * bm25_norm + (1.0 - BM25_FUSION_WEIGHT) * heuristic
@@ -672,9 +677,8 @@ def _fuse_text(bm25_norm: float | None, heuristic: float) -> float:
 def _merge_candidate(
     rows_by_key: dict[str, dict[str, Any]], row: dict[str, Any]
 ) -> None:
-    """Insert a candidate row, preserving an FTS ``_score`` that a later
-    overlapping vector-search row (which carries only ``_distance``) would
-    otherwise overwrite — the BM25 score is needed by the text re-ranker."""
+    """Insert a candidate, preserving an FTS ``_score`` that a later overlapping vector row (only
+    ``_distance``) would overwrite — the text re-ranker needs the BM25 score."""
     key = _row_key(row)
     previous = rows_by_key.get(key)
     if previous is not None and "_score" in previous and "_score" not in row:
@@ -721,9 +725,8 @@ def _trial_vector_score(
         score += weight * _max_vector_score(primary_vectors, field_vector)
         weight_total += weight
     if other_vectors:
-        # Field-weight the secondary terms exactly like the primary terms, and fold them in at
-        # a fixed fraction (not into weight_total) so their share is independent of how many
-        # vector fields the trial happens to have populated.
+        # Field-weight secondary terms like primary, but fold in at a fixed fraction (not into
+        # weight_total) so their share is independent of how many vector fields are populated.
         for field, weight in TRIAL_VECTOR_WEIGHTS:
             field_vector = _clean_vector(row.get(field))
             if field_vector:
@@ -771,7 +774,9 @@ def _lexical_score(query: str, text: str) -> float:
         return 0.0
     if query_norm == text_norm:
         return 1.0
-    if query_norm in text_norm:
+    # Phrase match on token boundaries: pad with spaces so a short term ('mm', 'all') can't
+    # match inside an unrelated longer word.
+    if f" {query_norm} " in f" {text_norm} ":
         return 0.95
     query_tokens = set(query_norm.split())
     text_tokens = set(text_norm.split())
@@ -841,8 +846,7 @@ def _flatten_entities(entities: Any) -> tuple[str, str]:
         for candidate in entity.get("concept_candidates") or []:
             if not isinstance(candidate, Mapping):
                 continue
-            # Only index a candidate corroborated beyond a single retrieval source; below the
-            # threshold the list fills with lexically-similar but wrong concepts.
+            # Skip single-source candidates below the bar: lexically similar but wrong concepts.
             score = candidate.get("score")
             if isinstance(score, (int, float)) and score < CANDIDATE_SYNONYM_MIN_SCORE:
                 continue
@@ -851,13 +855,9 @@ def _flatten_entities(entities: Any) -> tuple[str, str]:
 
 
 def _coerce_vector_columns(rows: list[dict[str, Any]]) -> int:
-    """Make every ``*_vector`` column a single fixed length so LanceDB can build a FixedSizeList.
-
-    A row whose vector is missing / empty / too short is zero-padded to the column's dominant
-    dimension (an over-long one is truncated). Without this, a single trial with an empty
-    embedding (e.g. no eligibility text) aborts the whole index build with LanceDB's
-    'ListType can only be casted to FixedSizeListType' error. Mutates rows; returns cells fixed.
-    """
+    """Pad/truncate every ``*_vector`` column to its dominant dimension so LanceDB can build a
+    FixedSizeList; one empty embedding would otherwise abort the whole index build. Mutates rows;
+    returns cells fixed."""
     vector_cols = {key for row in rows for key in row if key.endswith("_vector")}
     fixed = 0
     for col in vector_cols:

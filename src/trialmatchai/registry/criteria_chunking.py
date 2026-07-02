@@ -1,15 +1,10 @@
-"""Eligibility-criteria chunking.
+"""Split a free-text eligibility section into individual, typed criteria.
 
-Splits a free-text eligibility section into individual, typed criteria. It folds
-domain knowledge from the legacy regex preprocessor — multi-level enumeration
-hierarchies, varied inclusion/exclusion headers, parenthetical protection,
-semicolon splitting, and abbreviation-aware sentence splitting — into one pass.
-
-The sentence step is PySBD-inspired (mask -> split -> restore): periods that
-belong to decimals, single-letter initials/genus names (``E. coli``), and a
-curated abbreviation list are protected, and a boundary is only a sentence-ending
-mark followed by whitespace and a sentence-like start (capital / digit / opening
-bracket). This avoids cutting mid-abbreviation and avoids half-phrases.
+Handles enumeration hierarchies, inclusion/exclusion headers, parenthetical
+protection, and semicolon/sentence splitting in one pass. The sentence step is
+PySBD-inspired (mask -> split -> restore): decimals, single-letter initials/genus
+(``E. coli``), and a curated abbreviation list are protected so boundaries never
+cut mid-abbreviation.
 
 Public API: ``split_eligibility_criteria(text) -> list[{"type", "criterion"}]``
 where ``type`` is "inclusion", "exclusion", or "unknown".
@@ -33,10 +28,8 @@ _LEADING_HEADER = re.compile(
 )
 
 # --- Enumeration markers ----------------------------------------------------
-# A leading list marker at the start of a line. Numeric markers REQUIRE a
-# trailing "." or ")"; single-letter markers are split so an uppercase letter is
-# only a marker when followed by a capital/digit (a new criterion) — never when
-# followed by a lowercase word, which is a genus abbreviation like "E. coli".
+# Leading list marker at line start. Numeric markers need a trailing "."/")"; an
+# uppercase single letter is a marker only before a capital/digit, not a genus ("E. coli").
 _LEADING_MARKER = re.compile(
     r"^\s*(?:"
     r"[-–—*•·]"  # - – — * • ·
@@ -60,6 +53,10 @@ _MIDLINE_MARKER = re.compile(
     r")\s"
 )
 
+# A bare "N." mid-line is ambiguous (decimal/ordinal vs list item), so it only
+# counts as a split point inside a line that is already a list.
+_BARE_NUMERIC_MARKER = re.compile(r"[0-9]{1,2}\.")
+
 
 def detect_header(line: str) -> str | None:
     """Return 'inclusion'/'exclusion' if the line is a section header, else None."""
@@ -78,26 +75,30 @@ def detect_header(line: str) -> str | None:
 
 
 def _mask_parens(text: str) -> str:
-    """Blank out parenthesized spans so markers inside them are not split points."""
+    """Blank out balanced parenthesized spans so markers inside them aren't split points.
+
+    A stray unbalanced opener is left intact so it doesn't swallow the rest of the line.
+    """
     out = list(text)
-    depth = 0
+    stack: list[int] = []
     for i, char in enumerate(text):
         if char in "([{":
-            depth += 1
-            out[i] = " "
-        elif char in ")]}":
-            depth = max(0, depth - 1)
-            out[i] = " "
-        elif depth > 0:
-            out[i] = " "
+            stack.append(i)
+        elif char in ")]}" and stack:
+            for j in range(stack.pop(), i + 1):
+                out[j] = " "
     return "".join(out)
 
 
 def _split_inline(line: str) -> list[str]:
     """Split a line into segments at mid-line enumeration markers (paren-safe)."""
     masked = _mask_parens(line)
+    # Trust a bare "N." mid-line marker only when the line already starts as a list.
+    in_list = _starts_new_criterion(line)
     cut_points = [0]
     for match in _MIDLINE_MARKER.finditer(masked):
+        if not in_list and _BARE_NUMERIC_MARKER.fullmatch(match.group(1)):
+            continue
         start = match.start(1)
         if start > 0:
             cut_points.append(start)
@@ -142,9 +143,8 @@ def _split_semicolons(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-# Abbreviations whose trailing period is NOT a sentence boundary (PySBD-inspired,
-# trimmed to clinical-trial usage). Stored lower-cased without the trailing dot;
-# matched case-insensitively. Internal dots (e.g. "e.g") are handled in masking.
+# Abbreviations whose trailing period is not a sentence boundary. Stored lower-cased
+# without the trailing dot, matched case-insensitively.
 _ABBREVIATIONS = frozenset(
     {
         # titles
@@ -187,12 +187,7 @@ def _protect_periods(text: str) -> str:
 
 
 def _split_sentences(text: str) -> list[str]:
-    """Split text into sentences, protecting decimals / initials / abbreviations.
-
-    Short single-sentence criteria pass through unchanged; multi-sentence criteria
-    are split only at genuine boundaries, so abbreviations and decimals never
-    produce half-phrases.
-    """
+    """Split into sentences; decimals/initials/abbreviations are protected from becoming boundaries."""
     protected = _protect_periods(text)
     pieces = _SENTENCE_BOUNDARY.split(protected)
     out = [piece.replace(_PRD, ".").strip() for piece in pieces]

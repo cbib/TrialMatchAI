@@ -130,6 +130,16 @@ def test_strip_thinking_tags():
     assert strip("before<think>reasoning</think>after") == "beforeafter"
     assert strip("answer <think>cut off mid thought") == "answer"
     assert strip("no tags here") == "no tags here"
+    # phi reasoning LoRA: the chain is delimited by <think>…<think> (the opening tag is
+    # reused to close it) and the JSON answer follows. Regression for the bug where the
+    # stripper returned "" and every trial became a spurious "No JSON object found".
+    assert (
+        strip('<think> chain of thought <think>\n{"Final Decision": "Ineligible"}')
+        == '{"Final Decision": "Ineligible"}'
+    )
+    assert '"Final Decision"' in strip(
+        '<think>long reasoning<think>```json\n{"Final Decision": "Eligible"}\n```'
+    )
 
 
 # --------------------------------------------------------------------------- #

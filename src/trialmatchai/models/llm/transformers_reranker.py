@@ -40,8 +40,7 @@ class TransformersReranker:
             revision=revision,
             trust_remote_code=trust_remote_code,
         )
-        # Left-pad so `outputs.logits[:, -1, :]` reads each prompt's real final token rather
-        # than a right-pad token for the shorter prompts in a padded batch.
+        # Left-pad so logits[:, -1, :] reads each prompt's real final token, not a pad token.
         self.tokenizer.padding_side = "left"
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token

@@ -12,11 +12,8 @@ logger = setup_logging(__name__)
 
 VARIANT_PATTERNS_RESOURCE = ("trialmatchai.entities", "resources/variant_patterns.tsv")
 
-# Some curated variant cues are also ordinary English words ("loss", "increased",
-# "insertion", "inhibited"). Listed bare in the table they fire on plain prose
-# ("appetite loss", "symptoms increased"), so we keep such a match only when a
-# gene/biomarker-like token sits within a short window of it ("PTEN loss",
-# "MYC increased"). This guards precision without touching the curated regexes.
+# Variant cues that are also ordinary English words ("loss", "increased"): keep a match
+# only when a gene/biomarker-like token sits nearby ("PTEN loss"), else they fire on prose.
 _AMBIGUOUS_VARIANT_WORDS = frozenset(
     {
         "increase",
@@ -33,9 +30,8 @@ _AMBIGUOUS_VARIANT_WORDS = frozenset(
         "inhibits",
     }
 )
-# Gene/biomarker shapes: all-caps symbols (EGFR, HER2), title-case with a digit
-# (Brca1), and p53-style. Deliberately conservative — genes are uppercase by
-# convention, so this avoids rescuing matches on plain lowercase prose.
+# Gene/biomarker shapes: all-caps (EGFR), title-case+digit (Brca1), p53-style.
+# Conservative on purpose so plain lowercase prose isn't rescued.
 _GENE_CONTEXT = re.compile(r"\b(?:[A-Z]{2,}[0-9]*|[A-Z][a-z]+[0-9]+|p[0-9]{2})\b")
 _GENE_CONTEXT_WINDOW = 30
 
@@ -112,13 +108,9 @@ def _load_variant_patterns() -> list[tuple[str, "re.Pattern[str]"]]:
 
 
 class RegexVariantRecognizer:
-    """Deterministic recognizer for genetic variants (HGVS mutations, fusions,
-    chromosome arms, ...) from a curated pattern table.
-
-    Runs alongside the model recognizer to capture precise biomedical strings —
-    e.g. ``c.1799T>A``, ``p.V600E``, ``EGFR fusion`` — that a generalist NER
-    model often misses or mangles. Emits high-confidence spans tagged with the
-    variant type as the entity group.
+    """Deterministic recognizer for genetic variants (HGVS, fusions, chromosome arms)
+    from a curated pattern table, run alongside the model to catch precise strings
+    (``p.V600E``, ``EGFR fusion``) a generalist NER model misses.
     """
 
     def __init__(self, patterns: list[tuple[str, "re.Pattern[str]"]] | None = None):
@@ -242,8 +234,7 @@ def build_recognizer(config: dict[str, Any]) -> EntityRecognizer:
             "entity_extraction.backend must be one of: gliner2, regex, disabled."
         )
 
-    # Augment model NER with the deterministic variant recognizer (on by default)
-    # so precise HGVS/fusion strings are captured alongside model spans.
+    # Augment model NER with the deterministic variant recognizer (on by default).
     if bool(config.get("variant_regex", True)):
         variants = _load_variant_patterns()
         if variants:
@@ -368,10 +359,11 @@ def _flatten_gliner2_entities(raw_entities: Any) -> list[dict[str, Any]]:
 def _find_span(text: str, mention: str) -> tuple[int | None, int | None]:
     if not mention:
         return None, None
-    start = text.casefold().find(mention.casefold())
-    if start < 0:
+    # Match on the ORIGINAL text: casefold() can change length (ß->ss) and drift offsets.
+    match = re.search(re.escape(mention), text, re.IGNORECASE)
+    if not match:
         return None, None
-    return start, start + len(mention)
+    return match.start(), match.end()
 
 
 def _as_int(value: Any) -> int | None:

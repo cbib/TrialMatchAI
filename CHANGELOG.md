@@ -4,6 +4,69 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] — 2026-07-02
+
+A deep, line-by-line robustness audit. 82 verified defects were fixed across
+retrieval, constraint evaluation, entity linking, FHIR/OMOP ingest, TREC
+metrics, and the build/resume pipeline — each pinned by a regression test
+(test suite grew to 377). No API changes; behaviour is more correct, not
+different in shape.
+
+### Fixed
+- **Constraint evaluation & extraction.** Lab thresholds and patient values
+  with thousands-separator commas (`10,000`) no longer truncate to a wrong
+  magnitude with the unit dropped; a relative's disease in `family_history` no
+  longer satisfies a patient-disease inclusion; bare gene names in drug/therapy
+  phrases no longer emit spurious "present" biomarker constraints; ECOG parsing
+  no longer grabs an unrelated distant number; cross-unit numeric comparisons
+  abstain instead of mis-deciding; inclusion aggregation uses worst-case (not
+  mean), mirroring exclusion; "greater than" is exclusive; whole-word matching
+  replaces raw substring containment.
+- **Retrieval & search.** A criterion retrieved by several query paraphrases is
+  de-duplicated before trial aggregation (no more inflation by query overlap);
+  short query tokens no longer match inside unrelated words for a spurious
+  phrase score; the scan fallback pushes its limit into LanceDB instead of
+  loading the whole table; a never-built search index is reported unhealthy
+  instead of silently passing.
+- **Entity linking.** The lexical accept-gate scores substring matches by length
+  ratio instead of a flat high constant (no more linking "carcinoma" to
+  "hepatocellular carcinoma"); the patient/registry annotation path now wires
+  the lexical reranker so correct concepts ranked #2+ are not abstained; OBO
+  concept files no longer drop their last term; an empty mention degrades to
+  FTS-only instead of aborting linking.
+- **Query expansion.** The CoT reasoning output is now stripped of `<think>`
+  blocks before JSON extraction, so a reasoning preamble can no longer poison
+  the primary retrieval query with placeholder text.
+- **Patient ingest (FHIR/OMOP).** OMOP `NOTE_NLP` facts are no longer silently
+  dropped (correct `person_id` resolution via `NOTE`); OMOP NaN dates,
+  float-promoted negations, and the `concept_id 0` sentinel are handled;
+  ISO-8601 ages with day/week components no longer lost; FHIR `valueRange`
+  keeps negative signs, `valueRatio` no longer emits literal "None", genomic
+  resources with non-`CodeableConcept` types are no longer dropped.
+- **TREC & ranking.** The final ranking passes the pure second-level reranker
+  score (not the first+second combined value) to `rank_trials`; the score blend
+  breaks coarse eligibility ties within-band; trial dates with month/year
+  precision are parsed deterministically instead of fabricated from today.
+- **Build/resume integrity.** Atomic temp-then-rename writes for concept
+  dictionaries, downloads, and qrels/topics caches; completion sentinels so a
+  crashed bootstrap extract or partial topic import is not treated as done; the
+  index fingerprint no longer chains off a stale link fingerprint; per-trial
+  resume re-embeds a trial whose content changed; the concept-store fingerprint
+  includes the embedder identity; atomic-write temp files no longer match
+  `*.json` artifact globs; the reranker/CoT model identity invalidates cached
+  matches.
+- **Config & CLI.** Falsy-but-valid config values (`0`, empty collections) are
+  respected; vLLM `top_p=0` is rejected at validation; `trialmatchai run` goes
+  through corpus-fingerprint invalidation so it can't serve stale rankings after
+  a reindex; failure accounting and exit codes no longer mask an all-failed
+  resume run as success.
+- **`__version__`** is realigned with the packaged version (had silently drifted
+  to `0.2.0`), and a test now asserts the two sources agree.
+
+### Changed
+- Verbose explanatory comments and docstrings tightened to intent-only
+  across the source tree (no behavioural change).
+
 ## [0.3.0] — 2026-06-30
 
 Adds a clinician-facing results report and deepens retrieval, on top of bug

@@ -1,12 +1,9 @@
-"""TREC Clinical Trials evaluation harness for TrialMatchAI.
+"""TREC Clinical Trials evaluation harness.
 
-Provides an idempotent, end-to-end runner over the TREC 2021/2022 and SIGIR
-patient-topic tracks: it converts the legacy patient topics into canonical
-profiles, builds a per-track LanceDB search index restricted to the track's
-document collection, and runs the matching pipeline with per-patient resume.
-
-Exposed via the ``trialmatchai trec`` console command (see
-``trialmatchai.cli.trec``).
+Idempotent end-to-end runner over the TREC 2021/2022 and SIGIR patient-topic
+tracks: converts topics to canonical profiles, builds a per-track LanceDB index
+restricted to the track's collection, and runs matching with per-patient resume.
+Exposed via the ``trialmatchai trec`` console command.
 """
 
 from __future__ import annotations

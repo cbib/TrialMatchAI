@@ -1,17 +1,8 @@
 """Offline evaluation and threshold tuning for the concept-linker accept gate.
 
-The accept/reject/abstain thresholds must be tuned on a labeled dev set with a metric that
-INCLUDES NIL (abstention). Standard biomedical entity-linking benchmarks (e.g. BELB) score
-only in-KB gold mentions and never penalize a system that always links, so they provide no
-usable threshold. Here NIL is a first-class class and the tuning objective is macro-F1 over
-{correct-link, correct-NIL}.
-
-Typical use::
-
-    examples = [LinkExample("chronic pain", "disease", "DOID:0060164"),
-                LinkExample("wibble", "disease", None), ...]     # None = unlinkable (NIL)
-    inputs = build_gate_inputs(linker, examples)                  # retrieval runs once
-    best = best_accept_threshold(inputs, [0.5, 0.6, 0.7, 0.8, 0.9], reject=0.5, margin=0.05)
+Thresholds are tuned on a labeled dev set with a NIL-aware metric: standard EL benchmarks
+score only in-KB gold mentions and never penalize always-linking, so NIL is a first-class
+class here and the tuning objective is macro-F1 over {correct-link, correct-NIL}.
 """
 
 from __future__ import annotations

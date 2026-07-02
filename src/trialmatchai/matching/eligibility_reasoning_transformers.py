@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 from trialmatchai.matching.eligibility_base import BaseTrialProcessor
+from trialmatchai.utils.file_utils import write_json_file
 from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
@@ -74,38 +76,52 @@ class BatchTrialProcessorTransformers(BaseTrialProcessor):
         return "CPU Transformers Processing Trials"
 
     def _process_batch(self, batch: List[Dict[str, Any]], output_folder: str):
-        prompts = [item["prompt"] for item in batch]
-        encoded = self.tokenizer(
-            prompts,
-            padding=True,
-            truncation=True,
-            max_length=self.max_input_tokens,
-            return_tensors="pt",
-        ).to(self.device)
-        generation_kwargs: dict[str, Any] = {
-            "max_new_tokens": self.max_new_tokens,
-            "pad_token_id": self.tokenizer.pad_token_id,
-        }
-        if self.temperature > 0:
-            generation_kwargs.update(
-                do_sample=True,
-                temperature=self.temperature,
-                top_p=self.top_p,
+        try:
+            prompts = [item["prompt"] for item in batch]
+            encoded = self.tokenizer(
+                prompts,
+                padding=True,
+                truncation=True,
+                max_length=self.max_input_tokens,
+                return_tensors="pt",
+            ).to(self.device)
+            generation_kwargs: dict[str, Any] = {
+                "max_new_tokens": self.max_new_tokens,
+                "pad_token_id": self.tokenizer.pad_token_id,
+            }
+            if self.temperature > 0:
+                generation_kwargs.update(
+                    do_sample=True,
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                )
+            else:
+                generation_kwargs["do_sample"] = False
+
+            with self.torch.inference_mode():
+                output_ids = self.model.generate(**encoded, **generation_kwargs)
+
+            prompt_width = encoded["input_ids"].shape[1]
+            for item, sequence in zip(batch, output_ids):
+                completion_ids = sequence[prompt_width:]
+                response = self.tokenizer.decode(
+                    completion_ids,
+                    skip_special_tokens=True,
+                ).strip()
+                self._save_outputs(item["nct_id"], response, output_folder)
+        except Exception as exc:
+            # Mirror vLLM: a batch failure writes a per-trial error marker and continues.
+            logger.error(
+                "Transformers batch failed (%s); marking %s trial(s) processing_failed.",
+                exc,
+                len(batch),
             )
-        else:
-            generation_kwargs["do_sample"] = False
-
-        with self.torch.inference_mode():
-            output_ids = self.model.generate(**encoded, **generation_kwargs)
-
-        prompt_width = encoded["input_ids"].shape[1]
-        for item, sequence in zip(batch, output_ids):
-            completion_ids = sequence[prompt_width:]
-            response = self.tokenizer.decode(
-                completion_ids,
-                skip_special_tokens=True,
-            ).strip()
-            self._save_outputs(item["nct_id"], response, output_folder)
+            os.makedirs(output_folder, exist_ok=True)
+            for item in batch:
+                write_json_file(
+                    {"error": "processing_failed", "detail": str(exc)},
+                    os.path.join(output_folder, f"{item['nct_id']}.json"),
+                )
 
 
 def _max_input_tokens(tokenizer: Any, model: Any, max_new_tokens: int) -> int:
@@ -120,4 +136,7 @@ def _max_input_tokens(tokenizer: Any, model: Any, max_new_tokens: int) -> int:
         candidates.append(tokenizer_limit)
 
     context_window = min(candidates) if candidates else 2048
-    return max(1, context_window - max(0, int(max_new_tokens)))
+    # Reserve output room, capped at half the window; else max_new_tokens >= window
+    # collapses the input budget to 1 and truncates every prompt.
+    reserved = min(max(0, int(max_new_tokens)), context_window // 2)
+    return max(1, context_window - reserved)

@@ -4,7 +4,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Sequence
 
-from trialmatchai.entities.linker import ConceptLinker, LanceDBConceptStore
+from trialmatchai.entities.linker import (
+    ConceptLinker,
+    LanceDBConceptStore,
+    lexical_reranker,
+)
 from trialmatchai.entities.recognizers import EntityRecognizer, build_recognizer
 from trialmatchai.entities.schemas import load_entity_schemas
 from trialmatchai.entities.types import EntityAnnotation
@@ -76,11 +80,15 @@ def build_entity_annotator(
     linker: ConceptLinker | None = None
     if linker_cfg.get("enabled", True):
         store = _build_concept_store(linker_cfg, embedder=embedder)
+        # Wire the lexical reranker (as link_corpus does) so an exact match ranked #2+ is
+        # promoted ahead of the RRF #1 before the accept gate; else correct concepts abstain.
+        rerank_mode = str(linker_cfg.get("rerank", "lexical")).lower()
         linker = ConceptLinker(
             store,
             schemas,
             accept_threshold=float(linker_cfg.get("accept_threshold", 0.8)),
             reject_threshold=float(linker_cfg.get("reject_threshold", 0.3)),
+            reranker=lexical_reranker if rerank_mode == "lexical" else None,
             search_limit=int(linker_cfg.get("search_limit", 10)),
         )
 

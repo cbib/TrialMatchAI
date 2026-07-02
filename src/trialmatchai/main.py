@@ -45,8 +45,7 @@ logger = setup_logging(__name__)
 
 
 def _maybe_write_report(output_folder, config) -> None:
-    """Best-effort HTML report next to ranked_trials.json; never raises so a
-    successfully-matched patient is not marked failed by a reporting error."""
+    """Best-effort HTML report next to ranked_trials.json; never raises so a reporting error can't fail a matched patient."""
     if not config.get("reporting", {}).get("emit_html", True):
         return
     try:
@@ -64,10 +63,7 @@ def _maybe_write_report(output_folder, config) -> None:
 
 
 def _maybe_write_unified_report(config) -> None:
-    """Best-effort unified report (a front page over every patient) at
-    ``<output_dir>/index.html``. Regenerated at the end of a run so it always
-    reflects all patients that have results, including ones from earlier runs.
-    Never raises so a finished run is not marked failed by a reporting error."""
+    """Best-effort front-page report over all patients at ``<output_dir>/index.html``; regenerated each run so it reflects prior-run results too. Never raises."""
     if not config.get("reporting", {}).get("emit_html", True):
         return
     try:
@@ -182,8 +178,7 @@ def run_first_level_search(
                 f"{output_folder}/first_level_candidates.json",
             )
     else:
-        # Single-query first-level retrieval path. This remains available for exact
-        # behavior preservation when search.first_level.enabled=false.
+        # Single-query legacy path, kept for search.first_level.enabled=false.
         synonyms = cts.get_synonyms(condition.lower().strip())
         main_conditions.extend(synonyms[:5])
 
@@ -201,9 +196,7 @@ def run_first_level_search(
             search_mode=search_cfg.get("mode", "hybrid"),
         )
 
-    # Optional geographic hard filter (country-level, site-aware, opt-in via
-    # search.first_level.hard_filters). Recall-safe: only drops trials whose
-    # known sites exclude the patient's country.
+    # Opt-in country hard filter; recall-safe (only drops trials whose known sites exclude the patient's country).
     hard_filters = first_level_cfg.get("hard_filters") or ["age", "sex", "overall_status"]
     if "location" in hard_filters and patient_profile is not None:
         country = patient_country(patient_profile)
@@ -248,12 +241,10 @@ def run_second_level_search(
     config: Dict,
     patient_context: Optional["PatientConstraintContext"] = None,
 ) -> Tuple:
-    # Deterministic, order-preserving dedup (list(set(...)) shuffles under hash randomization,
-    # so which 10 queries -- and the synonym seed queries[0] -- would vary run to run).
+    # Order-preserving dedup: list(set(...)) would shuffle under hash randomization, varying the 10 queries and synonym seed queries[0] run to run.
     queries = _dedupe_strings(main_conditions + other_conditions + patient_narrative)[:10]
     logger.info(f"Running second-level retrieval with {len(queries)} queries ...")
 
-    # Add synonyms for second level
     if queries:
         synonyms = gemma_retriever.get_synonyms(queries[0])
         queries.extend(synonyms[:3])
@@ -268,15 +259,23 @@ def run_second_level_search(
     )
 
     combined_scores = {}
+    # Keep the pure second-level score separate from the combined key: combined only picks the
+    # shortlist, but rank_trials normalizes the pure score -- passing combined would double-count first-level.
+    second_level_scores = {}
     for trial in second_level_results:
         trial_id = trial["nct_id"]
         second_score = trial["score"]
         first_score = first_level_scores.get(trial_id, 0)
+        second_level_scores[trial_id] = second_score
         combined_scores[trial_id] = first_score + second_score
 
     sorted_trials = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
     keep_divisor = max(1, int(config.get("search", {}).get("second_level_keep_divisor", 3)))
     num_top = max(1, min(len(sorted_trials) // keep_divisor, top_n))
+    # RAG only reasons over rag.max_trials_rag trials; cap the shortlist to match, else trials
+    # past the cap get no eligibility output and are silently dropped from the final ranking.
+    if _rag_enabled(config):
+        num_top = max(1, min(num_top, int(config.get("rag", {}).get("max_trials_rag", 20))))
     semi_final_trials = sorted_trials[:num_top]
 
     top_trials_path = f"{output_folder}/top_trials.txt"
@@ -296,18 +295,15 @@ def run_second_level_search(
         )
 
     logger.info("Second-level retrieval and ranking complete. Top trials saved.")
-    return semi_final_trials, top_trials_path
+    return semi_final_trials, top_trials_path, second_level_scores
 
 
 def _criteria_source_folders(config: Dict) -> list[str]:
     """Folders to read each trial's criteria text from, in priority order.
 
-    Both carry the ``eligibility_criteria`` text but cover different provenance,
-    so trying both makes every trial resolve regardless of how it was added:
-      * ``processed_trials`` — written by ``build``/``bootstrap-data``.
-      * ``trials_jsons``     — written by ``build`` and the registry updater.
-    Sourcing from only one would make the eligibility model silently reason over
-    "no criteria" (and score 0) for the trials that folder is missing.
+    Both carry ``eligibility_criteria`` but cover different provenance; trying both
+    resolves every trial regardless of how it was added, else the ones a folder is
+    missing would silently reason over "no criteria".
     """
     paths = config.get("paths", {})
     candidates = [
@@ -394,6 +390,33 @@ def run_rag_processing(
     logger.info("RAG-based trial matching complete.")
 
 
+def _rag_final_ranking(
+    trial_data: List[Dict],
+    semi_final_trials: List[Tuple[str, float]],
+    *,
+    first_level_scores: Dict[str, float] | None = None,
+    second_level_scores: Dict[str, float] | None = None,
+) -> List[Dict]:
+    """Rank the RAG per-trial eligibility outputs; fall back to the retrieval shortlist
+    when RAG wrote nothing (empty ``patient_narrative`` -> no per-trial files), so a
+    retrievable shortlist isn't silently discarded as an empty ranked_trials.json.
+    """
+    ranked_trials = rank_trials(
+        trial_data,
+        first_level_scores=first_level_scores,
+        second_level_scores=second_level_scores,
+    )
+    if not ranked_trials and semi_final_trials:
+        logger.warning(
+            "RAG produced no per-trial outputs; ranking by retrieval scores."
+        )
+        ranked_trials = [
+            {"TrialID": trial_id, "Score": score}
+            for trial_id, score in semi_final_trials
+        ]
+    return ranked_trials
+
+
 def main_pipeline(
     config_path: str | None = None,
     *,
@@ -447,10 +470,8 @@ def main_pipeline(
 
     import warnings
 
-    # The eligibility reasoning model is loaded lazily by run_rag_processing
-    # after the top-trial shortlist is known.
+    # Eligibility reasoning model is loaded lazily by run_rag_processing.
 
-    # Initialize components
     embedder = build_embedder(config)
     entity_annotator = build_entity_annotator(config, embedder=embedder)
 
@@ -509,9 +530,7 @@ def main_pipeline(
         output_folder = Path(paths["output_dir"]) / patient_id
         if resume:
             ranked_path = output_folder / "ranked_trials.json"
-            # Parseable (not just non-empty) so a truncated/partial marker is
-            # treated as incomplete and re-run, while an empty-but-valid result
-            # is correctly recognized as completed.
+            # Parseable (not just non-empty): a truncated marker re-runs, an empty-but-valid result counts as done.
             if is_valid_json_file(str(ranked_path)):
                 logger.info("Resume: skipping already-matched patient %s", patient_id)
                 skipped_patients += 1
@@ -530,7 +549,6 @@ def main_pipeline(
             patient_info["patient_narrative"] = summary.get("patient_narrative", [])
             patient_context = build_patient_constraint_context(profile)
 
-            # Run pipeline
             with log_timing(logger, "First-level search"):
                 with _inference_context(torch):
                     result = run_first_level_search(
@@ -545,6 +563,7 @@ def main_pipeline(
                     )
             if not result:
                 logger.error("First-level search failed for %s", patient_id)
+                failed_patients += 1
                 continue
 
             (
@@ -557,7 +576,7 @@ def main_pipeline(
 
             with log_timing(logger, "Second-level search"):
                 with _inference_context(torch):
-                    semi_final_trials, top_trials_path = run_second_level_search(
+                    semi_final_trials, top_trials_path, second_level_scores = run_second_level_search(
                         str(output_folder),
                         nct_ids,
                         main_conditions,
@@ -580,16 +599,16 @@ def main_pipeline(
                         )
 
                 with log_timing(logger, "Final ranking"):
-                    # Scope to this run's shortlist so stale per-trial files from a
-                    # prior run with a different shortlist are not ranked.
-                    second_level = dict(semi_final_trials)
+                    # Scope to this run's shortlist so stale per-trial files aren't ranked.
+                    shortlist_ids = {trial_id for trial_id, _ in semi_final_trials}
                     trial_data = load_trial_data(
-                        str(output_folder), allowed_ids=set(second_level)
+                        str(output_folder), allowed_ids=shortlist_ids
                     )
-                    ranked_trials = rank_trials(
+                    ranked_trials = _rag_final_ranking(
                         trial_data,
+                        semi_final_trials,
                         first_level_scores=first_level_scores,
-                        second_level_scores=second_level,
+                        second_level_scores=second_level_scores,
                     )
                     save_ranked_trials(
                         ranked_trials, str(output_folder / "ranked_trials.json")
@@ -614,9 +633,15 @@ def main_pipeline(
         finally:
             reset_request_id(token)
 
-    # once at the end of the run: refresh the front-page report over all patients
+    # Refresh the front-page report over all patients.
     _maybe_write_unified_report(config)
 
+    if completed_patients == 0 and failed_patients:
+        # Surface failure even on a resume run where earlier patients were skipped, rather than masking it as "nothing to do".
+        logger.error(
+            "Pipeline failed for all %s not-yet-matched patient(s).", failed_patients
+        )
+        return 1
     if completed_patients == 0 and skipped_patients == 0:
         logger.error("Pipeline failed for all %s patient(s).", len(patient_inputs))
         return 1

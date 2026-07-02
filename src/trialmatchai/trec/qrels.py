@@ -1,13 +1,9 @@
 """Official TREC relevance judgments (qrels): download, parse, corpus, metrics.
 
-The per-track NCT corpus pool is derived directly from the qrels (the set of
-judged trials) — replacing the previously-checked-in ``Unique_NCT_IDs`` lists.
-Evaluation computes recall@k of the retrieval against the same qrels.
-
-TREC Clinical Trials relevance grades: 0 = not relevant, 1 = excluded (the trial
-matches the condition but the patient is excluded), 2 = eligible. By default a
-trial counts as relevant at grade >= 1 (matching the legacy recall evaluation);
-pass ``threshold=2`` to score eligible-only.
+The per-track NCT corpus pool is derived directly from the judged trials, and
+recall@k is scored against the same qrels. Relevance grades: 0 = not relevant,
+1 = excluded (condition matches but patient excluded), 2 = eligible. Default
+threshold counts grade >= 1 as relevant; pass ``threshold=2`` for eligible-only.
 """
 
 from __future__ import annotations
@@ -18,7 +14,11 @@ from pathlib import Path
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from trialmatchai.trec.metrics import condensed_ndcg, precision_at_k
+from trialmatchai.trec.metrics import (
+    condensed_ndcg,
+    graded_precision_at_k,
+    precision_at_k,
+)
 from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
@@ -59,16 +59,16 @@ def download_qrels(track: str, dest_dir: Path) -> Path:
         logger.info("Qrels for track %s already present: %s", track, dest)
         return dest
     logger.info("Downloading official qrels for track %s from %s", track, QRELS_URLS[track])
-    dest.write_bytes(_http_get(QRELS_URLS[track]))
+    tmp = dest.with_name(dest.name + ".part")
+    tmp.write_bytes(_http_get(QRELS_URLS[track]))
+    tmp.replace(dest)  # atomic: a crash mid-download must not leave a truncated cache
     return dest
 
 
 def parse_qrels(path: Path, id_prefix: str) -> dict[str, dict[str, int]]:
-    """Parse a TREC qrels file into {query_id: {nct_id: relevance}}.
+    """Parse a TREC qrels file (``<topic> <iter> <nct_id> <rel>``) into {query_id: {nct_id: rel}}.
 
-    Lines are ``<topic> <iteration> <nct_id> <relevance>`` (whitespace
-    separated). The query id is ``f"{id_prefix}{topic}"`` to match the imported
-    topic ids and the per-patient results folders.
+    The query id is ``f"{id_prefix}{topic}"`` to match the imported topic ids.
     """
     qrels: dict[str, dict[str, int]] = {}
     for raw in Path(path).read_text(encoding="utf-8", errors="ignore").splitlines():
@@ -105,8 +105,8 @@ def relevant_ncts(qrels: dict[str, dict[str, int]], *, threshold: int = 1) -> di
 def _retrieved_for_patient(patient_dir: Path) -> list[str]:
     """Ordered retrieved NCT ids for one patient.
 
-    Prefers the first-level candidate list (nct_ids.txt, up to ~1000) so recall
-    at large cutoffs is meaningful; falls back to the final ranked_trials.json.
+    Prefers the first-level candidate list (nct_ids.txt) so recall at large
+    cutoffs is meaningful; falls back to the final ranked_trials.json.
     """
     nct_ids = patient_dir / "nct_ids.txt"
     if nct_ids.exists():
@@ -114,7 +114,12 @@ def _retrieved_for_patient(patient_dir: Path) -> list[str]:
     ranked = patient_dir / "ranked_trials.json"
     if ranked.exists():
         data = json.loads(ranked.read_text())
-        return [str(item.get("TrialID")) for item in data if item.get("TrialID")]
+        items = data.get("RankedTrials", []) if isinstance(data, dict) else data
+        return [
+            str(item["TrialID"])
+            for item in items or []
+            if isinstance(item, dict) and item.get("TrialID") is not None
+        ]
     return []
 
 
@@ -159,12 +164,9 @@ def evaluate(
 ) -> dict:
     """Per-query and mean metrics over the patients in ``results_dir``.
 
-    Two complementary families:
-      * recall@k       — retrieval quality (first-level candidate list).
-      * tie-aware nDCG@{5,10,20} + P@10 — ranking quality of the final
-        ranked_trials.json, condensed to labeled-and-retrieved trials. nDCG is
-        order-invariant on ties (McSherry-Najork); P@10 is reported for both
-        "relevant" (grade>=1) and "eligible" (grade==2).
+    Reports recall@k (retrieval, first-level list) and tie-aware nDCG@{5,10,20}
+    + P@10 (ranking, condensed to judged trials). P@10 is split into "relevant"
+    (grade>=1) and "eligible" (grade==2).
     """
     results_dir = Path(results_dir)
     relevant = relevant_ncts(qrels, threshold=threshold)
@@ -176,6 +178,7 @@ def evaluate(
     rank_sums = {f"ndcg@{k}": 0.0 for k in NDCG_CUTOFFS}
     rank_sums[f"P@{P_CUTOFF}(rel>=1)"] = 0.0
     rank_sums[f"P@{P_CUTOFF}(eligible)"] = 0.0
+    rank_sums[f"graded_P@{P_CUTOFF}"] = 0.0
     rank_counts = {key: 0 for key in rank_sums}
 
     for query_id, judgments in qrels.items():
@@ -205,12 +208,16 @@ def evaluate(
                 rank_counts[f"ndcg@{k}"] += 1
             p_rel = precision_at_k(ranked, rel_set, P_CUTOFF)
             p_elig = precision_at_k(ranked, eligible.get(query_id, set()), P_CUTOFF)
+            p_graded = graded_precision_at_k(ranked, judgments, P_CUTOFF)
             row[f"P@{P_CUTOFF}(rel>=1)"] = p_rel
             row[f"P@{P_CUTOFF}(eligible)"] = p_elig
+            row[f"graded_P@{P_CUTOFF}"] = p_graded
             rank_sums[f"P@{P_CUTOFF}(rel>=1)"] += p_rel
             rank_sums[f"P@{P_CUTOFF}(eligible)"] += p_elig
+            rank_sums[f"graded_P@{P_CUTOFF}"] += p_graded
             rank_counts[f"P@{P_CUTOFF}(rel>=1)"] += 1
             rank_counts[f"P@{P_CUTOFF}(eligible)"] += 1
+            rank_counts[f"graded_P@{P_CUTOFF}"] += 1
         per_query[query_id] = row
 
     mean = {**_mean(rec_sums, rec_counts), **_mean(rank_sums, rank_counts)}

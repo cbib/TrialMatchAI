@@ -10,12 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-# Officially supported via NIST download. "sigir" is defined but has no official
-# direct source (CSIRO portal), so it is not in the default run set.
+# "sigir" has no official direct source (CSIRO portal), so it is not in the default run set.
 TRACK_KEYS = ("21", "22", "sigir")
 DEFAULT_TRACKS = ("21", "22")
 
-# Topic id prefix (topic N becomes "<prefix>N", matching the qrels query ids).
+# Topic N becomes "<prefix>N", matching the qrels query ids.
 _ID_PREFIX = {"21": "trec-2021", "22": "trec-2022", "sigir": "sigir-2014"}
 
 
@@ -44,12 +43,9 @@ def resolve_tracks(
 ) -> list[TrackSpec]:
     """Build :class:`TrackSpec` objects for the requested track keys.
 
-    Layout (relative to ``data_dir`` / ``results_root``):
-      trec dir  : <data_dir>/trec  (downloaded topics + qrels cache)
-      profiles  : <data_dir>/patients/trec<key>/profiles
-      summaries : <data_dir>/patients/trec<key>/summaries
-      index     : <data_dir>/search_<key>
-      results   : <results_root>/results_trec<key>
+    Layout under ``data_dir``: trec/ (topics + qrels cache),
+    patients/trec<key>/{profiles,summaries}, search_<key> (index);
+    results under ``results_root``/results_trec<key>.
     """
     data_dir = Path(data_dir)
     results_root = Path(results_root)

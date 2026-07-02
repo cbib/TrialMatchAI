@@ -1,10 +1,8 @@
 """Self-contained HTML results report for a matched patient.
 
-Joins ``ranked_trials.json`` + the per-trial CoT eligibility evaluations + trial
-metadata + the patient matching summary into one offline ``report.html`` (no
-server, no build step). All dynamic content is embedded as a JSON island and
-rendered client-side via safe DOM APIs, so there is no server-side HTML
-templating to escape and no templating dependency.
+Joins ranked_trials.json, per-trial CoT eligibility evaluations, trial metadata,
+and the patient summary into one offline report.html; content is embedded as a
+JSON island and rendered client-side, so there is no server-side templating.
 """
 
 from __future__ import annotations
@@ -44,11 +42,7 @@ def _read_json(path: Path) -> Any | None:
 
 
 def _read_cot(path: Path) -> str | None:
-    """Extract the model's <think>…</think> reasoning from a per-trial .txt.
-
-    Returns None when the file is absent or has no thinking block (e.g. no-think
-    runs), so the reasoning panel only appears when there is something to show.
-    """
+    """Extract the model's <think>…</think> reasoning from a per-trial .txt, or None if absent/no-think."""
     try:
         raw = path.read_text(encoding="utf-8")
     except Exception:
@@ -117,9 +111,8 @@ def build_report_model(
     generated_at: str,
     run_info: Mapping[str, Any] | None = None,
 ) -> dict:
-    """Pure join of a patient's result artifacts into a render-ready model.
+    """Pure join of a patient's result artifacts into a render-ready model (no I/O).
 
-    No I/O — the caller supplies already-loaded data, so this is unit-testable.
     Trials keep ``ranked_trials.json`` order; ``rank`` is the 1-based position.
     """
     trials: list[dict] = []
@@ -175,15 +168,13 @@ def _logo_data_uri() -> str:
 def render_html_report(model: Mapping[str, Any]) -> str:
     """Embed the model as a tag-safe JSON island in the static template.
 
-    Accepts a single-patient model (``{"patient", "trials", ...}``) or a unified
-    one (``{"patients": [...]}``). A single model is wrapped so the template
-    always reads ``DATA.patients`` and a one-patient report skips the front page.
+    A single-patient model is wrapped as ``{"patients": [...]}`` so the template
+    always reads ``DATA.patients``.
     """
     if "patients" not in model:
         model = {"patients": [dict(model)], "generated_at": model.get("generated_at", "")}
     data = json.dumps(model, ensure_ascii=False, default=str)
-    # neutralize </script> injection — LLM free text may contain "</script>";
-    # JSON.parse reads the escaped sequences back unchanged.
+    # Neutralize </script> injection from LLM free text; JSON.parse reads the escapes back unchanged.
     data = data.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     html = _TEMPLATE.read_text(encoding="utf-8").replace(_DATA_PLACEHOLDER, data)
     return html.replace(_LOGO_PLACEHOLDER, _logo_data_uri())
@@ -207,9 +198,8 @@ def profile_to_model(
 ) -> dict:
     """Read a patient's result dir into a render-ready model (no HTML).
 
-    ``patient_dir`` is ``<output_dir>/<patient_id>/``. Metadata folders are tried
-    in order (processed_trials, then trials_jsons); ids with no metadata (e.g.
-    Dutch ``NL…`` registry trials) degrade to id + score + verdict only.
+    Metadata folders are tried in order; ids with no metadata degrade to
+    id + score + verdict only.
     """
     patient_dir = Path(patient_dir)
     ranked = _read_json(patient_dir / "ranked_trials.json") or {}
@@ -272,8 +262,7 @@ def profile_to_html_report(
 
 
 def render_unified_html(patient_models: Sequence[Mapping[str, Any]], generated_at: str) -> str:
-    """One self-contained report over many patients: a front page listing every
-    patient that drills into the per-patient view client-side."""
+    """One self-contained report over many patients, with a client-side per-patient drill-down."""
     return render_html_report({"patients": list(patient_models), "generated_at": generated_at})
 
 
@@ -305,10 +294,7 @@ __ITEMS__
 
 
 def render_index_html(entries: Sequence[Mapping[str, Any]], generated_at: str) -> str:
-    """A minimal index page linking each patient's ``report.html``.
-
-    ``entries`` items: ``{"patient_id", "n_trials", "href"}``.
-    """
+    """A minimal index page linking each patient's ``report.html`` (entries: patient_id, n_trials, href)."""
     items = "\n".join(
         '    <li><a href="{href}">Patient {pid}</a><span class="n">{n} trials</span></li>'.format(
             href=_html.escape(str(e["href"]), quote=True),

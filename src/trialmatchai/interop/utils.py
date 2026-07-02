@@ -71,8 +71,7 @@ def parse_date(value: Any) -> date | None:
             )
         except ValueError:
             return None
-    # Datetime string fromisoformat couldn't parse (e.g. older Python tz forms):
-    # fall back to the leading YYYY-MM-DD if present.
+    # fromisoformat failed (e.g. older Python tz forms); fall back to leading YYYY-MM-DD.
     prefix = re.match(r"(\d{4}-\d{2}-\d{2})", text)
     if prefix:
         try:
@@ -96,12 +95,19 @@ def parse_iso8601_age_years(value: Any) -> float | None:
     if not value:
         return None
     text = str(value)
-    match = re.fullmatch(r"P(?:(\d+(?:\.\d+)?)Y)?(?:(\d+(?:\.\d+)?)M)?", text)
+    # Accept week/day components in ISO8601 Age (e.g. "P70Y6M15D"), converting to a year fraction.
+    match = re.fullmatch(
+        r"P(?:(\d+(?:\.\d+)?)Y)?(?:(\d+(?:\.\d+)?)M)?"
+        r"(?:(\d+(?:\.\d+)?)W)?(?:(\d+(?:\.\d+)?)D)?",
+        text,
+    )
     if not match:
         return None
     years = float(match.group(1) or 0)
     months = float(match.group(2) or 0)
-    return round(years + months / 12, 2)
+    weeks = float(match.group(3) or 0)
+    days = float(match.group(4) or 0)
+    return round(years + months / 12 + (weeks * 7 + days) / 365.25, 2)
 
 
 def code_from_ontology_class(value: Mapping[str, Any] | None) -> NormalizedCode | None:
@@ -127,12 +133,7 @@ def code_from_ontology_class(value: Mapping[str, Any] | None) -> NormalizedCode 
 
 
 def codes_from_fhir_codeable(value: Mapping[str, Any] | None) -> list[NormalizedCode]:
-    """Extract all codings from a FHIR CodeableConcept, known vocabularies first.
-
-    Real EHRs emit several codings per concept (e.g. a proprietary code plus
-    SNOMED/LOINC/RxNorm). We keep them all and order recognized vocabularies
-    first so concept linking uses the standard code rather than a local one.
-    """
+    """Extract all codings from a FHIR CodeableConcept, recognized vocabularies first so linking prefers the standard code over a local one."""
     if not isinstance(value, Mapping) or not value:
         return []
     text = clean_text(value.get("text"))
@@ -224,6 +225,8 @@ def make_fact(
             provenance.source_table,
             evidence_start,
             evidence_end,
+            # Fold temporality in so same-concept rows differing only by date get distinct fact_ids.
+            temporality,
         ),
         category=category,
         label=cleaned_label,

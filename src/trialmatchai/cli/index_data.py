@@ -1,9 +1,7 @@
 """``trialmatchai index`` — prepare + build the LanceDB search tables.
 
-A thin entry point over the SAME idempotent orchestration stages `build` uses
-(`prepare_corpus` + `build_index`), so there is one prepare implementation and one
-index implementation, both resumable/skip-if-done. (Historically this command had
-its own non-resumable prepare and an always-overwrite index; those are gone.)
+A thin entry point over the same idempotent stages `build` uses (`prepare_corpus`
++ `build_index`), so there is one resumable/skip-if-done implementation of each.
 """
 
 from __future__ import annotations

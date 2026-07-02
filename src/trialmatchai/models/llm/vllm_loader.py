@@ -1,4 +1,3 @@
-# trialmatchai/models/llm/vllm_loader.py
 from __future__ import annotations
 
 import os
@@ -10,9 +9,7 @@ logger = setup_logging(__name__)
 
 
 def _infer_max_ctx_len(model_path: str) -> Optional[int]:
-    """
-    Try to infer the model's max context length from its HF/transformers config.
-    """
+    """Infer the model's max context length from its HF/transformers config."""
     try:
         from transformers import AutoConfig  # type: ignore
 
@@ -61,11 +58,9 @@ def _as_float(x, name: str) -> Optional[float]:
         raise TypeError(f"{name} must be float-compatible, got {type(x)}: {x!r}") from e
 
 
-# Process-level cache of built vLLM engines, keyed by the resolved model/adapter
-# and engine parameters. The RAG eligibility path builds an engine per patient and
-# the query expander builds one too — without this they would each rebuild the
-# (multi-GB) CoT engine repeatedly, wasting minutes and risking GPU OOM. With the
-# cache, identical (model, adapter, params) requests share a single engine.
+# Process-level cache of built vLLM engines keyed by resolved model/adapter/params, so the
+# per-patient RAG path and the query expander share one engine instead of rebuilding the
+# multi-GB CoT engine repeatedly (wasted minutes, GPU OOM risk).
 _ENGINE_CACHE: dict = {}
 
 
@@ -77,11 +72,9 @@ def free_vllm_engines() -> None:
     global _ENGINE_CACHE
     engines = list(_ENGINE_CACHE.values())
     _ENGINE_CACHE = {}
-    for engine, _tok, _lora in engines:
-        try:
-            del engine
-        except Exception:
-            logger.debug("vLLM teardown: engine del failed (ignored)", exc_info=True)
+    # Drop the container so the engine tuples are unreferenced before gc + empty_cache reclaim.
+    engines.clear()
+    del engines
     try:
         import gc
 
@@ -108,12 +101,7 @@ def free_vllm_engines() -> None:
 def load_vllm_engine(
     model_config: dict, vllm_cfg: dict | None = None
 ) -> Tuple[object, Optional[object], Optional[object]]:
-    """
-    Build a vLLM LLM engine safely with strict type guards to avoid:
-      - Tokenizer/path errors like "expected str, got float (1.0)"
-      - Passing unexpected kwargs to LLM(...)
-    Returns: (engine, tokenizer, lora_request)
-    """
+    """Build a vLLM engine with strict type guards. Returns (engine, tokenizer, lora_request)."""
     # Lazy imports to avoid import costs when not used
     from vllm import LLM  # type: ignore
 
@@ -232,13 +220,10 @@ def load_vllm_engine(
                 or "cot_adapter"
             )
 
-            # Get adapter_id from config, default to 1
             adapter_id = _as_int(vllm_cfg.get("adapter_id", 1), "adapter_id") or 1
 
-            # Try different LoRARequest constructor signatures
-            # Most vLLM versions expect: LoRARequest(lora_name, lora_int_id, lora_local_path)
+            # LoRARequest constructor signature varies across vLLM versions; try each.
             try:
-                # Primary signature: (name: str, id: int, path: str, ...)
                 lora_request = LoRARequest(
                     lora_name=name,
                     lora_int_id=adapter_id,  # Use integer ID
@@ -268,7 +253,6 @@ def load_vllm_engine(
                     try:
                         # Some vLLM releases use just name and path.
                         lora_request = LoRARequest(name, adapter_path)  # type: ignore
-                        # Manually set the ID if the object allows it
                         if hasattr(lora_request, "lora_int_id"):
                             setattr(lora_request, "lora_int_id", adapter_id)
                         logger.info(
@@ -283,7 +267,7 @@ def load_vllm_engine(
                         logger.warning("[vLLM] Proceeding without LoRA adapter")
                         lora_request = None
 
-            # Try to preload the adapter if we successfully created a request
+            # Preload the adapter when a request was created.
             if lora_request is not None:
                 try:
                     add_lora = getattr(engine, "add_lora", None)

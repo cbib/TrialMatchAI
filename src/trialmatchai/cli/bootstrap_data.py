@@ -111,7 +111,7 @@ def bootstrap_data(
     data_dir.mkdir(parents=True, exist_ok=True)
 
     criteria_dir = data_dir / "processed_criteria"
-    if force or not _has_entries(criteria_dir):
+    if force or not _extract_complete(criteria_dir):
         criteria_dir.mkdir(parents=True, exist_ok=True)
         for index in range(criteria_chunks):
             chunk_name = f"{CHUNK_PREFIX}_{index}.zip"
@@ -125,27 +125,30 @@ def bootstrap_data(
                 os.getenv(f"TRIALMATCHAI_CRITERIA_PART_{index}_SHA256"),
             )
             _safe_extract_zip(chunk_path, criteria_dir)
+        _mark_extract_complete(criteria_dir)
 
     processed_trials_dir = data_dir / "processed_trials"
-    if force or not _has_entries(processed_trials_dir):
+    if force or not _extract_complete(processed_trials_dir):
         processed_archive = data_dir / PROCESSED_TRIALS_ARCHIVE
         _download_if_missing(data_url, processed_archive)
         _verify_sha256(
             processed_archive, os.getenv("TRIALMATCHAI_PROCESSED_TRIALS_SHA256")
         )
         _safe_extract_tar_gz(processed_archive, data_dir)
+        _mark_extract_complete(processed_trials_dir)
 
     if not skip_models:
         models_dir.mkdir(parents=True, exist_ok=True)
-        if force or not _has_entries(models_dir):
+        if force or not _extract_complete(models_dir):
             models_archive = data_dir / MODELS_ARCHIVE
             _download_if_missing(models_url, models_archive)
             _verify_sha256(models_archive, os.getenv("TRIALMATCHAI_MODELS_SHA256"))
             _safe_extract_tar_gz(models_archive, models_dir)
+            _mark_extract_complete(models_dir)
 
     if finetune_data:
         finetune_dir = data_dir / "finetune"
-        if force or not _has_entries(finetune_dir):
+        if force or not _extract_complete(finetune_dir):
             finetune_dir.mkdir(parents=True, exist_ok=True)
             finetune_archive = data_dir / FINETUNE_ARCHIVE
             _download_if_missing(finetune_data_url, finetune_archive)
@@ -153,6 +156,7 @@ def bootstrap_data(
                 finetune_archive, os.getenv("TRIALMATCHAI_FINETUNE_DATA_SHA256")
             )
             _safe_extract_zip(finetune_archive, finetune_dir)
+            _mark_extract_complete(finetune_dir)
 
     _cleanup_archives(data_dir, criteria_chunks)
 
@@ -164,12 +168,16 @@ def _download_if_missing(url: str, destination: Path) -> None:
 
     _info(f"Downloading {destination.name}...")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    # Stream to .part and rename on success so a killed download never leaves a truncated
+    # archive at the final path (checksum verification is optional, so can't catch it).
+    partial = destination.with_name(destination.name + ".part")
     response = requests.get(url, stream=True, timeout=120)
     response.raise_for_status()
-    with destination.open("wb") as file:
+    with partial.open("wb") as file:
         for chunk in response.iter_content(chunk_size=1024 * 1024):
             if chunk:
                 file.write(chunk)
+    partial.replace(destination)
 
 
 def _verify_sha256(path: Path, expected: str | None) -> None:
@@ -238,6 +246,22 @@ def _cleanup_archives(data_dir: Path, criteria_chunks: int) -> None:
 
 def _has_entries(path: Path) -> bool:
     return path.exists() and any(path.iterdir())
+
+
+_EXTRACT_MARKER = ".bootstrap_complete"
+
+
+def _extract_complete(path: Path) -> bool:
+    """True only when a prior extract wrote its completion sentinel.
+
+    Presence of *some* entries is not proof: a killed extract leaves a partial tree
+    that would otherwise bake a truncated corpus into every later run.
+    """
+    return (path / _EXTRACT_MARKER).exists()
+
+
+def _mark_extract_complete(path: Path) -> None:
+    (path / _EXTRACT_MARKER).write_text("ok\n", encoding="utf-8")
 
 
 def _runtime_root() -> Path:

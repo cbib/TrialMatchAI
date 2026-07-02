@@ -1,19 +1,11 @@
-"""Ranking-quality metrics for TREC evaluation.
+"""Ranking-quality metrics for TREC evaluation (complementing recall@k in ``qrels``).
 
-These complement recall@k (the retrieval-side metric in ``qrels``). nDCG here is:
-
-  * **tie-aware** (McSherry & Najork, 2008): trials sharing the same ranking
-    score form a tie group, and each member is given the AVERAGE positional
-    discount over the ranks the group spans (truncated at k). The result is the
-    EXPECTED nDCG over all random orderings of the tied trials, so it is
-    invariant to arbitrary tie-breaking — it rewards only genuinely ordering a
-    more-relevant trial above a less-relevant one.
-  * **condensed**: computed over the labeled-and-retrieved trials only, with the
-    IDCG normalized to that same set. It measures the quality of the final
-    ranking of the trials the model actually evaluated, decoupled from recall.
-
-Gain is linear (gain = relevance grade), matching trec_eval's default and the
-legacy evaluation.
+nDCG here is tie-aware (McSherry & Najork, 2008): tied scores each get the mean
+positional discount over the ranks the tie group spans, i.e. the expected nDCG
+over all orderings of the tie, so it is invariant to arbitrary tie-breaking. It
+is also condensed: computed over labeled-and-retrieved trials only, decoupling
+ranking quality from recall. Gain is linear (gain = relevance grade), matching
+trec_eval's default.
 """
 
 from __future__ import annotations
@@ -35,13 +27,10 @@ def tie_aware_dcg_at_k(
 ) -> float:
     """Expected DCG@k over random orderings of tied scores (McSherry-Najork).
 
-    ``ordered_ids`` must already be sorted by descending ranking score, so equal
-    scores are contiguous. Each tie group spanning 1-indexed ranks [a..b] gives
-    every member the mean discount over ranks a..min(b, k).
+    Each tie group spanning 1-indexed ranks [a..b] gives every member the mean
+    discount over ranks a..min(b, k).
     """
-    # Enforce the by-descending-score precondition so tie groups are contiguous
-    # regardless of how the caller ordered the list (the metric is tie-order
-    # invariant, so a stable re-sort cannot change a correct result).
+    # Re-sort by descending score so tie groups are contiguous regardless of caller order.
     ordered_ids = sorted(ordered_ids, key=lambda d: score_of.get(d, 0.0), reverse=True)
     n = len(ordered_ids)
     total = 0.0
@@ -91,16 +80,28 @@ def precision_at_k(ordered_ids: Sequence[str], relevant: Set[str], k: int) -> fl
     return sum(1 for d in topk if d in relevant) / float(k)
 
 
+def graded_precision_at_k(
+    ordered_ids: Sequence[str], grade_of: Mapping[str, int], k: int, *, g_max: int = 2
+) -> float:
+    """Graded P@k: each top-k trial contributes ``min(grade, g_max) / g_max``.
+
+    Unlike binary P@k, this rewards ranking genuinely eligible (grade 2) trials
+    above merely on-topic excluded (grade 1) ones.
+    """
+    if k <= 0 or g_max <= 0:
+        return 0.0
+    topk = ordered_ids[:k]
+    if not topk:
+        return 0.0
+    return sum(min(grade_of.get(d, 0), g_max) for d in topk) / float(k * g_max)
+
+
 def condensed_ndcg(
     ranked_ids: Sequence[str],
     score_of: Mapping[str, float],
     grade_of: Mapping[str, int],
     cutoffs: Sequence[int],
 ) -> Dict[int, float]:
-    """Tie-aware nDCG@k for each cutoff, condensed to labeled-and-retrieved trials.
-
-    ``ranked_ids`` is the final ranking order; ``grade_of`` is the qrels grade for
-    judged trials. Only trials present in ``grade_of`` are kept (condensed).
-    """
+    """Tie-aware nDCG@k per cutoff, condensed to the judged trials (those in ``grade_of``)."""
     condensed = [nid for nid in ranked_ids if nid in grade_of]
     return {k: ndcg_at_k(condensed, score_of, grade_of, k) for k in cutoffs}

@@ -154,7 +154,12 @@ class RegistryUpdater:
 
             digest = source_hash(study)
             previous = latest.get(nct_id)
-            if previous and previous.source_hash == digest:
+            # Skip only if unchanged and previously succeeded; "failed" records must be retried.
+            if (
+                previous
+                and previous.source_hash == digest
+                and previous.processing_status in {"indexed", "fetched"}
+            ):
                 report.unchanged += 1
                 return
 

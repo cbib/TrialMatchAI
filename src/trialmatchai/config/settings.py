@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Iterable, Literal, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class EntityExtractionSettings(BaseModel):
@@ -23,8 +26,7 @@ class ConceptLinkerSettings(BaseModel):
     enabled: bool = True
     db_path: str = "data/concepts"
     table: str = "concepts"
-    # Thresholds are on an ABSOLUTE lexical match-quality signal (not the RRF rank score,
-    # which is normalized to 1.0 for the top candidate and cannot gate acceptance).
+    # Thresholds gate on an absolute lexical match-quality signal, not the top-normalized RRF rank.
     accept_threshold: float = Field(0.7, ge=0.0, le=1.0)
     reject_threshold: float = Field(0.5, ge=0.0, le=1.0)
     margin: float = Field(0.05, ge=0.0, le=1.0)
@@ -145,9 +147,7 @@ class SearchSettings(BaseModel):
     vector_score_threshold: float = Field(0.5, ge=0.0, le=1.0)
     max_trials_first_level: int = Field(1000, ge=1)
     max_trials_second_level: int = Field(100, ge=1)
-    # Keep the top 1/N of the reranked second-level trials before CoT (N=1 keeps
-    # all of them). The interactive default thins to a third; the TREC preset sets
-    # N=1 so the full reranked set feeds the CoT cap.
+    # Keep the top 1/N of reranked second-level trials before CoT (N=1 keeps all).
     second_level_keep_divisor: int = Field(3, ge=1)
     first_level: FirstLevelSearchSettings = Field(
         default_factory=FirstLevelSearchSettings
@@ -160,11 +160,15 @@ class SearchSettings(BaseModel):
             return data
         normalized = dict(data)
         first_level = dict(normalized.get("first_level") or {})
-        if "first_level" not in normalized and "max_trials_first_level" in normalized:
-            first_level["max_trials"] = normalized["max_trials_first_level"]
+        # Single source of truth for max_trials: nested first_level.max_trials wins when set,
+        # else the top-level propagates down into it.
+        nested = first_level.get("max_trials")
+        top = normalized.get("max_trials_first_level")
+        resolved = nested if nested is not None else top
+        if resolved is not None:
+            normalized["max_trials_first_level"] = resolved
+            first_level["max_trials"] = resolved
             normalized["first_level"] = first_level
-        elif "max_trials" in first_level:
-            normalized["max_trials_first_level"] = first_level["max_trials"]
         return normalized
 
 
@@ -187,7 +191,7 @@ class VllmSettings(BaseModel):
     batch_size: int = Field(100, ge=1)
     max_new_tokens: int = Field(5000, ge=1)
     temperature: float = Field(0.0, ge=0.0)
-    top_p: float = Field(1.0, ge=0.0, le=1.0)
+    top_p: float = Field(1.0, gt=0.0, le=1.0)  # vLLM rejects top_p=0
     seed: int = 1234
     length_bucket: bool = True
     gpu_memory_utilization: float = Field(0.5, gt=0.0, le=1.0)
@@ -203,9 +207,8 @@ class LLMRerankerSettings(BaseModel):
     enabled: bool = True
     backend: Literal["vllm", "transformers"] = "vllm"
     batch_size: int = Field(20, ge=1)
-    # vLLM reranker engine's share of GPU memory. Default matches the historical hardcoded
-    # value; lower it (with a lower vllm.gpu_memory_utilization) to fit both engines on a
-    # smaller card (e.g. 48GB A40/L40) instead of the 80GB H100.
+    # vLLM reranker engine's share of GPU memory; lower it (with vllm.gpu_memory_utilization)
+    # to fit both engines on a smaller card (e.g. 48GB A40/L40).
     gpu_memory_utilization: float = Field(0.4, gt=0.0, le=1.0)
 
 
@@ -361,7 +364,7 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
     for env_key, path in bool_env_map.items():
         value = os.getenv(env_key)
-        if value is not None:
+        if value:  # an empty/unset var must not be read as an explicit False
             _set_nested(raw, path, _parse_bool(value))
 
     int_env_map: dict[str, Tuple[str, ...]] = {
@@ -408,7 +411,7 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 _set_nested(raw, path, int(value))
             except ValueError:
-                pass
+                logger.warning("Ignoring malformed integer env override %s=%r", env_key, value)
     max_trials_first_level_env = os.getenv("TRIALMATCHAI_SEARCH_MAX_TRIALS_FIRST_LEVEL")
     if max_trials_first_level_env:
         try:
@@ -418,7 +421,10 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
                 int(max_trials_first_level_env),
             )
         except ValueError:
-            pass
+            logger.warning(
+                "Ignoring malformed TRIALMATCHAI_SEARCH_MAX_TRIALS_FIRST_LEVEL=%r",
+                max_trials_first_level_env,
+            )
 
     float_env_map: dict[str, Tuple[str, ...]] = {
         "TRIALMATCHAI_ENTITY_THRESHOLD": ("entity_extraction", "threshold"),
@@ -446,7 +452,7 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 _set_nested(raw, path, float(value))
             except ValueError:
-                pass
+                logger.warning("Ignoring malformed float env override %s=%r", env_key, value)
 
     return raw
 

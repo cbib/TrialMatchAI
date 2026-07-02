@@ -34,7 +34,7 @@ def build_patient_constraint_context(profile: PatientProfile) -> PatientConstrai
     facts.extend(_facts_from_clinical(profile.procedures, "procedure"))
     facts.extend(_facts_from_clinical(profile.genomic_findings, "biomarker"))
     facts.extend(_facts_from_clinical(profile.cancer_profile, "condition"))
-    facts.extend(_facts_from_clinical(profile.family_history, "condition"))
+    # Family history is a relative's disease, not the patient's own, and no constraint kind consumes it; omit.
     facts.extend(_performance_facts(profile))
     return PatientConstraintContext(
         patient_id=profile.patient_id,
@@ -58,13 +58,11 @@ def evaluate_constraint_set(
     signals = [evaluation.score_signal for evaluation in evaluations if evaluation.score_signal != 0]
     if signals:
         if constraint_set.polarity == "exclusion":
-            # A single exclusion violation disqualifies the patient, so the negative violation
-            # signal must dominate rather than be averaged with the small +0.25 not-violated
-            # credits -- mean-averaging could dilute, or with enough not-violated items even
-            # sign-flip, a genuine exclusion hit into a positive (trial-boosting) signal.
+            # One exclusion hit disqualifies, so take the min: averaging could dilute or sign-flip a real violation.
             signal = _clamp(min(signals))
         else:
-            signal = _clamp(sum(signals) / len(signals))
+            # Inclusion sub-constraints must all hold, so take the min: averaging could dilute or sign-flip a real miss.
+            signal = _clamp(min(signals))
     elif (
         not unknown_is_neutral
         and constraint_set.polarity == "inclusion"
@@ -154,7 +152,7 @@ def _performance_facts(profile: PatientProfile) -> list[PatientConstraintFact]:
     for fact in buckets:
         text = _fact_text(fact)
         for label, pattern in (
-            ("ECOG", r"\becog\b[^0-9]*(\d)"),
+            ("ECOG", r"\becog\b[^0-9]{0,24}([0-4])\b"),
             ("Karnofsky", r"\bkarnofsky\b[^0-9]*(\d{2,3})"),
         ):
             match = re.search(pattern, text, re.IGNORECASE)
@@ -192,6 +190,9 @@ def _evaluate_relation(
         )
     if constraint.kind == "biomarker":
         return _evaluate_biomarker(constraint, patient_context)
+    if constraint.kind == "temporal":
+        # No dated patient timeline to check against; return unknown rather than a default "absent" that soft-matches.
+        return "unknown", None, "Temporal criteria are not evaluated (no dated patient timeline)."
     return _evaluate_concept_fact(constraint, patient_context, (constraint.kind,))
 
 
@@ -224,6 +225,14 @@ def _evaluate_sex(
     return "unsatisfied", current, "Patient sex/gender does not satisfy the constraint."
 
 
+def _units_incompatible(fact_unit: str | None, constraint_unit: str | None) -> bool:
+    """True only when both sides declare a unit and they normalize differently (missing unit = compatible)."""
+    if not fact_unit or not constraint_unit:
+        return False
+    normalize = lambda u: re.sub(r"[\s.]+", "", u).casefold()  # noqa: E731
+    return normalize(fact_unit) != normalize(constraint_unit)
+
+
 def _evaluate_numeric_fact(
     constraint: Constraint,
     patient_context: PatientConstraintContext,
@@ -237,6 +246,13 @@ def _evaluate_numeric_fact(
             return "unsatisfied", fact.evidence_text, f"Patient fact is explicitly absent: {fact.label}."
         if fact.value is None:
             continue
+        # Abstain on incompatible units (ANC 1.5 x10^9/L vs a >=1500 /mm3 threshold would give a wrong verdict).
+        if _units_incompatible(fact.unit, constraint.unit):
+            return (
+                "unknown",
+                fact.evidence_text,
+                f"Units differ ({fact.unit} vs {constraint.unit}); not compared for {constraint.label}.",
+            )
         if _compare_numeric(fact.value, constraint):
             return "satisfied", fact.evidence_text, f"Patient value satisfies {constraint.label}."
         return "unsatisfied", fact.evidence_text, f"Patient value does not satisfy {constraint.label}."
@@ -264,7 +280,6 @@ def _evaluate_biomarker(
         ("biomarker", "lab", "condition"),
     )
     if not candidates:
-        # Patient has no record of this biomarker.
         return "absent", None, f"No patient biomarker fact found for {constraint.label}."
 
     fact = candidates[0]
@@ -314,11 +329,8 @@ def _evaluate_concept_fact(
 def _status_and_signal(polarity: str, relation: str) -> tuple[EvaluationStatus, float]:
     """Map a (polarity, relation) pair to a scoring status and signal.
 
-    Relations:
-      satisfied   - patient meets the criterion's condition / has the item
-      unsatisfied - patient's value contradicts a numeric bound
-      absent      - patient does not have the item (no record / negated)
-      unknown     - genuinely indeterminate (e.g. age/sex/lab unavailable)
+    Relations: satisfied (meets/has), unsatisfied (contradicts a bound),
+    absent (no record/negated), unknown (indeterminate).
     """
     if relation == "not_applicable":
         return "not_applicable", 0.0
@@ -337,8 +349,7 @@ def _status_and_signal(polarity: str, relation: str) -> tuple[EvaluationStatus, 
         return "matched", MATCH_SIGNAL
     if relation == "unsatisfied":
         return "violated", INCLUSION_VIOLATION_SIGNAL
-    # "absent" for an inclusion: we cannot confirm a required presence from an
-    # (often incomplete) profile, so stay neutral rather than penalize.
+    # Absent inclusion: can't confirm required presence from an incomplete profile, so stay neutral.
     return "unknown", 0.0
 
 
@@ -402,11 +413,12 @@ def _compare_numeric(value: float, constraint: Constraint) -> bool:
 def _parse_numeric_value(value: str | None) -> tuple[float | None, str | None]:
     if not value:
         return None, None
-    match = re.search(r"(-?\d+(?:\.\d+)?)\s*([A-Za-z/%0-9^µμ.-]+)?", value)
+    # Accept thousands separators ("1,500 /mm3") so the value isn't truncated at the comma.
+    match = re.search(r"(-?\d[\d,]*(?:\.\d+)?)\s*([A-Za-z/%0-9^µμ.-]+)?", value)
     if not match:
         return None, None
     unit = (match.group(2) or "").strip() or None
-    return float(match.group(1)), unit
+    return float(match.group(1).replace(",", "")), unit
 
 
 def _fact_text(fact: ClinicalFact) -> str:
@@ -418,7 +430,9 @@ def _text_match_score(left: str, right: str) -> float:
         return 0.0
     if left == right:
         return 1.0
-    if left in right or right in left:
+    # Whole-word containment only: raw substring lets short markers collide ("alk" in "alkaline phosphatase").
+    shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
+    if len(shorter) >= 3 and re.search(rf"\b{re.escape(shorter)}\b", longer):
         return 0.95
     left_tokens = set(left.split())
     right_tokens = set(right.split())

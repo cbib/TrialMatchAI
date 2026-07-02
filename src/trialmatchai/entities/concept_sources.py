@@ -1,17 +1,9 @@
-"""Open biomedical vocabularies for the entity-linking concept store.
+"""Turn publicly downloadable open ontologies into concept-dictionary rows
+(``<id>||<name>|<synonym>|...``) for the entity-linking concept store.
 
-This turns publicly downloadable ontologies into the concept-dictionary format
-consumed by :func:`trialmatchai.entities.builder.build_dictionary_rows`
-(``<id>||<canonical name>|<synonym>|...``), so the whole concept store can be
-built with a single ``trialmatchai build-concepts --sources open`` command.
-
-Two source kinds are supported:
-  * ``obo``       — OBO ontologies (Cell Ontology, HPO, ChEBI, Disease Ontology,
-                    Cellosaurus), filtered by id prefix.
-  * ``gene_info`` — NCBI ``gene_info`` TSV (symbol + full name + synonyms).
-
-OMOP clinical vocabularies (SNOMED/LOINC/RxNorm) are *not* here — they come from a
-licensed OHDSI Athena ``CONCEPT.csv`` passed via ``--concept-csv``.
+Two source kinds: ``obo`` (OBO ontologies, filtered by id prefix) and ``gene_info``
+(NCBI gene_info TSV). Licensed OMOP vocabularies (SNOMED/LOINC/RxNorm) are not here —
+they come from an OHDSI Athena ``CONCEPT.csv``.
 """
 
 from __future__ import annotations
@@ -108,6 +100,7 @@ def parse_obo(path: Path, prefix: str | None) -> Iterator[tuple[str, list[str]]]
     cid = name = None
     synonyms: list[str] = []
     obsolete = False
+    in_term = False
 
     def emit() -> tuple[str, list[str]] | None:
         if cid and name and not obsolete and (not prefix or cid.startswith(prefix)):
@@ -117,22 +110,24 @@ def parse_obo(path: Path, prefix: str | None) -> Iterator[tuple[str, list[str]]]
     with _open(path) as fh:
         for raw in fh:
             line = raw.rstrip("\n")
-            if line == "[Term]":
+            if line.startswith("[") and line.endswith("]"):
+                # Any stanza header closes the pending term; only [Term] fields are captured.
                 rec = emit()
                 if rec:
                     yield rec
                 cid = name = None
                 synonyms = []
                 obsolete = False
-            elif line.startswith("id:"):
+                in_term = line == "[Term]"
+            elif in_term and line.startswith("id:"):
                 cid = line[3:].strip()
-            elif line.startswith("name:"):
+            elif in_term and line.startswith("name:"):
                 name = line[5:].strip()
-            elif line.startswith("synonym:"):
+            elif in_term and line.startswith("synonym:"):
                 m = _SYN_RE.search(line)
                 if m:
                     synonyms.append(m.group(1))
-            elif line.startswith("is_obsolete:") and "true" in line:
+            elif in_term and line.startswith("is_obsolete:") and "true" in line:
                 obsolete = True
         rec = emit()
         if rec:
@@ -168,14 +163,19 @@ def _iter_source(source: ConceptSource, raw_path: Path) -> Iterator[tuple[str, l
 
 
 def write_dictionary(source: ConceptSource, raw_path: Path, dict_path: Path) -> int:
-    """Convert a downloaded source file into a concept-dictionary file. Returns rows."""
+    """Convert a downloaded source into a concept-dictionary file; returns row count.
+
+    Temp-then-rename so a crash can't leave a truncated dict that a later run reuses.
+    """
     n = 0
-    with open(dict_path, "w", encoding="utf-8") as out:
+    tmp_path = dict_path.with_name(dict_path.name + ".part")
+    with open(tmp_path, "w", encoding="utf-8") as out:
         for cid, names in _iter_source(source, raw_path):
             clean = _clean_names(names)
             if cid and clean:
                 out.write(f"{cid}||{'|'.join(clean)}\n")
                 n += 1
+    tmp_path.replace(dict_path)
     return n
 
 
@@ -212,9 +212,8 @@ def build_open_dictionaries(
 ) -> list[tuple[ConceptSource, Path]]:
     """Download + convert the requested open sources into concept dictionaries.
 
-    Idempotent: existing downloads and converted dictionaries are reused unless
-    ``force``. Returns ``(source, dict_path)`` for every source that produced a
-    non-empty dictionary; failed downloads are skipped with a warning.
+    Idempotent (reuses existing downloads/dicts unless ``force``); returns
+    ``(source, dict_path)`` per non-empty dictionary, skipping failed downloads.
     """
     work_dir = Path(work_dir)
     raw_dir = work_dir / "raw"

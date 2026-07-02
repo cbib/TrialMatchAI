@@ -7,9 +7,7 @@ from typing import Any
 
 
 def flatten_text(value: Any) -> str:
-    """Flatten a possibly-nested value (str/mapping/sequence) into whitespace-
-    normalized text. Used for both trial indexing and backend search-text building.
-    """
+    """Flatten a nested value (str/mapping/sequence) into whitespace-normalized text."""
     if value is None:
         return ""
     if isinstance(value, str):

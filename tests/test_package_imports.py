@@ -8,8 +8,17 @@ import pytest
 import trialmatchai
 
 
-def test_trialmatchai_imports_with_version():
-    assert trialmatchai.__version__ == "0.2.0"
+def test_trialmatchai_version_matches_pyproject():
+    """__version__ must agree with pyproject's version (catches release drift in either
+    source — the two silently diverged as 0.2.0 vs 0.3.0 before this check)."""
+    import tomllib
+    from pathlib import Path
+
+    pyproject = Path(trialmatchai.__file__).resolve().parents[2] / "pyproject.toml"
+    if not pyproject.exists():  # non-editable install: pyproject not shipped
+        pytest.skip("pyproject.toml not available next to the package")
+    expected = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+    assert trialmatchai.__version__ == expected
 
 
 def test_matcher_namespace_is_removed():

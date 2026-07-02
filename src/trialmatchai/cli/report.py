@@ -40,8 +40,7 @@ def main() -> int:
     if args.out and args.all:
         parser.error("--out cannot be combined with --all")
 
-    # The report renders existing results, so it only needs the path config —
-    # not the full (model/embedder) config that load_config would validate.
+    # Only needs path config, not the full model/embedder config load_config validates.
     resolved = resolve_config_path(args.config)
     config = normalize_config_paths(json.loads(resolved.read_text(encoding="utf-8")), resolved)
     output_dir = Path(config["paths"]["output_dir"])
@@ -66,8 +65,7 @@ def main() -> int:
         return 1
 
     if args.all:
-        # One unified, self-contained report: a front page listing every patient
-        # that drills into the per-patient view.
+        # One unified report: a front page listing every patient, drilling into each.
         models = []
         for pdir in valid_dirs:
             try:

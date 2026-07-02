@@ -1,9 +1,8 @@
 """``trialmatchai e2e`` — match a patient end-to-end in one command.
 
-A preset over the unified pipeline (the slice index -> ingest -> expand -> match):
-imports patient inputs (any supported format, auto-detected), ensures the search
-index, and matches. Every stage is idempotent: re-running skips an existing index,
-already-imported patients, and already-matched patients.
+A preset over the unified pipeline (slice index -> ingest -> expand -> match):
+imports patient inputs (format auto-detected), ensures the index, and matches.
+Every stage is idempotent.
 """
 
 from __future__ import annotations

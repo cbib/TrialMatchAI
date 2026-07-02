@@ -1,15 +1,11 @@
 """Official TREC topic acquisition and import.
 
-Downloads the authoritative patient topics for each track straight from the
-source (NIST for 2021/2022, the CSIRO/SIGIR-2016 collection for sigir), parses
-the topic XML, and builds canonical :class:`PatientProfile` objects from the
-RAW topic text only — no LLM-preprocessed fields. Demographics (age/sex) are
-extracted deterministically from the narrative, so nothing here depends on the
-old gpt-generated ``processed_patients*.json`` content.
-
-The runtime CoT query-expansion (see ``trialmatchai.matching.query_expansion``)
-is what turns this raw text into the expanded ``keywords.json`` consumed by
-first-level retrieval — faithfully reproducing the legacy pipeline.
+Downloads the authoritative patient topics per track (NIST for 2021/2022, the
+CSIRO/SIGIR-2016 collection for sigir) and builds canonical
+:class:`PatientProfile` objects from the RAW topic text only — no LLM-preprocessed
+fields — with demographics extracted deterministically from the narrative. The
+runtime CoT query-expansion later turns this raw text into the ``keywords.json``
+consumed by first-level retrieval, reproducing the legacy pipeline.
 """
 
 from __future__ import annotations
@@ -34,10 +30,8 @@ SOURCE_FORMAT = "trec_topic"
 class TopicSource:
     """Where a track's official topics live and how to label them.
 
-    kind == "nist_xml":  download topic XML from ``topics_url`` and parse
-                          ``<topic number="N">`` (ids get ``id_prefix``).
-    kind == "local_raw": read verbatim raw patient text from an on-disk JSON
-                          (``raw_json``); keys are already full patient ids.
+    kind "nist_xml": download and parse topic XML from ``topics_url``.
+    kind "local_raw": read verbatim raw patient text from on-disk ``raw_json``.
     """
 
     track: str
@@ -62,10 +56,8 @@ TOPIC_SOURCES: dict[str, TopicSource] = {
         kind="nist_xml",
         topics_url="https://trec.nist.gov/data/trials/topics2022.xml",
     ),
-    # The SIGIR-2016 collection (Koopman & Zuccon) is hosted on the CSIRO Data
-    # Access Portal (no stable direct-download URL), so sigir topics are sourced
-    # from the verbatim on-disk raw patient text — the same official admission
-    # statements, with none of the gpt-generated fields.
+    # The SIGIR-2016 collection has no stable direct-download URL (CSIRO portal),
+    # so sigir topics come from the verbatim on-disk raw admission statements.
     "sigir": TopicSource(
         track="sigir",
         id_prefix="sigir-2014",
@@ -93,8 +85,7 @@ def _http_get(url: str, timeout: float = 60.0) -> bytes:
 def download_topics(track: str, dest_dir: Path) -> Path:
     """Fetch (and cache) the official topic XML for a track.
 
-    Returns the local path. For portal-only sources (sigir) the file must be
-    placed manually; a clear error explains where to get it.
+    Portal-only sources (sigir) must be placed manually; the error says where.
     """
     source = TOPIC_SOURCES[track]
     dest_dir = Path(dest_dir)
@@ -112,7 +103,9 @@ def download_topics(track: str, dest_dir: Path) -> Path:
         )
 
     logger.info("Downloading official topics for track %s from %s", track, source.topics_url)
-    dest.write_bytes(_http_get(source.topics_url))
+    tmp = dest.with_name(dest.name + ".part")
+    tmp.write_bytes(_http_get(source.topics_url))
+    tmp.replace(dest)  # atomic: a crash mid-download must not leave a truncated cache
     return dest
 
 
@@ -122,10 +115,9 @@ def download_topics(track: str, dest_dir: Path) -> Path:
 def parse_topics(path: Path, id_prefix: str) -> dict[str, str]:
     """Parse a TREC/TREC-CDS topic XML into {patient_id: raw_text}.
 
-    Handles both the flat ``<topic number="N">free text</topic>`` form
-    (2021/2022) and the TREC-CDS form where a topic wraps ``<summary>`` /
-    ``<description>`` children (sigir) — preferring the summary, then the
-    description, then the element's own text.
+    Handles both the flat ``<topic number="N">text</topic>`` form (2021/2022) and
+    the TREC-CDS form wrapping ``<summary>``/``<description>`` children (sigir),
+    preferring summary, then description, then the element's own text.
     """
     root = ET.parse(path).getroot()
     topics: dict[str, str] = {}
@@ -176,8 +168,8 @@ def extract_demographics(text: str) -> tuple[float | None, str | None]:
             if 0 < value <= 120:
                 age = float(value)
                 break
-    # Pick whichever sex mention appears FIRST: the subject is named before any
-    # relatives/partners, so this avoids "a man with a female partner" -> Female.
+    # First mention wins: the subject precedes any relatives, avoiding
+    # "a man with a female partner" -> Female.
     sex: str | None = None
     fm = _FEMALE.search(text)
     mm = _MALE.search(text)
@@ -210,10 +202,10 @@ def build_profile_from_topic(patient_id: str, raw_text: str) -> PatientProfile:
 
 
 def _load_local_raw(path: Path) -> dict[str, str]:
-    """Read {patient_id: verbatim raw text} from an on-disk topic JSON.
+    """Read {patient_id: raw text} from an on-disk topic JSON.
 
-    Uses only the ``raw_description`` field (the official admission statement);
-    every gpt-generated field is ignored. Keys are already full patient ids.
+    Uses only ``raw_description`` (the official admission statement); every
+    gpt-generated field is ignored.
     """
     import json
 
@@ -249,9 +241,8 @@ def import_topics(
 ) -> int:
     """Acquire a track's official topics and write canonical inputs.
 
-    Writes one PatientProfile per topic (raw text + demographics only) plus a
-    deterministic matching summary (later enriched by CoT query expansion).
-    Idempotent: skips when profiles already exist. Returns the patient count.
+    Writes one PatientProfile per topic (raw text + demographics) plus a matching
+    summary. Idempotent; returns the patient count.
     """
     import json
 
@@ -259,12 +250,18 @@ def import_topics(
 
     profile_dir = Path(profile_dir)
     summary_dir = Path(summary_dir)
-    if not force and profile_dir.exists() and any(profile_dir.glob("*.json")):
-        have = len(list(profile_dir.glob("*.json")))
-        logger.info("Topic import skipped for track %s: %s profiles present", track, have)
-        return have
 
     topics = load_track_topics(track, Path(trec_dir))
+
+    # Skip only when every topic has both files: a partial import leaves some
+    # missing, and skipping on "any exists" would silently drop the rest.
+    if not force and all(
+        (profile_dir / f"{patient_id}.json").exists()
+        and (summary_dir / f"{patient_id}.json").exists()
+        for patient_id in topics
+    ):
+        logger.info("Topic import skipped for track %s: all %s profiles present", track, len(topics))
+        return len(topics)
 
     profile_dir.mkdir(parents=True, exist_ok=True)
     summary_dir.mkdir(parents=True, exist_ok=True)

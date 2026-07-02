@@ -1,21 +1,17 @@
-"""Runtime CoT query expansion (re-introduced from the legacy pipeline).
+"""Runtime CoT query expansion (restored from the legacy pipeline).
 
-The legacy matcher ran a chain-of-thought model over each patient's narrative to
-produce the expanded ``keywords.json`` (primary conditions + synonyms, secondary
-factors, expanded sentences) that feeds first-level retrieval. The refactor
-dropped this; this module restores it faithfully while making the model a config
-knob.
-
-Verbatim SYSTEM_PROMPT and generation behaviour are preserved from
-``source/Matcher/pipeline/phenopacket_processor.py`` (main branch). The model and
-backend default to the configured CoT reasoning model but are overridable via the
-``query_expansion`` config block. Disabled by default; the TREC preset turns it on.
+Runs a chain-of-thought model over each patient's narrative to produce the expanded
+keywords (primary conditions + synonyms, secondary factors, expanded sentences) that
+feed first-level retrieval. Verbatim SYSTEM_PROMPT and generation behaviour preserved
+from the legacy matcher; model/backend are ``query_expansion`` config knobs defaulting
+to the CoT reasoning model. Disabled by default; the TREC preset enables it.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from trialmatchai.matching.eligibility_base import BaseTrialProcessor
 from trialmatchai.utils.json_utils import extract_json_object
 from trialmatchai.utils.logging_config import setup_logging
 
@@ -56,12 +52,22 @@ Return a JSON object in the exact following structure without any additional com
 _EMPTY = {"main_conditions": [], "other_conditions": [], "expanded_sentences": []}
 
 
+def _as_list(value: object) -> list:
+    """Coerce an expansion field to a list; a bare string becomes ``["cancer"]``, not the
+    per-character shredding of ``list("cancer")``."""
+    if isinstance(value, list):
+        return [v for v in value if v]
+    if isinstance(value, str) and value.strip():
+        return [value]
+    return []
+
+
 def _resolve_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     qe = dict(config.get("query_expansion") or {})
     model_cfg = config.get("model", {})
     return {
-        # Default to the RAG/eligibility backend so the expander shares the cached
-        # CoT engine with the matching stage instead of loading a second copy.
+        # Default to the RAG/eligibility backend so the expander shares the cached CoT
+        # engine instead of loading a second copy.
         "backend": qe.get("backend") or config.get("rag", {}).get("backend") or "vllm",
         "model": qe.get("model") or model_cfg.get("base_model"),
         "adapter": qe.get("adapter", model_cfg.get("cot_adapter_path")),
@@ -117,9 +123,8 @@ class QueryExpander:
         from trialmatchai.models.llm.vllm_loader import load_vllm_engine
 
         s = self.settings
-        # Same model_config/vllm_cfg shape as the RAG eligibility path so an
-        # identical (model, adapter, params) request hits the engine cache and
-        # shares ONE engine rather than loading a second CoT copy.
+        # Same model_config/vllm_cfg shape as the RAG path so an identical request hits
+        # the engine cache and shares ONE engine, not a second CoT copy.
         model_config = {
             **self.config.get("model", {}),
             "base_model": s["model"],
@@ -167,10 +172,12 @@ class QueryExpander:
             return dict(_EMPTY)
         try:
             raw = self._generate(narrative)
-            parsed = extract_json_object(raw)
+            # Strip the <think> chain first (as the eligibility path does) so extraction
+            # grabs the JSON answer, not the schema echoed inside the reasoning.
+            parsed = extract_json_object(BaseTrialProcessor._strip_thinking_tags(raw))
             if not isinstance(parsed, dict):
                 raise ValueError("expansion output was not a JSON object")
-            return {key: list(parsed.get(key) or []) for key in _EMPTY}
+            return {key: _as_list(parsed.get(key)) for key in _EMPTY}
         except Exception as exc:
             logger.error("Query expansion failed; falling back to no expansion: %s", exc)
             return dict(_EMPTY)
@@ -193,9 +200,8 @@ def enrich_summary(
 ) -> Dict[str, Any]:
     """Fold a CoT expansion into a matching summary (legacy keywords.json shape).
 
-    The legacy ``expanded_sentences`` map to the summary's ``patient_narrative``.
-    Only non-empty expansion fields overwrite; otherwise the deterministic
-    summary is left intact.
+    ``expanded_sentences`` map to ``patient_narrative``; only non-empty fields
+    overwrite, leaving the deterministic summary intact.
     """
     out = dict(summary)
     main = expansion.get("main_conditions") or []

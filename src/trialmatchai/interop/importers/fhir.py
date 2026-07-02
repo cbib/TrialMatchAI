@@ -59,8 +59,7 @@ def import_fhir(
                 raise ValueError(
                     f"{message}: {resource.get('resourceType')}/{resource.get('id')}"
                 )
-            # Attribute the orphan to the first profile only (avoid duplicating it
-            # across every profile in a multi-patient bundle).
+            # Attribute the orphan to the first profile only, not every profile in the bundle.
             profiles[0].unsupported.append(
                 {
                     "resourceType": resource.get("resourceType"),
@@ -217,8 +216,7 @@ def _profile_for_resource(
 
 
 def _reference_candidates(reference: str) -> list[str]:
-    """All key forms a patient reference might match (relative, absolute URL,
-    urn:uuid, contained)."""
+    """All key forms a patient reference might match (relative, absolute, urn:uuid, contained)."""
     ref = reference.strip()
     candidates = [ref]
     if ref.casefold().startswith("urn:uuid:"):
@@ -273,10 +271,8 @@ def _status_code(value: Any) -> str:
 def _resource_disposition(resource_type: str, resource: Mapping[str, Any]) -> tuple[str, bool]:
     """Return ("drop"|"keep", negated) from FHIR status fields.
 
-    - entered-in-error / cancelled / not-done -> drop (error or did not happen)
-    - verificationStatus refuted -> keep but negated
-    - clinicalStatus resolved/inactive on Condition/Allergy -> keep but negated
-      (medications stay un-negated: a completed/stopped drug is real prior exposure)
+    Medications stay un-negated even when stopped: a completed/stopped drug is
+    real prior exposure.
     """
     status = _status_code(resource.get("status"))
     verification = _status_code(resource.get("verificationStatus"))
@@ -562,16 +558,34 @@ def _add_family_history(
             for condition in conditions
             if isinstance(condition, Mapping)
         ]
-        label = f"{relationship}: {', '.join(item for item in labels if item)}"
+        joined = ", ".join(item for item in labels if item)
+        if joined:
+            # Prefix "relationship: " only when known, else we emit a leading ": ".
+            label = f"{relationship}: {joined}" if relationship else joined
     if label:
         profile.family_history.append(
             make_fact(
                 category="family_history",
                 label=label,
                 provenance=provenance,
-                extra={"relationship": relationship},
+                extra={"relationship": relationship or None},
             )
         )
+
+
+def _genomic_label(type_value: Any) -> str:
+    """Resolve a genomic label across FHIR shapes (code string, CodeableConcept, or list)."""
+    if isinstance(type_value, str):
+        return clean_text(type_value)
+    if isinstance(type_value, Mapping):
+        return label_from_fhir_codeable(type_value)
+    if isinstance(type_value, list):
+        for item in type_value:
+            if isinstance(item, Mapping):
+                label = label_from_fhir_codeable(item)
+                if label:
+                    return label
+    return ""
 
 
 def _add_genomic(
@@ -581,7 +595,7 @@ def _add_genomic(
     negated: bool = False,
 ) -> None:
     label = (
-        label_from_fhir_codeable(resource.get("type") or {})
+        _genomic_label(resource.get("type"))
         or clean_text(resource.get("id"))
         or "Genomic finding"
     )
@@ -711,13 +725,26 @@ def _value_x(node: Mapping[str, Any]) -> str | None:
     if isinstance(value_range, Mapping):
         low = (value_range.get("low") or {}).get("value")
         high = (value_range.get("high") or {}).get("value")
-        span = f"{'' if low is None else low}-{'' if high is None else high}"
-        return clean_text(span).strip("-") or None
+        # Dash-join only when both bounds exist, else a negative bound's minus reads as the separator (-2.5-3.0).
+        if low is not None and high is not None:
+            span = f"{low}-{high}"
+        elif low is not None:
+            span = f"{low}"
+        elif high is not None:
+            span = f"{high}"
+        else:
+            span = ""
+        return clean_text(span) or None
     ratio = node.get("valueRatio")
     if isinstance(ratio, Mapping):
         numerator = (ratio.get("numerator") or {}).get("value")
         denominator = (ratio.get("denominator") or {}).get("value")
-        return clean_text(f"{numerator}/{denominator}") or None
+        if numerator is not None and denominator is not None:
+            return clean_text(f"{numerator}/{denominator}") or None
+        if numerator is not None:
+            return clean_text(f"{numerator}") or None
+        if denominator is not None:
+            return clean_text(f"{denominator}") or None
     for key in ("valueString", "valueBoolean", "valueInteger", "valueDateTime", "valueTime"):
         if key in node:
             return clean_text(node.get(key)) or None

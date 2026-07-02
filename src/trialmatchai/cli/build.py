@@ -2,8 +2,8 @@
 
 Builds the heavy, reusable artifacts a deployment needs before it can match:
 embeds + annotates the trial corpus (``processed_*``) and builds the LanceDB
-search index. Idempotent and resumable — a disrupted build re-run continues from
-the last completed work — and records a manifest so you can see what is done.
+search index. Idempotent and resumable — a disrupted build continues from the
+last completed work.
 
   trialmatchai build                 # prepare (resumable) + index
   trialmatchai build --status        # report what is already built, then exit
@@ -75,10 +75,8 @@ def main() -> int:
         logger.error("Build aborted: resolve the %s issue(s) above.", len(preflight_issues))
         return 1
 
-    # Build the concept store BEFORE prepare/index. --concepts pulls the open
-    # vocabularies (auto-downloaded); --concepts-csv adds the licensed OMOP vocab.
-    # Building it first means `build_system` can link the extracted entities
-    # between prepare and index, so the search tables carry concept IDs instead of
+    # Build the concept store BEFORE prepare/index so build_system can link entities
+    # between prepare and index, giving the search tables concept IDs instead of
     # leaving every entity at concept_store_unavailable.
     link_concepts = bool(args.concepts or args.concepts_csv)
     if link_concepts:

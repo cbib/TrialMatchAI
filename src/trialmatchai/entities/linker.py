@@ -111,6 +111,9 @@ class LanceDBConceptStore:
     def _embed_query(self, query: str) -> list[float] | None:
         if self.embedder is None:
             return None
+        # Empty mention would make embed_text() raise; degrade to FTS-only instead.
+        if not query.strip():
+            return None
         if hasattr(self.embedder, "embed_text"):
             return self.embedder.embed_text(query)
         if hasattr(self.embedder, "embed_texts"):
@@ -176,8 +179,7 @@ class ConceptLinker:
         self.accept_threshold = accept_threshold
         self.reject_threshold = reject_threshold
         self.margin = margin
-        # Optional candidate reranker (e.g. lexical_reranker or a cross-encoder). Reorders
-        # candidates before the accept gate; None keeps the store's RRF/dense ranking.
+        # Optional reranker: reorders candidates before the accept gate; None keeps RRF order.
         self.reranker = reranker
         self.search_limit = search_limit
 
@@ -219,10 +221,8 @@ class ConceptLinker:
                 candidates = reranked
         top = candidates[0]
 
-        # Ranking comes from the store (RRF/dense), but the ACCEPT decision is gated on an
-        # absolute match-quality signal: the store's top score is RRF-normalized to 1.0 and
-        # cannot tell a good link from a poor one. Gate on lexical similarity to the concept
-        # name/synonyms (scispaCy-style) and abstain (NO_ENTITY_ID) when it is not met.
+        # Store ranking is RRF-normalized (#1 always ~1.0), so gate ACCEPT on an absolute
+        # lexical match to the concept name/synonyms and abstain when it's not met.
         quality = _lexical_score(annotation.text, top)
         runner_up = (
             _lexical_score(annotation.text, candidates[1]) if len(candidates) > 1 else 0.0
@@ -290,11 +290,8 @@ def gate_status(
 ) -> str:
     """Accept / reject / ambiguous on an ABSOLUTE match-quality score in [0, 1].
 
-    Below reject_threshold is a hard reject; the band [reject, accept) is ambiguous. At or
-    above accept_threshold is accepted -- UNLESS a runner-up candidate is also at/above
-    accept_threshold and within ``margin`` of it (two near-tied strong matches -> ambiguous
-    rather than guessing which concept). 'rejected' and 'ambiguous' both abstain
-    (link to NO_ENTITY_ID) downstream; only 'accepted' links.
+    <reject rejects; [reject, accept) is ambiguous; >=accept accepts unless a runner-up is
+    also >=accept and within ``margin`` (near-tie -> ambiguous). Only 'accepted' links.
     """
     if quality < reject_threshold:
         return "rejected"
@@ -308,12 +305,9 @@ def gate_status(
 def lexical_reranker(
     query: str, candidates: Sequence[ConceptCandidate]
 ) -> list[ConceptCandidate]:
-    """Reorder candidates by absolute lexical match to ``query`` (scispaCy-style), stable.
-
-    Hybrid RRF ranking fuses lexical + dense signals; when a lower-ranked candidate is a much
-    stronger literal match (exact concept name or synonym), promote it so the accept gate
-    judges the best achievable match rather than only RRF's #1. Plug a cross-encoder in the
-    same shape (query, candidates) -> reordered candidates via ConceptLinker(reranker=...).
+    """Reorder candidates by absolute lexical match to ``query`` (stable, scispaCy-style),
+    so an exact name/synonym match ranked below RRF's #1 is promoted before the accept gate.
+    Same (query, candidates) -> candidates shape as a cross-encoder reranker.
     """
     order = sorted(
         range(len(candidates)),
@@ -322,8 +316,16 @@ def lexical_reranker(
     return [candidates[i] for i in order]
 
 
+# Partial-containment coverage bonus requires the mention be at least this long,
+# so tiny mentions don't earn it.
+_MIN_CONTAINMENT_CHARS = 3
+
+
 def _lexical_score(query: str, concept: ConceptCandidate) -> float:
     query_norm = _normalize_text(query)
+    if not query_norm:
+        return 0.0
+    query_tokens = set(query_norm.split())
     names = [concept.concept_name, *concept.synonyms]
     best = 0.0
     for name in names:
@@ -332,10 +334,19 @@ def _lexical_score(query: str, concept: ConceptCandidate) -> float:
             continue
         if query_norm == name_norm:
             best = max(best, 1.0)
-        elif query_norm in name_norm or name_norm in query_norm:
-            best = max(best, 0.86)
-        else:
-            best = max(best, _token_jaccard(query_norm, name_norm))
+            continue
+        # Base signal is token Jaccard; a subset containment earns a length-ratio score
+        # (not a flat constant) so a bare "carcinoma" stays below the accept gate.
+        score = _token_jaccard(query_norm, name_norm)
+        name_tokens = set(name_norm.split())
+        if len(query_norm) >= _MIN_CONTAINMENT_CHARS and (
+            query_tokens <= name_tokens or name_tokens <= query_tokens
+        ):
+            ratio = min(len(query_norm), len(name_norm)) / max(
+                len(query_norm), len(name_norm)
+            )
+            score = max(score, ratio)
+        best = max(best, score)
     return best
 
 
@@ -385,8 +396,7 @@ def _rrf_merge(
 
     for source_name, rows in (("fts", lexical_rows), ("vector", vector_rows)):
         for rank, row in enumerate(rows, start=1):
-            # Dedup on concept_id (unique). normalized_id collapses every CUI-less
-            # candidate onto the same constant key, dropping distinct concepts.
+            # Dedup on concept_id: normalized_id collapses all CUI-less rows onto one key.
             key = row.concept_id
             by_id.setdefault(key, row)
             score = 1.0 / (k + rank)

@@ -1,14 +1,10 @@
 """Idempotent end-to-end orchestration for TrialMatchAI.
 
-Chains the three pipeline stages — ingest patient inputs, build the search
-index, run matching — and skips work that is already done:
-
-  * ingest: a patient is skipped if its canonical profile already exists.
-  * index:  a stage is skipped if the search tables already exist.
-  * match:  a patient is skipped if it already has a non-empty ranked_trials.json.
-
-Both the general ``trialmatchai e2e`` command and the TREC preset are thin
-wrappers over these stages, so idempotency behaves identically everywhere.
+Chains the three pipeline stages (ingest patient inputs, build the search index,
+run matching) and skips work already done: a patient is skipped once its profile
+exists / once it has a non-empty ranked_trials.json, and the index is skipped once
+the search tables exist. The ``e2e`` command and the TREC preset are thin wrappers
+over these stages, so idempotency behaves identically everywhere.
 """
 
 from __future__ import annotations
@@ -71,9 +67,7 @@ def ingest_inputs(
             if not force and is_valid_json_file(str(profile_path)):
                 logger.info("Ingest skipped (exists): %s", profile.patient_id)
                 continue
-            # Summary first; the profile JSON is written last (atomically) as the
-            # completion marker, so a crash between them re-imports rather than
-            # leaving a profile with no summary.
+            # Summary first, profile JSON last as the completion marker: a crash between them re-imports rather than orphaning a profile.
             write_json_file(
                 profile_to_matching_summary(profile),
                 str(summary_dir / f"{profile.patient_id}.json"),
@@ -136,14 +130,18 @@ def expand_queries(config: Dict[str, Any], *, force: bool = False) -> int:
         if not narrative:
             narrative = list(summary.get("patient_narrative", []))
         expansion = expander.expand(narrative)
-        merged = enrich_summary(summary, expansion)
+        merged = enrich_summary(
+            summary,
+            expansion,
+            max_main_conditions=int(expander.settings.get("max_main_conditions", 11)),
+            max_other_conditions=int(expander.settings.get("max_other_conditions", 50)),
+        )
         merged["query_expanded"] = True
         write_json_file(merged, str(summary_path))
         enriched += 1
         logger.info("Query-expanded %s", pid)
 
-    # Release the expander wrapper; its CoT engine stays in the vLLM engine cache
-    # and is reused by the match stage (shared — a single load, not two).
+    # Release the wrapper; its CoT engine stays cached and is reused by the match stage (a single load, not two).
     del expander
     logger.info("Query-expansion stage: enriched %s summaries.", enriched)
     return enriched
@@ -208,19 +206,19 @@ def build_index(
             f"No prepared trial documents found in {processed_trials_folder}"
             + (f" for {len(nct_set)} filtered NCT ids" if nct_set else "")
         )
-    n_trials = backend.index_trials(trial_docs, recreate=True)
-    logger.info("Indexed %s trial documents.", n_trials)
-
+    # Validate BOTH corpora before writing any table, else an empty-criteria corpus leaves an
+    # inconsistent index (trials but no criteria) where `ready_to_match` never becomes true.
     criteria_docs = list(_iter_criteria_docs(Path(processed_criteria_folder), nct_set))
     if not criteria_docs:
-        # Refuse to leave an inconsistent index (trials table but no criteria
-        # table) where `ready_to_match` can never become true. An empty corpus is
-        # a data error — the corpus is unprepared.
         raise RuntimeError(
             f"No criteria documents found in {processed_criteria_folder}"
             + (f" for the {len(nct_set)} filtered NCT ids" if nct_set else "")
             + ". The corpus appears unprepared — run `trialmatchai build` (prepare) first."
         )
+
+    n_trials = backend.index_trials(trial_docs, recreate=True)
+    logger.info("Indexed %s trial documents.", n_trials)
+
     n_criteria = backend.index_criteria(criteria_docs, recreate=True)
     logger.info("Indexed %s criteria documents.", n_criteria)
 
@@ -256,12 +254,19 @@ _MATCH_STATE_VERSION = "1"
 def _match_signature(config: Dict[str, Any]) -> dict:
     """Match-relevant config whose change should invalidate cached patient matches."""
     reranker = config.get("LLM_reranker", {})
+    model = config.get("model", {})
     return {
         "reranker_backend": reranker.get("backend"),
         "reranker_enabled": reranker.get("enabled"),
+        # Model identity: swapping reranker/CoT weights or adapter must re-rank even on an unchanged corpus.
+        "reranker_model": model.get("reranker_model_path"),
+        "reranker_adapter": model.get("reranker_adapter_path"),
+        "reranker_revision": model.get("reranker_model_revision"),
+        "cot_model": model.get("base_model"),
         "use_cot": config.get("use_cot_reasoning"),
         "query_expansion": (config.get("query_expansion") or {}).get("enabled"),
         "candidate_limit": (config.get("search_backend") or {}).get("candidate_limit"),
+        "search_mode": (config.get("search") or {}).get("mode"),
     }
 
 
@@ -286,10 +291,8 @@ def _match_state_path(config: Dict[str, Any]) -> Path | None:
 
 
 def _match_corpus_changed(config: Dict[str, Any], corpus_fp: str) -> bool:
-    """True only when a PRIOR match recorded a DIFFERENT corpus fingerprint (stale results).
-
-    Absent record or empty fingerprint -> False, so this is a no-op that leaves the plain
-    per-patient resume untouched unless we can prove the queried corpus changed.
+    """True only when a prior match recorded a different corpus fingerprint (stale results);
+    absent record or empty fingerprint -> False, leaving the per-patient resume untouched.
     """
     path = _match_state_path(config)
     if path is None or not corpus_fp:
@@ -319,10 +322,8 @@ def run_matching(
 ) -> int:
     """Run the matching pipeline with per-patient resume.
 
-    When resuming, the expensive model stack is not even loaded if every patient is already
-    done. The resume is additionally invalidated when the search index the matches were
-    produced against has changed (a rebuilt corpus), so stale ranked_trials.json are not
-    served after a re-index.
+    Resume skips loading the model stack when every patient is done, and is invalidated when
+    the search index changed since the matches were produced, so stale results aren't served.
     """
     use_resume = resume and not force
     corpus_fp = _match_corpus_fingerprint(config)
@@ -337,8 +338,7 @@ def run_matching(
             logger.info("Match stage skipped: all %s patient(s) already matched.", done)
             return 0
         logger.info("Match stage: %s pending, %s already done.", pending, done)
-    # Imported lazily so the convert/index stages (and the CPU-only --index-only
-    # path) do not pull in the heavy model stack that main.py imports.
+    # Lazy import so the index-only / CPU-only path doesn't pull in main.py's heavy model stack.
     from trialmatchai.main import main_pipeline
 
     result = main_pipeline(config=config, resume=use_resume)
@@ -419,8 +419,7 @@ def _load_manifest(path: Path) -> dict:
         return {}
 
 
-# Bump a stage's version when its logic changes in a way that must invalidate a cached
-# completion, so the next build re-runs it even when inputs + config are unchanged.
+# Bump a stage's version when a logic change must invalidate a cached completion.
 _PREPARE_STATE_VERSION = "1"
 _LINK_STATE_VERSION = "1"
 _INDEX_STATE_VERSION = "1"
@@ -477,6 +476,22 @@ def _count_subdirs(folder: Path) -> int:
     return sum(1 for p in folder.iterdir() if p.is_dir()) if folder.exists() else 0
 
 
+def _trial_needs_prepare(source: Path, processed_trials_folder: Path) -> bool:
+    """True if a source trial has no valid prepared output yet, or was edited since (source
+    mtime newer than the output's, make-style).
+
+    Existence alone would permanently skip an in-place edit reusing the same NCT id, baking a
+    stale embedding/entities into the index.
+    """
+    output = processed_trials_folder / f"{source.stem}.json"
+    if not is_valid_json_file(str(output)):
+        return True
+    try:
+        return source.stat().st_mtime_ns > output.stat().st_mtime_ns
+    except OSError:
+        return True
+
+
 def prepare_corpus(
     config: Dict[str, Any],
     *,
@@ -503,8 +518,7 @@ def prepare_corpus(
     pending = [
         p
         for p in all_paths
-        if force
-        or not is_valid_json_file(str(processed_trials_folder / f"{p.stem}.json"))
+        if force or _trial_needs_prepare(p, processed_trials_folder)
     ]
     skipped = len(all_paths) - len(pending)
     logger.info(
@@ -538,10 +552,7 @@ def prepare_corpus(
             criteria_rows = prepare_criteria_documents(
                 doc, embedder, entity_annotator=entity_annotator
             )
-            # Write criteria first; the trial JSON is written last and is the
-            # per-trial completion marker the resume check keys on — so an
-            # interrupted trial (criteria written, trial not) is re-processed
-            # rather than wrongly skipped.
+            # Criteria first, trial JSON last as the resume completion marker: an interrupted trial is re-processed, not wrongly skipped.
             write_prepared_criteria(criteria_rows, processed_criteria_folder)
             write_prepared_trial(trial_row, processed_trials_folder)
             prepared += 1
@@ -614,8 +625,7 @@ def build_system(
     have_prepared = _count_json(pt) > 0
     have_source = trials_json_folder.exists() and any(trials_json_folder.glob("*.json"))
     logger.info("=== build: prepare stage ===")
-    # Skip the whole stage when its inputs (source corpus path+size+mtime), config, and code
-    # version are unchanged since the last completed prepare -- no per-trial rescan/model load.
+    # Skip the whole stage when source corpus + config + code version are unchanged -- no per-trial rescan/model load.
     prepare_fp = digest(
         _PREPARE_STATE_VERSION, dir_fingerprint(trials_json_folder), _prepare_signature(config)
     )
@@ -626,8 +636,7 @@ def build_system(
             "Prepare stage skipped: source corpus + config + code unchanged (fingerprint match)."
         )
     elif have_source:
-        # prepare_corpus internally skips already-prepared trials, so calling it
-        # whenever source exists safely resumes without redoing finished work.
+        # prepare_corpus internally skips already-prepared trials, so this safely resumes.
         stats = prepare_corpus(
             config,
             trials_json_folder=trials_json_folder,
@@ -635,13 +644,16 @@ def build_system(
             processed_criteria_folder=pc,
             force=force_prepare,
         )
+        prepare_ok = int(stats.get("failed", 0) or 0) == 0
         manifest["prepare"] = {
             **stats,
-            "status": "complete",
-            "fingerprint": prepare_fp,
+            "status": "complete" if prepare_ok else "incomplete",
             "output_fingerprint": dir_fingerprint(pt),
             "completed_at": _now_iso(),
         }
+        # Only stamp the skip fingerprint when every trial prepared, so failures force the next build to retry rather than skip into permanent gaps.
+        if prepare_ok:
+            manifest["prepare"]["fingerprint"] = prepare_fp
     elif have_prepared:
         logger.info("Prepare skipped: %s already populated (no trials_jsons source).", pt)
         manifest["prepare"] = {
@@ -659,15 +671,12 @@ def build_system(
         )
     _save_manifest(manifest_path, manifest)
 
-    # Stage 1b — link extracted entities to concept IDs when a concept store was
-    # built this run, so the index carries concept IDs instead of leaving every
-    # entity at concept_store_unavailable. Idempotent: already-linked entities are
-    # skipped, so this also relinks an already-prepared NER-only corpus.
+    # Stage 1b — link extracted entities to concept IDs so the index carries them instead of
+    # concept_store_unavailable. Idempotent: relinks an already-prepared NER-only corpus.
     if link_concepts:
         logger.info("=== build: link stage ===")
-        # Chain off prepare's output fingerprint: when the prepared corpus, linker config, and
-        # link code are unchanged since the last completed link, skip the whole stage instead
-        # of re-reading every criterion file just to confirm it is already linked.
+        # Chain off prepare's output fingerprint: skip the whole stage when prepared corpus +
+        # linker config + code are unchanged, instead of re-reading every criterion.
         upstream_fp = (manifest.get("prepare") or {}).get("output_fingerprint", "")
         link_fp = digest(_LINK_STATE_VERSION, upstream_fp, _linker_signature(config))
         if not force_prepare and stage_is_current(
@@ -693,9 +702,13 @@ def build_system(
 
     # Stage 2 — build the LanceDB search index.
     logger.info("=== build: index stage ===")
-    index_upstream = (manifest.get("link") or {}).get("fingerprint") or (
-        manifest.get("prepare") or {}
-    ).get("output_fingerprint", "")
+    # Chain off the upstream this build reflects: freshly-computed link_fp when link ran, else
+    # prepare's current output fingerprint. The stored manifest link fingerprint would be stale
+    # on a later link_concepts=False rebuild -- the index would skip its rebuild.
+    if link_concepts:
+        index_upstream = link_fp
+    else:
+        index_upstream = (manifest.get("prepare") or {}).get("output_fingerprint", "")
     index_fp = digest(_INDEX_STATE_VERSION, index_upstream, _index_signature(config))
     if not force_reindex and stage_is_current(
         manifest.get("index"), fingerprint=index_fp, output_present=_index_tables_present(config)
@@ -705,8 +718,7 @@ def build_system(
         )
         index_info = dict(manifest["index"])
     else:
-        # Fingerprint changed (or forced): rebuild so the index reflects the CURRENT corpus.
-        # The old table-existence-only skip would keep a stale index after the corpus changed.
+        # Fingerprint changed (or forced): rebuild so the index reflects the current corpus.
         index_info = build_index(
             config, processed_trials_folder=pt, processed_criteria_folder=pc, force=True
         )

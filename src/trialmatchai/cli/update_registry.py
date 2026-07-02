@@ -87,7 +87,10 @@ def main() -> int:
         ]
     )
     statuses = tuple(args.status or DEFAULT_REGISTRY_STATUSES)
-    max_studies = args.max_studies or registry_cfg.get("max_studies")
+    # Explicit --max-studies 0 is a valid cap; only fall back to config when truly unset.
+    max_studies = (
+        args.max_studies if args.max_studies is not None else registry_cfg.get("max_studies")
+    )
     if max_studies is not None:
         max_studies = int(max_studies)
 
@@ -133,7 +136,7 @@ def main() -> int:
     )
     while True:
         # Slide the lookback window forward each cycle (unless --since is pinned);
-        # unchanged studies are deduped by the manifest, so overlap is cheap.
+        # manifest dedup makes the window overlap cheap.
         cycle_config = replace(update_config, since=_resolve_since(args.since, since_days))
         try:
             _run_and_report(updater, cycle_config, args.report_path)

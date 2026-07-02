@@ -1,8 +1,7 @@
 """``trialmatchai trec`` — end-to-end evaluation over the TREC CT tracks.
 
-A preset over the core e2e orchestration: converts TREC patient topics, builds a
-per-track search index restricted to each track's NCT collection, and runs
-matching with per-patient resume. Idempotent — re-running skips finished work.
+A preset over the e2e orchestration: converts TREC topics, builds a per-track index
+restricted to each track's NCT collection, and matches with per-patient resume.
 """
 
 from __future__ import annotations

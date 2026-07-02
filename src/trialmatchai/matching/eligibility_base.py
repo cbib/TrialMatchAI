@@ -1,8 +1,7 @@
 """Shared base for the CoT eligibility processors (HF and vLLM backends).
 
-Holds the prompt, trial I/O, output persistence, and the worklist/bucketing
-orchestration. Backends subclass this and implement only ``_process_batch`` (and
-optionally override ``_token_length`` / ``_progress_desc``).
+Holds prompting, trial I/O, output persistence, and worklist/bucketing. Backends
+subclass this and implement ``_process_batch``.
 """
 
 from __future__ import annotations
@@ -21,12 +20,8 @@ logger = setup_logging(__name__)
 
 
 def _is_error_output(path: str) -> bool:
-    """True if a per-trial output is a recorded processing failure or unparseable.
-
-    Used by the resume worklist so a transiently-failed trial (written as
-    ``{"error": ...}``) is retried on the next run instead of being treated as
-    done and locked into the ranking.
-    """
+    """True if a per-trial output is a recorded failure or unparseable, so the resume
+    worklist retries it instead of locking a transient failure into the ranking."""
     try:
         with open(path, "r", encoding="utf-8") as handle:
             data = json.load(handle)
@@ -45,9 +40,8 @@ class BaseTrialProcessor:
     # ---------------------- I/O helpers ----------------------
 
     def _load_trial_data(self, nct_id: str, json_folder) -> str:
-        # json_folder may be a single folder or an ordered list of fallbacks
-        # (processed_trials, then trials_jsons) so built, bootstrapped, and
-        # newly-updated trials all resolve.
+        # json_folder may be one folder or an ordered fallback list so built,
+        # bootstrapped, and updated trials all resolve.
         folders = [json_folder] if isinstance(json_folder, str) else list(json_folder)
         for folder in folders:
             try:
@@ -57,8 +51,7 @@ class BaseTrialProcessor:
             criteria = trial_data.get("eligibility_criteria", "")
             if criteria:
                 return criteria
-        # Fail loud: no source had criteria text, so the model would otherwise
-        # silently reason over "no criteria" and score this trial 0.
+        # Fail loud: no criteria found, else the model silently scores this trial 0.
         logger.error("No eligibility criteria found for %s in %s", nct_id, folders)
         return ""
 
@@ -159,9 +152,8 @@ class BaseTrialProcessor:
             ]
 
         if self.tokenizer is not None and hasattr(self.tokenizer, "apply_chat_template"):
-            # Pass enable_thinking=False for reasoning models (e.g. Qwen3) when
-            # no_think is set. The kwarg is silently accepted or raises TypeError on
-            # models whose chat templates don't declare the variable — fall through.
+            # enable_thinking=False for reasoning models (e.g. Qwen3); templates that
+            # don't declare the var raise TypeError — fall through to the plain prompt.
             template_kwargs: dict = {}
             if self.no_think:
                 template_kwargs["enable_thinking"] = False
@@ -183,13 +175,16 @@ class BaseTrialProcessor:
 
     @staticmethod
     def _strip_thinking_tags(text: str) -> str:
-        """Remove <think>…</think> blocks emitted by reasoning models (e.g. Qwen3).
+        """Drop the chain-of-thought preamble so only the JSON answer is parsed (the full
+        response with thinking is still written to .txt).
 
-        The full response (with thinking) is still written to the .txt file so the
-        reasoning chain is not lost; only JSON extraction operates on the stripped text.
+        Reasoning models emit ``<think>…</think>``; the phi reasoning LoRA instead closes
+        with a second ``<think>`` and emits the JSON after it. Treat either ``</think>`` or
+        a second ``<think>`` as the close so the answer survives whether it precedes or
+        follows the chain.
         """
-        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-        # Trim incomplete block if the model was cut off mid-think
+        text = re.sub(r"<think>.*?(?:</think>|<think>)", "", text, flags=re.DOTALL)
+        # A dangling <think> = cut off mid-thought after the answer; keep what precedes.
         cut = text.find("<think>")
         if cut != -1:
             text = text[:cut]
@@ -224,7 +219,8 @@ class BaseTrialProcessor:
                 kwargs.update(truncation=True, max_length=max_input_tokens)
             return len(self.tokenizer(prompt, **kwargs)["input_ids"])
         except Exception:
-            return max(1, len(prompt) // 4)
+            # Overestimate (~3 chars/token) so a tokenizer failure errs toward trimming.
+            return max(1, len(prompt) // 3)
 
     def _progress_desc(self) -> str:
         return "Processing Trials"
@@ -250,8 +246,7 @@ class BaseTrialProcessor:
         items: List[Dict] = []
         for nct_id in nct_ids:
             existing = f"{output_folder}/{nct_id}.json"
-            # Skip only genuinely-completed trials; a recorded processing failure
-            # ({"error": ...}) or an unparseable file is retried, not locked in.
+            # Skip only completed trials; recorded failures/unparseable files are retried.
             if os.path.exists(existing) and not _is_error_output(existing):
                 logger.info(f"Skipping existing: {nct_id}")
                 continue

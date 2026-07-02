@@ -25,12 +25,7 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         max_model_len: Optional[int] = None,
         lora_request: Optional[Any] = None,
     ):
-        """
-        vLLM-backed trial processor for CoT eligibility evaluation.
-        - Keeps long outputs (no custom stop).
-        - Uses chat templates if tokenizer supports them.
-        - Supports optional LoRA adapter via vLLM's LoRARequest.
-        """
+        """vLLM-backed CoT eligibility processor with optional LoRA adapter."""
         self.llm = llm
         self.tokenizer = tokenizer or getattr(self.llm, "get_tokenizer", lambda: None)()
         self.batch_size = batch_size
@@ -41,9 +36,8 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         self.top_p = top_p
         self.seed = seed
         self.length_bucket = length_bucket
-        # Reserve output room so a long-criteria prompt cannot push the CoT/JSON response past
-        # the context window and get dropped as invalid JSON. Only the longest prompts are
-        # trimmed; an unknown window (None) disables trimming and preserves prior behavior.
+        # Reserve output room so a long-criteria prompt can't push the response past the
+        # context window (dropped as invalid JSON); unknown window (None) disables trimming.
         self.max_model_len = max_model_len
         if max_model_len and max_model_len > 0:
             reserved = min(self.max_new_tokens, max(1, max_model_len // 4))
@@ -51,7 +45,6 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         else:
             self._max_prompt_tokens = None
 
-        # Validate LoRA request during initialization
         self.lora_request = self._init_validate_lora_request(lora_request)
 
         from vllm import SamplingParams  # type: ignore
@@ -68,18 +61,24 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         return "vLLM Processing Trials"
 
     def _format_prompt(self, criteria_text: str, patient_profile: str) -> str:
-        # Trim only the (long, variable) criteria text so the assembled prompt leaves room for
-        # the model to finish generating; keeps the format schema + patient profile intact.
+        # Trim only the criteria text (long/variable) so the prompt leaves room to generate;
+        # keeps the schema + patient profile intact.
         prompt = super()._format_prompt(criteria_text, patient_profile)
         budget = getattr(self, "_max_prompt_tokens", None)
         if not budget or not criteria_text or self.tokenizer is None:
             return prompt
         try:
-            n = self._token_length(prompt)
+            # Tokenize directly (not _token_length, which may short-circuit to a char
+            # estimate) so the fit check and criterion_ids trim math share one token unit.
+            n = len(self.tokenizer(prompt, add_special_tokens=False)["input_ids"])
             if n <= budget:
                 return prompt
             criterion_ids = self.tokenizer(criteria_text, add_special_tokens=False)["input_ids"]
-            keep = max(0, len(criterion_ids) - (n - budget) - 32)  # 32-token chat-template slack
+            keep = len(criterion_ids) - (n - budget) - 32  # 32-token chat-template slack
+            if keep <= 0:
+                # Profile alone exhausts the budget; an empty criteria block is worse than
+                # the untrimmed prompt, so keep the criteria and accept tail-truncation risk.
+                return prompt
             trimmed = self.tokenizer.decode(criterion_ids[:keep])
             logger.warning(
                 "Trimmed long eligibility criteria to fit the context window "
@@ -97,7 +96,6 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
             return None
 
         try:
-            # Check if LoRARequest has the expected attributes and types
             if hasattr(lora_request, "lora_int_id"):
                 lora_int_id = getattr(lora_request, "lora_int_id")
 
@@ -134,13 +132,10 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
             prompts = [item["prompt"] for item in batch]
             t0 = time.time()
 
-            # Log batch info for debugging
             logger.debug(f"Processing batch with {len(prompts)} prompts")
 
-            # Validate and safely pass LoRARequest
             safe_lora_request = self._validate_lora_request()
 
-            # Generate with proper error handling for LoRA issues
             try:
                 results = self.llm.generate(
                     prompts,
@@ -151,7 +146,6 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
                 if "not supported between instances of 'str' and 'int'" in str(e):
                     logger.warning(f"LoRA configuration issue detected: {e}")
                     logger.warning("Retrying without LoRA request...")
-                    # Retry without LoRA
                     results = self.llm.generate(
                         prompts,
                         self.sampling_params,
@@ -171,7 +165,6 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
                     text = r.outputs[0].text if r.outputs else ""
                     decoded_responses.append(text)
 
-                    # Safely extract input token count
                     try:
                         prompt_token_ids = getattr(r, "prompt_token_ids", []) or []
                         if isinstance(prompt_token_ids, (list, tuple)):
@@ -190,7 +183,6 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
                         )
                         in_tok_lens.append(0)
 
-                    # Safely extract output token count
                     try:
                         if r.outputs and len(r.outputs) > 0:
                             output_token_ids = (
@@ -220,13 +212,10 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
                     in_tok_lens.append(0)
                     out_tok_lens.append(0)
 
-            # Save outputs
             for item, response in zip(batch, decoded_responses):
                 self._save_outputs(item["nct_id"], response, output_folder)
 
-            # Safely calculate totals
             try:
-                # Ensure all values are integers before summing
                 safe_in_tok_lens = [
                     int(x)
                     if isinstance(x, (int, float, str))
@@ -261,7 +250,7 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
             logger.error(f"Full traceback: {traceback.format_exc()}")
             for item in batch:
                 logger.error(f"Failed trial: {item['nct_id']}")
-                # Create empty output files so processing can continue
+                # Write an error marker so the run continues.
                 try:
                     self._save_outputs(
                         item["nct_id"], '{"error": "processing_failed"}', output_folder
@@ -277,18 +266,16 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
             return None
 
         try:
-            # Check if LoRARequest has the expected attributes
             if hasattr(self.lora_request, "lora_int_id"):
                 lora_int_id = getattr(self.lora_request, "lora_int_id")
 
-                # Fix string lora_int_id by converting to int
+                # Coerce a string lora_int_id to int (vLLM compares it against ints).
                 if isinstance(lora_int_id, str):
                     try:
                         fixed_id = int(lora_int_id)
                         logger.warning(
                             f"Converting lora_int_id from string '{lora_int_id}' to int {fixed_id}"
                         )
-                        # Try to set the corrected value
                         setattr(self.lora_request, "lora_int_id", fixed_id)
                     except (ValueError, AttributeError) as e:
                         logger.error(f"Failed to fix lora_int_id: {e}")
@@ -313,19 +300,16 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
 
     def _safe_calculate_token_length(self, prompt: str, nct_id: str) -> int:
         """Safely calculate token length using vLLM's tokenizer."""
-        # Default fallback based on character count
         fallback_length = max(1, len(prompt) // 4)
 
         if not self.length_bucket:
             return fallback_length
 
         try:
-            # Try to use vLLM's built-in tokenizer first
             if hasattr(self.llm, "get_tokenizer"):
                 vllm_tokenizer = self.llm.get_tokenizer()
                 if vllm_tokenizer is not None:
                     try:
-                        # vLLM tokenizers often have an encode method
                         if hasattr(vllm_tokenizer, "encode"):
                             token_ids = vllm_tokenizer.encode(prompt)
                             if isinstance(token_ids, (list, tuple)) or hasattr(
@@ -333,13 +317,11 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
                             ):
                                 return int(len(token_ids))
                         elif hasattr(vllm_tokenizer, "__call__"):
-                            # Fallback to callable tokenizer
                             result = vllm_tokenizer(prompt, add_special_tokens=False)
                             return self._extract_token_length(result, nct_id)
                     except Exception as e:
                         logger.warning(f"vLLM tokenizer failed for {nct_id}: {e}")
 
-            # Fallback to the provided tokenizer
             if self.tokenizer is not None:
                 tokenized = self.tokenizer(prompt, add_special_tokens=False)
                 return self._extract_token_length(tokenized, nct_id)
@@ -356,7 +338,6 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         """Extract token length from various tokenizer output formats."""
         fallback_length = max(1, len(str(tokenized)) // 4)
 
-        # Try different extraction methods
         extraction_methods = [
             lambda x: len(x["input_ids"])
             if isinstance(x, dict) and "input_ids" in x

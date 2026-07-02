@@ -10,14 +10,8 @@ logger = setup_logging(__name__)
 
 
 class LLMReranker:
-    """vLLM-backed pointwise reranker.
-
-    Scores each (patient, criterion) pair by the model's probability of emitting
-    "Yes" vs "No" as the next token. Generation is constrained to those two
-    tokens and their logprobs are read back, so the score is a calibrated
-    relevance probability. A fine-tuned LoRA adapter is served via vLLM's
-    LoRARequest (the only LLM backend in TrialMatchAI).
-    """
+    """vLLM-backed pointwise reranker: scores each (patient, criterion) pair by the constrained
+    Yes/No next-token probability, optionally via a LoRA adapter."""
 
     def __init__(
         self,
@@ -57,6 +51,10 @@ class LLMReranker:
             gpu_memory_utilization=gpu_memory_utilization,
             max_model_len=max_model_len,
             dtype=dtype,
+            # Single-token output: CUDA graphs buy nothing. enforce_eager skips graph capture
+            # and a small max_num_seqs caps memory so this coexists with the CoT engine + embedder.
+            enforce_eager=True,
+            max_num_seqs=max(self.batch_size, 16),
         )
         self.tokenizer = self.llm.get_tokenizer()
         self.lora_request = (

@@ -8,8 +8,7 @@ from trialmatchai.entities.types import dedupe_strings
 
 
 DEFAULT_OMOP_VOCABULARIES = (
-    # OMOP standard vocabularies (OHDSI Athena). HGNC is listed for when it is
-    # included in a download; it is not in every Athena bundle.
+    # OMOP standard vocabularies (OHDSI Athena); HGNC isn't in every bundle.
     "SNOMED",
     "ICD10",
     "ICD10CM",

@@ -54,9 +54,8 @@ class ClinicalTrialSearch:
                         age_str = age_input.replace(keyword, "").strip()
                         break
                 parsed = int(age_str)
-                # A purely-numeric age is authoritative: accept it when in range,
-                # else reject. Do NOT fall through to fuzzy date parsing, which
-                # would misread "-5" as a near-today date (age 0).
+                # A purely-numeric age is authoritative; don't fall through to fuzzy
+                # date parsing, which would misread "-5" as a near-today date (age 0).
                 return parsed if 0 <= parsed <= 150 else None
             except ValueError:
                 pass
@@ -81,10 +80,9 @@ class ClinicalTrialSearch:
         embeddings: Dict[str, List[float]],
         other_conditions: Optional[List[str]] = None,
     ) -> Dict:
-        # Assemble the term lists (with a conservative cap) and embeddings the
-        # backend consumes. Filters like age/sex/status/nct_ids are passed to the
-        # backend directly by search_trials, not threaded through this dict.
-        max_conditions_per_query = 800  # Conservative limit
+        # Assemble the capped term lists + embeddings the backend consumes. Filters
+        # (age/sex/status/nct_ids) go to the backend directly, not through this dict.
+        max_conditions_per_query = 800
         all_conditions = synonyms + (other_conditions or [])
         if len(all_conditions) > max_conditions_per_query:
             logger.warning(
@@ -119,12 +117,14 @@ class ClinicalTrialSearch:
         vector_score_threshold: float = 0.0,
         search_mode: str = "hybrid",
     ) -> Tuple[List[Dict], List[float]]:
-        if age_input not in ["all", "ALL", "All"]:
+        age = None
+        if str(age_input).strip().casefold() != "all":
             age = self.parse_age_input(age_input)
             if age is None:
-                raise ValueError("Could not parse age input.")
-        else:
-            age = None
+                logger.warning(
+                    "Could not parse age %r; proceeding without an age filter.",
+                    age_input,
+                )
         primary_synonyms = _clean_terms([condition] + (synonyms or []))
         other_conditions = _clean_terms(other_conditions or [])
         all_terms = primary_synonyms + other_conditions
@@ -200,11 +200,9 @@ class ClinicalTrialSearch:
         search_mode: str = "hybrid",
         rrf_k: int = 60,
     ) -> tuple[list[dict], list[float], list[FirstLevelCandidateEvidence]]:
-        # Honor the configured hard filters: only apply the ones listed in the
-        # plan (default age/sex/overall_status). This makes first_level.hard_filters
-        # actually controllable instead of always-on.
-        # Distinguish an unset value (None -> default) from an explicit empty
-        # list ([] -> no hard filters), so hard_filters=[] truly disables them.
+        # Apply only the hard filters listed in the plan (default age/sex/overall_status),
+        # making first_level.hard_filters controllable. None -> default; [] -> none, so
+        # hard_filters=[] truly disables them.
         configured = query_plan.filters.get("hard_filters")
         hard_filters = set(
             configured if configured is not None else ["age", "sex", "overall_status"]

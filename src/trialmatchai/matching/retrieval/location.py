@@ -1,11 +1,9 @@
-"""Optional geographic (country-level, site-aware) trial filtering.
+"""Optional country-level, site-aware trial filtering.
 
-Trials recruit at many sites across countries, so the filter is deliberately
-recall-safe: a trial passes when the patient's country is unknown, when the
-trial has no indexed site countries, or when ANY of its sites is in the
-patient's country. It only drops trials we are confident have no site in the
-patient's country. Country granularity avoids the recall risk of distance/region
-matching on messy ClinicalTrials.gov site data.
+Deliberately recall-safe: a trial passes when the patient's country is unknown, when
+the trial has no indexed site countries, or when ANY site is in the patient's country.
+Only drops trials confidently outside it. Country granularity avoids the recall risk of
+distance/region matching on messy ClinicalTrials.gov site data.
 """
 
 from __future__ import annotations

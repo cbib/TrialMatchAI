@@ -10,10 +10,8 @@ logger = setup_logging(__name__)
 
 
 def disease_synonyms(entity_annotator: Any, condition: str) -> List[str]:
-    """Return linked disease synonyms for a condition via the entity annotator.
-
-    Returns an empty list when the annotator is unavailable or extraction fails.
-    """
+    """Return linked disease synonyms for a condition; empty list if the annotator is
+    unavailable or extraction fails."""
     if entity_annotator is None:
         logger.info("Entity annotator disabled; skipping synonyms extraction.")
         return []

@@ -1,16 +1,11 @@
 """Link already-extracted entities in the prepared criteria to concept IDs.
 
-``prepare`` extracts entities and, when a concept store is available, links them in
-the same pass. When the store is built *after* prepare (so prepare ran NER-only,
-leaving entities with ``linker_status="concept_store_unavailable"``), this stage
-links the persisted entities against the store **without re-running NER**: it
-reconstructs each ``EntityAnnotation`` from its stored fields, runs the
-``ConceptLinker``, and writes the enriched entities back in place.
-
-Idempotent: only entities whose link decision was never made against a store are
-(re)linked; pass ``force`` to redo all of them. Only criteria of trials whose
-prepare is complete (the trial JSON marker exists) are touched, so a concurrent
-``prepare`` writer is never disturbed.
+Used when the concept store is built *after* prepare (which then ran NER-only,
+leaving ``linker_status="concept_store_unavailable"``): relinks the persisted
+entities against the store without re-running NER. Idempotent -- only entities never
+linked against a store are (re)linked (``force`` redoes all) -- and only trials whose
+prepare is complete (trial JSON marker exists) are touched, so a concurrent
+``prepare`` writer is undisturbed.
 """
 
 from __future__ import annotations
@@ -26,25 +21,20 @@ from trialmatchai.utils.pipeline_state import dir_fingerprint
 
 logger = setup_logging(__name__)
 
-# Statuses that mean "no link decision was ever made against a store" -> (re)link.
-# A linked entity is one of accepted / ambiguous / rejected / not_linkable.
+# Statuses meaning no link decision was ever made against a store -> (re)link.
 _RELINK_STATUSES = frozenset({"not_linked", "concept_store_unavailable"})
 
-# Per-trial resume journal: an append-only write-ahead log of trial IDs already linked, so a
-# crashed/partial run resumes by SKIPPING those trials by id (no re-reading their criteria)
-# instead of re-walking the whole corpus. This is the checkpoint / committed-cursor pattern --
-# durable per-record receipts + idempotent re-processing. A header line binds the log to the
-# prepared-corpus fingerprint, so it is discarded when the corpus changes.
+# Per-trial resume journal: append-only log of already-linked trial IDs so a crashed run resumes
+# by skipping them by id instead of re-walking the corpus. A header line binds it to the
+# prepared-corpus fingerprint, so it's discarded when the corpus changes.
 _LINK_PROGRESS_VERSION = "1"
 _LINK_JOURNAL_NAME = ".link_progress.jsonl"
 
 
 def _load_link_journal(path: Path, corpus_fingerprint: str) -> tuple[bool, set[str]]:
-    """Return (header_valid, completed_trial_ids).
-
-    header_valid is False when the journal is missing, a different version, or was recorded
-    against a different corpus -- the caller then starts a fresh journal. A torn final record
-    from a crash is skipped, not fatal.
+    """Return (header_valid, completed_trial_ids); header_valid is False when the journal is
+    missing, a different version, or bound to another corpus (caller starts fresh). A torn
+    final record is skipped, not fatal.
     """
     if not corpus_fingerprint:
         return False, set()
@@ -89,10 +79,7 @@ def link_corpus(
     force: bool = False,
     log_every: int = 500,
 ) -> dict[str, int]:
-    """Link the entities in the prepared criteria to concept IDs, in place.
-
-    Returns a tally of entity link statuses produced this run.
-    """
+    """Link the prepared criteria entities to concept IDs in place; returns a tally of link statuses produced this run."""
     linker_cfg = dict(config.get("concept_linker") or {})
     if not linker_cfg.get("enabled", True):
         logger.info("link: concept_linker disabled in config; skipping.")
@@ -118,9 +105,8 @@ def link_corpus(
     cache: dict[tuple[str, str], dict[str, Any]] = {}
     relinked_trials = skipped_trials = resumed_skip = 0
 
-    # Per-trial resume: skip trials already linked in a prior run BY ID (via the append-only
-    # journal), without re-reading their criteria. The journal is bound to the prepared-corpus
-    # fingerprint, so it is discarded if the corpus changed; ``force`` ignores it.
+    # Per-trial resume: skip trials already linked in a prior run by id (via the journal),
+    # without re-reading their criteria; the journal is discarded if the corpus changed, and ``force`` ignores it.
     journal_path = criteria_root / _LINK_JOURNAL_NAME
     corpus_fp = dir_fingerprint(trials_root)
     header_valid, completed = (
@@ -136,8 +122,7 @@ def link_corpus(
             len(trial_dirs),
         )
 
-    # Line-buffered append log: each completed trial is a durable receipt flushed on newline,
-    # so a process kill (OOM / timeout) resumes from the last completed trial, not the start.
+    # Line-buffered append log: each completed trial is flushed on newline, so a kill resumes from the last completed trial.
     journal = journal_path.open("a", buffering=1, encoding="utf-8")
     try:
         for i, trial_dir in enumerate(trial_dirs, start=1):
@@ -288,7 +273,8 @@ def _link_entities(entities, linker, cache, tally, *, force: bool):
 
 
 def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-link-", suffix=".json")
+    # Suffix must NOT be .json: readers glob "*.json", so a torn temp from a crash would be ingested as a poison criterion.
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-link-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(data, indent=2, sort_keys=True))

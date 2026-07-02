@@ -92,8 +92,7 @@ def run_preflight_checks(
         needs_transformers = (rag_enabled and rag_backend == "transformers") or (
             reranker_enabled and reranker_backend == "transformers"
         )
-        # vLLM is the production LLM backend. CPU smoke configs may use the
-        # Transformers backend to exercise model calls without CUDA.
+        # vLLM is the production backend; CPU smoke configs use Transformers (no CUDA).
         if needs_vllm:
             vllm_available = importlib.util.find_spec("vllm") is not None
             if not vllm_available:
@@ -120,8 +119,8 @@ def run_preflight_checks(
                     "Transformers CPU backend requires transformers (`uv sync --extra llm`)."
                 )
 
-        # Verify gated base models (phi-4 / gemma-2) are authorized up front, so
-        # an HF auth failure surfaces here rather than after first-level search.
+        # Check gated base models up front so an HF auth failure surfaces here, not
+        # after first-level search.
         issues.extend(
             check_hf_access(
                 [model_cfg.get("base_model"), model_cfg.get("reranker_model_path")]
@@ -183,10 +182,8 @@ def check_cuda(config: Dict[str, Any], *, required: bool) -> List[str]:
 def check_hf_access(model_ids: List[str | None]) -> List[str]:
     """Fast pre-download check that HuggingFace models are reachable/authorized.
 
-    Calls the metadata API (no weight download). Local paths and non-hub ids are
-    skipped. Gated models without a token produce a clear, actionable error so
-    auth fails in seconds rather than after hours of other work; network/transient
-    errors only warn.
+    Metadata API only (no weight download); local paths and non-hub ids are skipped.
+    Gated/missing repos error so auth fails in seconds; transient errors only warn.
     """
     issues: List[str] = []
     if importlib.util.find_spec("huggingface_hub") is None:
@@ -267,10 +264,12 @@ def _require_output_dir(issues: List[str], value: str | None) -> None:
 
 def _require_patient_inputs(issues: List[str], config: Dict[str, Any]) -> None:
     patient_cfg = config.get("patient_inputs", {})
-    profile_dir = Path(patient_cfg.get("profile_dir", ""))
-    if profile_dir.exists():
+    raw = patient_cfg.get("profile_dir")
+    if not raw:
+        issues.append("patient_inputs.profile_dir is not configured.")
         return
-    if profile_dir:
+    profile_dir = Path(raw)
+    if not profile_dir.exists():
         issues.append(f"patient_inputs.profile_dir does not exist: {profile_dir}")
 
 

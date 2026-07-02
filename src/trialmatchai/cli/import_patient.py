@@ -73,9 +73,8 @@ def main() -> int:
     for profile in profiles:
         profile_path = output_dir / f"{profile.patient_id}.json"
         summary_path = summary_dir / f"{profile.patient_id}.json"
-        # Atomic writes, summary before profile: the profile is the completion
-        # marker downstream resume keys on, so it must land last (matches
-        # orchestration.ingest_inputs).
+        # Summary before profile: the profile is the resume completion marker, so it
+        # must land last (matches orchestration.ingest_inputs).
         write_json_file(profile_to_matching_summary(profile), str(summary_path))
         write_json_file(profile.model_dump(mode="json", exclude_none=True), str(profile_path))
         logger.info("Imported patient profile %s -> %s", profile.patient_id, profile_path)
@@ -87,8 +86,7 @@ def _try_build_entity_annotator(config: dict[str, Any]):
         from trialmatchai.entities import build_entity_annotator
         from trialmatchai.models.embedding import build_embedder
 
-        # Pass an embedder so concept linking can use semantic (vector) search;
-        # without it linking silently degrades to lexical-only matching.
+        # Embedder lets concept linking use vector search; without it, lexical-only.
         embedder = build_embedder(config)
         return build_entity_annotator(config, embedder=embedder)
     except Exception as exc:

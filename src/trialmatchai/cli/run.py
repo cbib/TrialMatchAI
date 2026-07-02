@@ -13,12 +13,14 @@ def main() -> int:
         help="Re-match every patient, ignoring existing results (default: resume/skip done).",
     )
     args = parser.parse_args()
-    from trialmatchai.main import main_pipeline
-    from trialmatchai.orchestration import free_models
+    from trialmatchai.config.config_loader import load_config
+    from trialmatchai.orchestration import free_models, run_matching
 
+    config = load_config(args.config)
     try:
-        # Idempotent by default: skip patients with valid results. --force redoes all.
-        return main_pipeline(args.config, resume=not args.force)
+        # Via run_matching (not main_pipeline) so corpus-change resume invalidation
+        # applies — otherwise a re-index would serve stale ranked_trials.json.
+        return run_matching(config, resume=not args.force)
     finally:
         free_models()
 

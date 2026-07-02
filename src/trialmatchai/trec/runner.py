@@ -40,17 +40,14 @@ def _track_config(base_config: Dict[str, Any], spec: TrackSpec) -> Dict[str, Any
     cfg["patient_inputs"]["summary_dir"] = str(spec.summary_dir)
     cfg.setdefault("paths", {})["output_dir"] = str(spec.output_dir)
     cfg.setdefault("query_expansion", {})["enabled"] = True
-    # TREC analysis funnel: 1000 (first-level) -> 500 (rerank) -> 250 (CoT), with
-    # no second->CoT thinning (keep_divisor=1) so the full reranked set feeds the
-    # CoT cap. Deeper than the interactive single-patient defaults (which stay at
-    # the config.json values) because TREC scores the whole ranked list per topic.
+    # TREC funnel 1000 -> 500 -> 250 (CoT), no second->CoT thinning (keep_divisor=1);
+    # deeper than the interactive defaults because TREC scores the whole ranked list.
     search = cfg.setdefault("search", {})
     search["max_trials_first_level"] = 1000
     search["max_trials_second_level"] = 500
     search["second_level_keep_divisor"] = 1
     cfg.setdefault("rag", {})["max_trials_rag"] = 250
-    # No per-topic HTML report across a TREC sweep (one report per topic is wasted
-    # work; the eval consumes the run files, not the reports).
+    # No per-topic HTML report: the eval consumes the run files, not the reports.
     cfg.setdefault("reporting", {})["emit_html"] = False
     return cfg
 
@@ -71,9 +68,9 @@ def run_tracks(
     """Run the TREC e2e for each track. Returns a process exit code.
 
     ``processed_trials_folder`` / ``processed_criteria_folder`` default to
-    ``<data_dir>/processed_*`` but can point elsewhere (e.g. the prepared data
-    on /nfs/scratch) while the index and all run outputs live under ``data_dir``
-    on /nfs/home. The per-track corpus is derived from the official qrels.
+    ``<data_dir>/processed_*`` but can point elsewhere (e.g. prepared data on a
+    separate mount) while the index and run outputs live under ``data_dir``. The
+    per-track corpus is derived from the official qrels.
     """
     base_config = load_config(config_path)
     data_dir = Path(data_dir)
@@ -100,7 +97,7 @@ def run_tracks(
             failures += 1
             continue
 
-        # 2) Official qrels -> per-track corpus pool (replaces the removed lists).
+        # 2) Official qrels -> per-track corpus pool.
         try:
             qrels_path = qrels_mod.download_qrels(spec.key, spec.trec_dir / "qrels")
             qrels = qrels_mod.parse_qrels(qrels_path, spec.id_prefix)
@@ -114,6 +111,10 @@ def run_tracks(
         # 3) Runtime CoT query expansion -> enriched keywords.json (idempotent).
         if not index_only:
             expand_queries(cfg, force=force_rematch)
+            # Free the query-expansion phi-4 before matching: matching loads its own CoT-LoRA
+            # phi-4, and two resident instances (~64 GB) OOM the card, silently degrading
+            # eligibility reasoning to constraint-only output.
+            free_models()
 
         # 4) Build the per-track index, restricted to the qrels corpus pool.
         try:

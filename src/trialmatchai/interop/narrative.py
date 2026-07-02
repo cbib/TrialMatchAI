@@ -42,8 +42,11 @@ def render_patient_narrative(profile: PatientProfile) -> list[str]:
 
 
 def render_search_terms(profile: PatientProfile) -> tuple[list[str], list[str]]:
+    # Seed from cancer_profile too (staged dx land there, not conditions) so a cancer-only patient isn't dropped.
     main_conditions = _dedupe(
-        fact.label for fact in profile.conditions if not fact.negated
+        fact.label
+        for fact in [*profile.conditions, *profile.cancer_profile]
+        if not fact.negated
     )
     if not main_conditions:
         main_conditions = _dedupe(

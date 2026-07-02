@@ -52,10 +52,8 @@ class ClinicalTrialsGovClient:
     ) -> Iterator[dict[str, Any]]:
         """Yield studies for one ClinicalTrials.gov keyword query.
 
-        The v2 API returns `studies` plus an optional `nextPageToken`. Date
-        filtering is intentionally post-fetch here because the upstream API has
-        changed filter names before; keeping it local makes the source client
-        easier to harden and test.
+        Date filtering is post-fetch: upstream filter names have changed before,
+        so keeping it local is more robust and testable.
         """
         yielded = 0
         page_token: str | None = None
