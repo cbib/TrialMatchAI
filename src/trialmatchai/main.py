@@ -502,6 +502,9 @@ def main_pipeline(
                     gpu_memory_utilization=float(
                         config.get("LLM_reranker", {}).get("gpu_memory_utilization", 0.4)
                     ),
+                    tensor_parallel_size=int(
+                        config.get("LLM_reranker", {}).get("tensor_parallel_size", 1)
+                    ),
                     batch_size=config["rag"]["batch_size"] * 2,
                     revision=config["model"].get("reranker_model_revision"),
                     trust_remote_code=config["model"].get("trust_remote_code", False),

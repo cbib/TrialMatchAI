@@ -26,6 +26,7 @@ class LLMReranker:
         max_model_len: int = 4096,
         max_lora_rank: int = 32,
         dtype: str = "auto",
+        tensor_parallel_size: int = 1,
     ):
         from vllm import LLM, SamplingParams  # type: ignore
 
@@ -51,6 +52,9 @@ class LLMReranker:
             gpu_memory_utilization=gpu_memory_utilization,
             max_model_len=max_model_len,
             dtype=dtype,
+            # Shard across GPUs when >1: lets the reranker share a multi-GPU allocation with the
+            # tensor-parallel CoT engine instead of fighting it for a single device.
+            tensor_parallel_size=tensor_parallel_size,
             # Single-token output: CUDA graphs buy nothing. enforce_eager skips graph capture
             # and a small max_num_seqs caps memory so this coexists with the CoT engine + embedder.
             enforce_eager=True,

@@ -4,6 +4,24 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] — 2026-07-02
+
+### Fixed
+- **Healthcheck no longer aborts a cold-start build.** The 0.3.1 hardening made
+  `LanceDBSearchBackend.health()` flag a never-built (table-less) index as
+  unhealthy *by default*. Since a pre-build preflight (`trialmatchai healthcheck`)
+  legitimately runs before the index exists — and job scripts run it under
+  `set -e` — a from-scratch run aborted before it ever built. The never-built
+  check is now gated on `require_tables=True`, so the lenient default preflight
+  passes pre-build while match-readiness (which already passes `require_tables=True`)
+  still catches an unbuilt index.
+
+### Added
+- **Multi-GPU reranker.** `LLM_reranker.tensor_parallel_size` lets the vLLM
+  reranker shard across GPUs, matching the CoT engine, so both engines can run
+  tensor-parallel on a multi-GPU node (e.g. 2× L40) instead of contending for a
+  single device.
+
 ## [0.3.1] — 2026-07-02
 
 A deep, line-by-line robustness audit. 82 verified defects were fixed across

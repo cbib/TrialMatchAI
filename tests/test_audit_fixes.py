@@ -415,11 +415,13 @@ def test_aggregate_to_trials_dedupes_criteria_across_queries():
 
 
 def test_health_reports_never_built_search_db(tmp_path):
-    """lancedb:224 — a never-built search DB (table-less) must be reported unhealthy by the
-    DEFAULT healthcheck, not silently pass because the directory happens to exist."""
+    """lancedb:224 — a never-built (table-less) search DB must be reported unhealthy by the
+    STRICT readiness check (require_tables=True), while the lenient default stays quiet so a
+    pre-build preflight (which runs before the index exists) is not aborted."""
     from trialmatchai.search.lancedb_backend import LanceDBSearchBackend
 
     db_path = tmp_path / "search"
     backend = LanceDBSearchBackend(db_path)  # no tables ever written
-    issues = backend.health()  # default require_tables=False
+    assert backend.health() == []  # lenient default: pre-build preflight must not fail
+    issues = backend.health(require_tables=True)  # match-readiness: strict
     assert issues and "never built" in issues[0]

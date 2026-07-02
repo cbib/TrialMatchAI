@@ -219,6 +219,12 @@ class LanceDBSearchBackend:
 
     def health(self, *, require_tables: bool = False) -> list[str]:
         issues: list[str] = []
+        if not require_tables:
+            # Lenient (default): constructing the backend already proved the store is reachable.
+            # A not-yet-built index is legitimate here -- e.g. a pre-build preflight that runs
+            # BEFORE the index is created -- so do not flag a missing/empty DB. Callers that need
+            # a populated index (match readiness) pass require_tables=True for the strict check.
+            return issues
         if not self.db_path.exists():
             issues.append(
                 f"search_backend.db_path does not exist (search DB never built): {self.db_path}"
@@ -226,20 +232,15 @@ class LanceDBSearchBackend:
             return issues
         names = set(self._table_names())
         if not names:
-            # Dir present but no tables -> never-built/wiped index; report unconditionally or the
-            # default healthcheck passes on an index that can answer nothing.
             issues.append(
                 f"search_backend.db_path has no LanceDB tables (search DB never built): {self.db_path}"
             )
             return issues
-        if require_tables:
-            missing = [
-                name
-                for name in (self.trials_table, self.criteria_table)
-                if name not in names
-            ]
-            if missing:
-                issues.append("Missing LanceDB tables: " + ", ".join(missing))
+        missing = [
+            name for name in (self.trials_table, self.criteria_table) if name not in names
+        ]
+        if missing:
+            issues.append("Missing LanceDB tables: " + ", ".join(missing))
         return issues
 
     def table_exists(self, table_name: str) -> bool:
