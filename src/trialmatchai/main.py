@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 from trialmatchai.config.config_loader import load_config
 from trialmatchai.constraints import (
@@ -230,6 +230,54 @@ def run_first_level_search(
     )
 
 
+def _fuse_shortlist_scores(
+    *,
+    nct_ids: List[str],
+    second_level_results: List[Dict],
+    first_level_scores: Dict,
+    search_config: Mapping[str, Any],
+) -> Dict[str, float]:
+    """Combine the first-level (retrieval) and second-level (reranker) rankings into the
+    score that selects the pre-CoT shortlist.
+
+    ``rrf`` (default) fuses the two by rank via reciprocal-rank fusion. Because it is
+    computed over the union of both rankings, a trial retrieval placed high keeps a floor
+    even when the reranker never scored it (no criterion cleared the aggregation threshold),
+    so a strong retrieval hit is not silently evicted by a low reranker signal. Rank fusion
+    is also scale-free, which the earlier ``score_sum`` was not: the first-level and
+    reranker scores live on different scales, so summing them let whichever scale was larger
+    dominate the selection.
+    """
+    mode = str(search_config.get("shortlist_fusion", "rrf")).lower()
+    if mode == "score_sum":
+        combined: Dict[str, float] = {}
+        for trial in second_level_results:
+            trial_id = trial["nct_id"]
+            combined[trial_id] = first_level_scores.get(trial_id, 0) + trial["score"]
+        return combined
+
+    k = max(1, int(search_config.get("shortlist_rrf_k", 60)))
+    w_first = float(search_config.get("shortlist_first_level_weight", 1.0))
+    w_second = float(search_config.get("shortlist_second_level_weight", 1.0))
+
+    first_rank = {nct_id: i + 1 for i, nct_id in enumerate(nct_ids)}
+    second_rank = {
+        trial["nct_id"]: i + 1 for i, trial in enumerate(second_level_results)
+    }
+
+    combined = {}
+    for nct_id in (*first_rank, *second_rank):
+        if nct_id in combined:
+            continue
+        score = 0.0
+        if nct_id in first_rank:
+            score += w_first / (k + first_rank[nct_id])
+        if nct_id in second_rank:
+            score += w_second / (k + second_rank[nct_id])
+        combined[nct_id] = score
+    return combined
+
+
 def run_second_level_search(
     output_folder: str,
     nct_ids: List[str],
@@ -258,20 +306,26 @@ def run_second_level_search(
         constraints_config=config.get("constraints", {}),
     )
 
-    combined_scores = {}
-    # Keep the pure second-level score separate from the combined key: combined only picks the
-    # shortlist, but rank_trials normalizes the pure score -- passing combined would double-count first-level.
-    second_level_scores = {}
-    for trial in second_level_results:
-        trial_id = trial["nct_id"]
-        second_score = trial["score"]
-        first_score = first_level_scores.get(trial_id, 0)
-        second_level_scores[trial_id] = second_score
-        combined_scores[trial_id] = first_score + second_score
+    # Keep the pure second-level score separate from the shortlist key: it is normalized by
+    # rank_trials as a within-band signal, so it must not carry any first-level component.
+    second_level_scores = {
+        trial["nct_id"]: trial["score"] for trial in second_level_results
+    }
+
+    combined_scores = _fuse_shortlist_scores(
+        nct_ids=nct_ids,
+        second_level_results=second_level_results,
+        first_level_scores=first_level_scores,
+        search_config=config.get("search", {}),
+    )
 
     sorted_trials = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
     keep_divisor = max(1, int(config.get("search", {}).get("second_level_keep_divisor", 3)))
-    num_top = max(1, min(len(sorted_trials) // keep_divisor, top_n))
+    # Size the shortlist off the number of reranked trials, not the fused candidate pool:
+    # rank fusion widens the pool with first-level-only trials, and keying the divisor to
+    # that pool would silently enlarge the shortlist and confound a fusion A/B.
+    reranked_count = len(second_level_results) or len(sorted_trials)
+    num_top = max(1, min(reranked_count // keep_divisor, top_n))
     # RAG only reasons over rag.max_trials_rag trials; cap the shortlist to match, else trials
     # past the cap get no eligibility output and are silently dropped from the final ranking.
     if _rag_enabled(config):

@@ -95,6 +95,8 @@
     "vector_score_threshold": 0.5,
     "max_trials_first_level": 1000,
     "max_trials_second_level": 100,
+    "shortlist_fusion": "rrf",
+    "shortlist_rrf_k": 60,
     "first_level": {
       "enabled": true,
       "max_trials": 1000,

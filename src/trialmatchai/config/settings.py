@@ -149,6 +149,15 @@ class SearchSettings(BaseModel):
     max_trials_second_level: int = Field(100, ge=1)
     # Keep the top 1/N of reranked second-level trials before CoT (N=1 keeps all).
     second_level_keep_divisor: int = Field(3, ge=1)
+    # How the second-level shortlist combines the first-level (retrieval) and second-level
+    # (reranker) rankings. "rrf" fuses the two by rank, so a strong retrieval hit keeps a
+    # floor and is not evicted when the reranker fails to score its criteria; "score_sum"
+    # is the earlier behaviour of adding the two raw scores (whose scales differ, so one
+    # signal dominates and can drop retrieval-ranked trials).
+    shortlist_fusion: Literal["rrf", "score_sum"] = "rrf"
+    shortlist_rrf_k: int = Field(60, ge=1)
+    shortlist_first_level_weight: float = Field(1.0, ge=0.0)
+    shortlist_second_level_weight: float = Field(1.0, ge=0.0)
     first_level: FirstLevelSearchSettings = Field(
         default_factory=FirstLevelSearchSettings
     )

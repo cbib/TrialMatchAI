@@ -313,8 +313,9 @@ def test_run_second_level_search_returns_pure_second_level_scores(tmp_path):
         config,
     )
     combined = dict(semi_final)
-    # Combined ranking key double-counts first-level (used only for shortlist selection)...
-    assert combined["NCT1"] == pytest.approx(10.2)
+    # The shortlist key fuses the first-level and reranker RANKINGS (RRF) and is used only
+    # for selection; NCT1 leads both rankings, so it leads the fused key...
+    assert combined["NCT1"] > combined["NCT2"]
     # ...but the scores threaded to rank_trials are the PURE reranker scores.
     assert second_level_scores == {"NCT1": pytest.approx(0.2), "NCT2": pytest.approx(0.9)}
 
