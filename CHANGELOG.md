@@ -4,6 +4,50 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-07-05
+
+### Added
+- **Per-condition first-level query channels for comorbidities.** Each distinct
+  `other_conditions` term now gets its own focused first-level retrieval channel (weight
+  0.25, below the primary condition) instead of only diffusing into the shared narrative
+  channel. A single blended channel over many distinct conditions dilutes to noise, which
+  starved retrieval on multi-morbid patients; per-condition channels restore their coverage
+  without displacing single-condition patients. The channels are de-duplicated against the
+  primary terms and bounded by a fixed cap.
+- **Recall-aware nDCG reported alongside the condensed variant.** TREC evaluation now emits
+  both `ndcg@k` — normalized by the ideal over judged-**and-ranked** trials (pure ordering
+  quality, independent of recall) — and `ndcg_full@k` — normalized by the ideal over the
+  **full** judged pool (`trec_eval`-style), where a relevant trial that was never ranked
+  lowers the score. Reporting both keeps ordering quality and retrieval coverage legible
+  instead of conflating them in a single number. The DCG numerator is condensed (ignores
+  unjudged trials) in both.
+
+### Changed
+- **Second-level shortlist selection fuses rankings instead of summing raw scores.**
+  The pre-CoT shortlist previously ranked trials by `first_level_score + second_level_score`.
+  Those two scores live on different scales (the first-level value is a reciprocal-rank
+  fusion contribution; the second-level value is an aggregated reranker score), so the
+  larger-scaled signal dominated the sum and a trial the retriever ranked highly could be
+  dropped whenever the reranker scored its criteria low — or omitted entirely when no
+  criterion cleared the aggregation threshold. Shortlist selection now combines the
+  first-level and second-level *rankings* with reciprocal-rank fusion over the union of
+  both, so a strong retrieval hit keeps a floor and rank fusion is scale-free. Behaviour is
+  governed by `search.shortlist_fusion` (`rrf`, the new default, or `score_sum` for the
+  previous behaviour), `search.shortlist_rrf_k`, and per-source weights
+  `search.shortlist_first_level_weight` / `search.shortlist_second_level_weight`. The
+  shortlist size is unchanged — it is still keyed to the number of reranked trials — so only
+  which trials are selected changes, not how many.
+
+### Fixed
+- **TREC precision was computed on the raw ranked list while its docstring — and nDCG —
+  used the condensed (judged-only) list.** `evaluate` now condenses the ranking to the
+  judged pool before the P@k cutoff, so an unjudged trial the assessors never saw is no
+  longer scored as a miss. This aligns precision with `condensed_ndcg` and with the
+  function's own documented behaviour; the prior inconsistency understated P@k for a
+  non-pooled system and made it incomparable to nDCG. Judged-but-non-relevant (grade 0)
+  trials still count as negatives — only genuinely unjudged pairs are ignored. A regression
+  test pins the condensing.
+
 ## [0.3.3] — 2026-07-02
 
 ### Fixed
