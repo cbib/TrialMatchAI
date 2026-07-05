@@ -21,6 +21,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write # configure-pages flips the Pages source to "GitHub Actions"
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -28,6 +32,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Configure GitHub Pages (enable + set source to Actions)
+        if: github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Build docs (strict)
         run: uv run --group docs mkdocs build --strict
       - name: Upload Pages artifact
