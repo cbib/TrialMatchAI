@@ -1,6 +1,7 @@
 name: Docs
 
-# Build the MkDocs site (strict) on every push/PR; deploy to GitHub Pages on main.
+# Build the MkDocs site (strict) on every push/PR; deploy to GitHub Pages on main
+# via the official GitHub Actions Pages deployment (not a gh-pages branch push).
 on:
   push:
     branches: [main, deployment-readiness-audit]
@@ -9,10 +10,16 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write # mkdocs gh-deploy pushes to the gh-pages branch
+  contents: read
+
+# Serialize Pages deployments; let an in-progress publish finish rather than
+# cancelling it, so a deploy is never interrupted mid-write.
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  docs:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +30,24 @@ jobs:
           python-version: "3.11"
       - name: Build docs (strict)
         run: uv run --group docs mkdocs build --strict
-      - name: Deploy to GitHub Pages (main only)
+      - name: Upload Pages artifact
         if: github.ref == 'refs/heads/main'
-        run: uv run --group docs mkdocs gh-deploy --force
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    # PRs and other branches only build (validate) above; main publishes.
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write # deploy to Pages
+      id-token: write # OIDC token for actions/deploy-pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
