@@ -65,8 +65,19 @@ jobs:
         run: uv run pre-commit run gitleaks --all-files
 
       - name: Dependency audit
-        # vLLM 0.23 pins torch 2.11.0; CVE-2025-3000 has no fixed version listed.
-        run: uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
+        # vllm==0.23.0 (pins torch 2.11.0) and its transitive diskcache 5.6.3 are hard-pinned
+        # for the inference stack. The advisories below were newly published against those exact
+        # pinned versions and list NO fixed version, so there is nothing to upgrade to. Revisit
+        # and drop these ignores once vllm / diskcache ship patched releases.
+        run: >-
+          uv run pip-audit --progress-spinner off
+          --ignore-vuln CVE-2025-3000
+          --ignore-vuln CVE-2025-69872
+          --ignore-vuln CVE-2026-53923
+          --ignore-vuln CVE-2026-54236
+          --ignore-vuln CVE-2026-12491
+          --ignore-vuln CVE-2026-54235
+          --ignore-vuln CVE-2026-54233
 
   ml-extras-smoke:
     # Installs the optional ML extras (CPU-only) and imports the local-model
