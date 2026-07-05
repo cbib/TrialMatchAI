@@ -47,6 +47,46 @@ def test_planner_builds_deterministic_channels_and_skips_negated_facts():
     assert "asthma" not in plan.terms_for("primary_condition", "broader_disease")
 
 
+def test_planner_builds_per_condition_other_condition_channels():
+    """Each comorbidity gets its OWN focused first-level channel instead of only leaking into
+    the narrative blob; a blended channel over many distinct conditions dilutes to noise, which
+    collapsed recall on multi-morbid patients."""
+    planner = FirstLevelQueryPlanner(entity_annotator=FakeAnnotator())
+    plan = planner.build(
+        profile=PatientProfile(patient_id="P2"),
+        matching_summary={
+            "main_conditions": ["neurogenic bladder"],
+            "other_conditions": [
+                "Urinary tract infections",
+                "Non-Hodgkin's Lymphoma",
+                "neurogenic bladder",  # duplicate of the primary term -> must be dropped
+            ],
+            "patient_narrative": ["x"],
+        },
+        config={"llm_expansion_enabled": False},
+    )
+    oc = [c for c in plan.channels if c.kind == "other_condition"]
+    assert len(oc) == 2  # one channel per distinct non-primary comorbidity
+    assert all(len(c.terms) == 1 for c in oc)  # each is a single focused query, not a blob
+    terms = {c.terms[0] for c in oc}
+    assert terms == {"Urinary tract infections", "Non-Hodgkin's Lymphoma"}
+    assert all(0.0 < c.weight < 1.0 for c in oc)  # below the primary condition
+
+
+def test_planner_no_other_condition_channel_when_empty():
+    planner = FirstLevelQueryPlanner(entity_annotator=FakeAnnotator())
+    plan = planner.build(
+        profile=PatientProfile(patient_id="P3"),
+        matching_summary={
+            "main_conditions": ["lung cancer"],
+            "other_conditions": [],
+            "patient_narrative": ["x"],
+        },
+        config={"llm_expansion_enabled": False},
+    )
+    assert [c for c in plan.channels if c.kind == "other_condition"] == []
+
+
 def test_llm_query_expansion_is_strict_and_capped():
     parsed = parse_llm_query_expansion(
         {

@@ -18,6 +18,7 @@ logger = setup_logging(__name__)
 
 FirstLevelChannelKind = Literal[
     "primary_condition",
+    "other_condition",
     "concept_synonym",
     "broader_disease",
     "narrative",
@@ -28,6 +29,11 @@ FirstLevelChannelKind = Literal[
 
 DEFAULT_CHANNEL_WEIGHTS: dict[FirstLevelChannelKind, float] = {
     "primary_condition": 1.0,
+    # 0.25 (not 0.5): comorbidity hits then fill the tail below main-condition hits instead of
+    # evicting low-ranked-but-relevant main trials under the max_trials_first_level cap. Swept
+    # empirically -- 0.25 is a Pareto win (every patient's recall held or rose; 0.5 hurt the
+    # recall-rich patients via that eviction).
+    "other_condition": 0.25,
     "concept_synonym": 0.9,
     "narrative": 0.8,
     "biomarker": 0.7,
@@ -35,6 +41,12 @@ DEFAULT_CHANNEL_WEIGHTS: dict[FirstLevelChannelKind, float] = {
     "broader_disease": 0.35,
     "llm_expansion": 0.5,
 }
+
+# A highly multi-morbid patient's relevant trials are dominated by the comorbidities, but one
+# blended query over many distinct conditions dilutes both BM25 and the mean query vector to
+# near-noise (empirically ~1/5 the recall). So each comorbidity gets its OWN focused channel.
+# Cap the count to bound per-patient retrieval latency; other_conditions is importance-ordered.
+_MAX_OTHER_CONDITION_CHANNELS = 25
 
 
 class FirstLevelQueryChannel(BaseModel):
@@ -126,6 +138,17 @@ class FirstLevelQueryPlanner:
         channels.append(
             self._channel("primary_condition", primary_terms, "matching_summary")
         )
+
+        # One focused channel per comorbidity (see _MAX_OTHER_CONDITION_CHANNELS): a blended
+        # channel over all of them dilutes to noise, so each retrieves its own trials at full
+        # strength. Terms already in the primary channel are dropped to avoid a redundant channel.
+        other_condition_terms = [
+            term
+            for term in dedupe_terms(matching_summary.get("other_conditions", []))
+            if term.casefold() not in {p.casefold() for p in primary_terms}
+        ]
+        for term in other_condition_terms[:_MAX_OTHER_CONDITION_CHANNELS]:
+            channels.append(self._channel("other_condition", [term], "matching_summary"))
 
         synonym_terms = self._synonym_terms(primary_terms)
         channels.append(self._channel("concept_synonym", synonym_terms, "concept_linker"))
