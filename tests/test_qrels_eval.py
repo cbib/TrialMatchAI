@@ -51,3 +51,45 @@ def test_evaluate_end_to_end(tmp_path):
     assert mean["recall@10"] == 1.0  # both relevant retrieved
     assert mean["ndcg@10"] == 1.0  # ranking is the ideal grade order
     assert mean["P@10(rel>=1)"] == 2 / 10
+
+
+def test_evaluate_reports_both_ndcg_ideal_bases(tmp_path):
+    """ndcg@k uses the ideal over judged-AND-ranked trials (recall-independent);
+    ndcg_full@k uses the ideal over the FULL judged pool (recall-aware). Here NCT2 is
+    judged-eligible but never ranked, so ndcg_full must fall below the perfect ndcg."""
+    import math
+
+    q = "trec-1"
+    pdir = tmp_path / q
+    pdir.mkdir()
+    (pdir / "ranked_trials.json").write_text(
+        json.dumps({"RankedTrials": [{"TrialID": "NCT1", "Score": 1.0}]})  # only NCT1 ranked
+    )
+    (pdir / "nct_ids.txt").write_text("NCT1\nNCT2\n")  # both retrieved
+    qrels = {q: {"NCT1": 2, "NCT2": 2}}  # NCT2 judged-eligible but absent from the ranking
+    mean = evaluate(qrels, tmp_path, cutoffs=(10,))["mean"]
+    # Condensed ideal = just NCT1 -> NCT1 ranked #1 is perfect.
+    assert mean["ndcg@10"] == pytest.approx(1.0)
+    # Full ideal = [NCT1, NCT2] both eligible; DCG only credits NCT1 at rank 1.
+    disc1, disc2 = 1 / math.log2(2), 1 / math.log2(3)
+    assert mean["ndcg_full@10"] == pytest.approx(disc1 / (disc1 + disc2))
+    assert mean["ndcg_full@10"] < mean["ndcg@10"]  # recall-aware penalizes the missing relevant
+
+
+def test_evaluate_precision_is_condensed_to_judged_pool(tmp_path):
+    """Unjudged trials are dropped before the P@10 cutoff (condensed), matching nDCG. Ten
+    unjudged trials sit ahead of the two judged relevant ones: raw P@10 would see only the
+    unjudged block (0.0); condensed skips them so both relevant trials count."""
+    q = "trec-1"
+    pdir = tmp_path / q
+    pdir.mkdir()
+    ranked = [{"TrialID": f"NCTX{i}", "Score": 2.0 - i * 0.01} for i in range(10)]
+    ranked += [{"TrialID": "NCT1", "Score": 0.5}, {"TrialID": "NCT2", "Score": 0.4}]
+    (pdir / "ranked_trials.json").write_text(json.dumps({"RankedTrials": ranked}))
+    (pdir / "nct_ids.txt").write_text("\n".join(r["TrialID"] for r in ranked) + "\n")
+    qrels = {q: {"NCT1": 2, "NCT2": 1}}  # the NCTX* trials are unjudged
+    mean = evaluate(qrels, tmp_path, cutoffs=(10,))["mean"]
+    # Condensed list is [NCT1, NCT2]; both relevant over the k=10 cutoff -> 2/10.
+    assert mean["P@10(rel>=1)"] == pytest.approx(2 / 10)  # raw would be 0/10
+    assert mean["P@10(eligible)"] == pytest.approx(1 / 10)  # only NCT1 is grade 2
+    assert mean["graded_P@10"] == pytest.approx((2 + 1) / (10 * 2))  # raw would be 0

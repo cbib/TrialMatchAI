@@ -60,11 +60,21 @@ def ndcg_at_k(
     score_of: Mapping[str, float],
     gain_of: Mapping[str, float],
     k: int,
+    *,
+    ideal_gains: Sequence[float] | None = None,
 ) -> float:
-    """Tie-aware nDCG@k. ``ordered_ids`` should be the condensed (labeled) list."""
+    """Tie-aware nDCG@k. ``ordered_ids`` should be the condensed (labeled) list.
+
+    ``ideal_gains`` chooses the IDCG basis. When ``None`` (default) the ideal is built from
+    the gains of ``ordered_ids`` — i.e. the judged-AND-ranked trials, making nDCG
+    recall-independent (it only grades how well the ranked judged trials are ordered). Pass
+    the gains of the FULL judged pool to get the recall-aware ``trec_eval``-style nDCG, where
+    a relevant trial that was never ranked stays in the ideal and lowers the score.
+    """
     if k <= 0 or not ordered_ids:
         return 0.0
-    idcg = idcg_at_k([gain_of.get(d, 0.0) for d in ordered_ids], k)
+    gains = ideal_gains if ideal_gains is not None else [gain_of.get(d, 0.0) for d in ordered_ids]
+    idcg = idcg_at_k(gains, k)
     if idcg <= 0:
         return 0.0
     return tie_aware_dcg_at_k(ordered_ids, score_of, gain_of, k) / idcg
@@ -101,7 +111,15 @@ def condensed_ndcg(
     score_of: Mapping[str, float],
     grade_of: Mapping[str, int],
     cutoffs: Sequence[int],
+    *,
+    full_ideal: bool = False,
 ) -> Dict[int, float]:
-    """Tie-aware nDCG@k per cutoff, condensed to the judged trials (those in ``grade_of``)."""
+    """Tie-aware nDCG@k per cutoff. The DCG numerator is always condensed to the judged
+    trials (those in ``grade_of``), so unjudged trials never count. ``full_ideal`` selects the
+    IDCG basis: ``False`` (default) normalizes by the ideal over judged-AND-ranked trials
+    (recall-independent); ``True`` normalizes by the ideal over the FULL judged pool
+    (recall-aware, ``trec_eval``-style) so unretrieved relevant trials lower the score.
+    """
     condensed = [nid for nid in ranked_ids if nid in grade_of]
-    return {k: ndcg_at_k(condensed, score_of, grade_of, k) for k in cutoffs}
+    ideal = [float(g) for g in grade_of.values()] if full_ideal else None
+    return {k: ndcg_at_k(condensed, score_of, grade_of, k, ideal_gains=ideal) for k in cutoffs}
