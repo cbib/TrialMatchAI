@@ -44,12 +44,6 @@ system (“paper”) and than **TrialGPT** (Jin et al., *Nature Communications* 
   <img alt="Clinical-trial ranking performance on TREC CT 2021+2022 (pooled): nDCG@10 and P@10 for TrialMatchAI (this release) vs the paper vs TrialGPT" src="docs/assets/performance_light.png" width="760">
 </picture>
 
-| System | nDCG@10 | P@10 |
-| --- | :---: | :---: |
-| **TrialMatchAI (this release)** | **0.775** | **0.746** |
-| TrialMatchAI (paper) | 0.713 | 0.688 |
-| TrialGPT (Jin et al. 2024) | 0.728 | 0.669 |
-
 <sub>nDCG@10 and graded P@10 pooled over TREC Clinical Trials 2021 + 2022 (125 topics),
 computed on judged trials. **This release** and the **paper** are evaluated with the
 identical ranking metric on the same topics, so that comparison is exact; **TrialGPT** is
