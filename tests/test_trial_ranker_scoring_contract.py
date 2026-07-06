@@ -1,8 +1,9 @@
 """Contract tests for trial_ranker.score_trial (audit finding C1, PR1).
 
 A Violated exclusion hard-disqualifies a trial: it must rank strictly below every
-trial that violates no exclusion. Eligible trials are scored in [0, 1] by the
-fraction of decided inclusion criteria (Met or Not Met) that are Met.
+trial that violates no exclusion. Eligible trials are scored in [0, 1] by the Met
+fraction of the counted inclusion criteria — Met=1, Not Met=0, Unclear at partial
+credit; Irrelevant is excluded.
 See REFACTOR_PLAN.md (PR1).
 """
 
@@ -58,8 +59,10 @@ def test_eligible_scored_by_met_fraction():
     ) == 1.0
 
 
-def test_unclear_and_irrelevant_inclusions_are_ignored():
-    # Only Met/Not Met count toward the fraction; Unclear/Irrelevant are excluded.
+def test_unclear_counts_as_partial_credit_irrelevant_excluded():
+    # Unclear is counted at 0.5 (it dominates the label mix, so dropping it collapsed the
+    # band); Irrelevant (criterion does not apply) is excluded. Met=1, Unclear=0.5 over the
+    # two counted criteria -> (1 + 0.5) / 2 = 0.75.
     trial = {
         "Inclusion_Criteria_Evaluation": [
             {"Classification": "Met"},
@@ -68,7 +71,9 @@ def test_unclear_and_irrelevant_inclusions_are_ignored():
         ],
         "Exclusion_Criteria_Evaluation": [],
     }
-    assert score_trial(trial) == 1.0
+    assert score_trial(trial) == 0.75
+    # A trial with only Irrelevant inclusions has nothing to score -> 0.0.
+    assert score_trial({"Inclusion_Criteria_Evaluation": [{"Classification": "Irrelevant"}]}) == 0.0
 
 
 def test_violated_exclusion_ranks_below_eligible():

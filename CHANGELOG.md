@@ -4,6 +4,18 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- **Eligibility scoring credits "Unclear" criteria instead of dropping them.** The coarse
+  eligibility band scored only the Met/Not-Met inclusion criteria and discarded "Unclear"
+  entirely. Unclear is the dominant classification, so discarding it collapsed the band — a
+  mostly-Unclear trial shared a band with a genuinely all-Met one, and the applicability
+  reranker then broke those ties, letting merely-relevant trials outrank eligible ones near
+  the top. An Unclear inclusion criterion now counts at 0.5 (Met=1, Not Met=0), so the band
+  separates all-Met trials from Unclear-heavy ones. "Irrelevant" (criterion does not apply to
+  the patient) is still excluded, and a Violated exclusion still hard-disqualifies.
+
 ## [0.4.0] — 2026-07-05
 
 ### Added

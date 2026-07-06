@@ -39,7 +39,11 @@ def load_trial_data(
 # inclusion criteria (Met/Not Met) that are Met.
 DISQUALIFIED_SCORE = -1.0
 
-_DECIDED_INCLUSION = {"met", "not met"}
+# "Unclear" (patient info insufficient to decide a criterion) is the dominant classification.
+# Counting it at partial credit — rather than dropping it — keeps a mostly-Unclear trial from
+# sharing a band with a genuinely all-Met one, which is what let merely-relevant trials
+# outrank eligible ones at the top. "Irrelevant" (criterion does not apply) is still excluded.
+_UNCLEAR_CREDIT = 0.5
 
 # Classifications vary in case/markdown/punctuation ("**Violated**", "Met."); normalize
 # so a disqualifying exclusion is never missed on a formatting variant.
@@ -75,12 +79,22 @@ def score_trial(trial: Dict) -> float:
     if "violated" in exclusion:
         return DISQUALIFIED_SCORE
 
-    # Eligible: score by the fraction of decided inclusion criteria that are Met.
-    decided = [c for c in inclusion if c in _DECIDED_INCLUSION]
-    if not decided:
+    # Eligible: Met fraction of the counted inclusion criteria. "Met"=1, "Not Met"=0, and
+    # "Unclear"=_UNCLEAR_CREDIT are counted; "Irrelevant" (criterion does not apply) is excluded.
+    numerator = 0.0
+    denominator = 0
+    for classification in inclusion:
+        if classification == "met":
+            numerator += 1.0
+            denominator += 1
+        elif classification == "not met":
+            denominator += 1
+        elif classification == "unclear":
+            numerator += _UNCLEAR_CREDIT
+            denominator += 1
+    if denominator == 0:
         return 0.0
-    met = sum(1 for c in decided if c == "met")
-    return met / len(decided)
+    return numerator / denominator
 
 
 # Fraction of the gap to the next eligibility band the normalized reranker score may
