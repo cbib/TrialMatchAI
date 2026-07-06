@@ -4,7 +4,7 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.1] — 2026-07-06
 
 ### Added
 - **`trialmatchai trec --rerank`** re-ranks a finished run from its cached chain-of-thought
