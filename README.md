@@ -33,6 +33,42 @@ do work that is not already done, and resume cleanly after an interruption.
 
 Trials, models, indexes, and results all live on your own machine.
 
+## Performance
+
+On the official **TREC Clinical Trials** benchmark (2021 + 2022, 125 topics pooled),
+this release ranks eligible trials more accurately than the published TrialMatchAI
+system (“paper”) and than **TrialGPT** (Jin et al., *Nature Communications* 2024):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance_dark.png">
+  <img alt="Clinical-trial ranking performance on TREC CT 2021+2022 (pooled): nDCG@10 and P@10 for TrialMatchAI (this release) vs the paper vs TrialGPT" src="docs/assets/performance_light.png" width="760">
+</picture>
+
+| System | nDCG@10 | P@10 |
+| --- | :---: | :---: |
+| **TrialMatchAI (this release)** | **0.775** | **0.746** |
+| TrialMatchAI (paper) | 0.713 | 0.688 |
+| TrialGPT (Jin et al. 2024) | 0.728 | 0.669 |
+
+<sub>nDCG@10 and graded P@10 pooled over TREC Clinical Trials 2021 + 2022 (125 topics),
+computed on judged trials. **This release** and the **paper** are evaluated with the
+identical ranking metric on the same topics, so that comparison is exact; **TrialGPT** is
+the value reported in Jin et al. (2024), whose evaluation additionally includes the SIGIR
+2016 cohort, so it is an indicative reference rather than a matched run. Reproduce ours with
+`trialmatchai trec --tracks "21 22"`.</sub>
+
+**Recall** — the share of relevant trials surfaced by rank *k* — is on par at shallow
+cut-offs and pulls ahead at deeper ones, reflecting this release's retrieval/shortlist fusion:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/recall_dark.png">
+  <img alt="Recall@k on TREC CT 2021+2022 (pooled): TrialMatchAI this release vs the paper" src="docs/assets/recall_light.png" width="760">
+</picture>
+
+<sub>TREC-standard recall@k (relevant = qrels grade ≥ 1) over each system's ranked output,
+pooled over TREC CT 2021 + 2022. TrialGPT does not report comparable per-cut-off recall, so
+it is omitted here.</sub>
+
 ## Requirements
 
 - Python 3.11 (`pyproject.toml` requires `>=3.11,<3.12`)
