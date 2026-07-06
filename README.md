@@ -58,18 +58,18 @@ the value reported in Jin et al. (2024), whose evaluation additionally includes 
 `trialmatchai trec --tracks "21 22"`.</sub>
 
 **Retrieval recall** — the share of **eligible** trials (qrels grade 2) the first-level search
-surfaces among its top-*k* candidates — tracks the paper early and pulls ahead past ~500,
-reaching 0.86 at k = 1000:
+surfaces among its top-*k* candidates — is on par with the paper early and pulls ahead at
+depth, shown per track:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/recall_dark.png">
-  <img alt="First-level retrieval recall@k (100–1000) of eligible trials on TREC CT 2021+2022 (pooled): TrialMatchAI this release vs the paper" src="docs/assets/recall_light.png" width="760">
+  <img alt="First-level retrieval recall@k (100–1000) of eligible trials, per track (TREC CT 2021 and 2022): TrialMatchAI this release vs the paper" src="docs/assets/recall_light.png" width="880">
 </picture>
 
 <sub>TREC-standard recall@k over **eligible** trials (qrels grade 2) for each system's first-level
-retrieval, pooled over TREC CT 2021 + 2022 (~26k-trial candidate pool). The paper's stored
-first-level lists end at ~800 candidates, so its recall plateaus beyond that. TrialGPT does
-not report comparable per-cut-off recall, so it is omitted.</sub>
+retrieval, shown per track (TREC CT 2021 and 2022; ~26k-trial candidate pool). The paper's
+stored first-level lists end at ~800 candidates, so its recall plateaus beyond that. TrialGPT
+does not report comparable per-cut-off recall, so it is omitted.</sub>
 
 ## Requirements
 
