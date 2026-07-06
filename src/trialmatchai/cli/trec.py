@@ -46,6 +46,12 @@ def main() -> int:
     )
     parser.add_argument("--reindex", action="store_true", help="Rebuild indexes even if present.")
     parser.add_argument("--rematch", action="store_true", help="Re-match patients even if results exist.")
+    parser.add_argument(
+        "--rerank",
+        action="store_true",
+        help="Re-rank finished runs from cached CoT outputs and re-evaluate (no build/match, "
+        "no GPU); refreshes ranked_trials.json + evaluation_metrics.json after a ranking change.",
+    )
     parser.add_argument("--no-eval", action="store_true", help="Skip recall@k evaluation against qrels.")
     args = parser.parse_args()
 
@@ -61,6 +67,7 @@ def main() -> int:
         evaluate=not args.no_eval,
         force_reindex=args.reindex,
         force_rematch=args.rematch,
+        rerank=args.rerank,
     )
 
 

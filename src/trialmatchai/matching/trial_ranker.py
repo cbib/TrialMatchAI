@@ -166,3 +166,38 @@ def save_ranked_trials(ranked_trials: List[Dict], output_file: str):
     # patient, so a failed final write must surface to retry it (not mark it done).
     write_json_file({"RankedTrials": ranked_trials}, output_file)
     logger.info(f"Ranked trials saved to {output_file}")
+
+
+def rerank_patient_dir(patient_dir: str) -> int:
+    """Re-rank one patient's cached chain-of-thought outputs with the current scoring,
+    overwriting ``ranked_trials.json`` in place. No model inference — it reuses the stored
+    per-trial ``NCT*.json`` eligibility outputs plus the reranker/first-level scores already
+    recorded in ``ranked_trials.json``, so a ranking-logic change can be re-applied to a
+    finished run without re-matching. Returns the number of trials ranked (0 = skipped).
+    """
+    ranked_path = os.path.join(patient_dir, "ranked_trials.json")
+    if not os.path.exists(ranked_path):
+        return 0
+    existing = (read_json_file(ranked_path) or {}).get("RankedTrials", [])
+    shortlist_ids = {r["TrialID"] for r in existing if isinstance(r, dict) and r.get("TrialID")}
+    if not shortlist_ids:
+        return 0
+    first_level = {
+        r["TrialID"]: float(r.get("FirstLevelScore", 0.0))
+        for r in existing
+        if isinstance(r, dict) and r.get("TrialID")
+    }
+    second_level = {
+        r["TrialID"]: float(r.get("RerankerScore", 0.0))
+        for r in existing
+        if isinstance(r, dict) and r.get("TrialID")
+    }
+    trial_data = load_trial_data(patient_dir, allowed_ids=shortlist_ids)
+    if not trial_data:
+        # No per-trial CoT outputs to re-score (e.g. files absent); leave the run untouched.
+        return 0
+    ranked = rank_trials(
+        trial_data, first_level_scores=first_level, second_level_scores=second_level
+    )
+    save_ranked_trials(ranked, ranked_path)
+    return len(ranked)

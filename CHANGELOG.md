@@ -6,6 +6,15 @@ All notable changes to TrialMatchAI are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **`trialmatchai trec --rerank`** re-ranks a finished run from its cached chain-of-thought
+  outputs and re-evaluates against the official qrels — no build, match, or model inference.
+  It reuses the stored per-trial `NCT*.json` eligibility outputs plus the reranker/first-level
+  scores already in `ranked_trials.json`, so a ranking-logic change (e.g. the Unclear-credit
+  change below) can be re-applied to existing results in seconds instead of re-running the GPU
+  pipeline; it rewrites each patient's `ranked_trials.json` and the track's
+  `evaluation_metrics.json`.
+
 ### Changed
 - **Eligibility scoring credits "Unclear" criteria instead of dropping them.** The coarse
   eligibility band scored only the Met/Not-Met inclusion criteria and discarded "Unclear"

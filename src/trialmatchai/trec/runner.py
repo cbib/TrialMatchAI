@@ -19,6 +19,7 @@ from trialmatchai.orchestration import (
     free_models,
     run_matching,
 )
+from trialmatchai.matching.trial_ranker import rerank_patient_dir
 from trialmatchai.trec import qrels as qrels_mod
 from trialmatchai.trec.corpus import TrackSpec, resolve_tracks
 from trialmatchai.trec.topics import import_topics
@@ -52,6 +53,26 @@ def _track_config(base_config: Dict[str, Any], spec: TrackSpec) -> Dict[str, Any
     return cfg
 
 
+def _rerank_track(spec: TrackSpec, *, evaluate: bool = True) -> None:
+    """Re-rank every finished patient in a track's results dir from cached CoT outputs,
+    then re-evaluate against the official qrels. No model inference."""
+    output_dir = Path(spec.output_dir)
+    if not output_dir.is_dir():
+        logger.warning("Rerank: results dir missing for track %s (%s)", spec.key, output_dir)
+        return
+    reranked = 0
+    for patient_dir in sorted(p for p in output_dir.iterdir() if p.is_dir()):
+        if rerank_patient_dir(str(patient_dir)) > 0:
+            reranked += 1
+    logger.info("Track %s: re-ranked %s patients from cached CoT.", spec.key, reranked)
+    if evaluate:
+        qrels_path = qrels_mod.download_qrels(spec.key, spec.trec_dir / "qrels")
+        qrels = qrels_mod.parse_qrels(qrels_path, spec.id_prefix)
+        metrics = qrels_mod.evaluate(qrels, output_dir)
+        write_json_file(metrics, str(output_dir / "evaluation_metrics.json"))
+        logger.info("Track %s metrics (re-ranked): %s", spec.key, metrics["mean"])
+
+
 def run_tracks(
     track_keys: list[str],
     *,
@@ -64,6 +85,7 @@ def run_tracks(
     evaluate: bool = True,
     force_reindex: bool = False,
     force_rematch: bool = False,
+    rerank: bool = False,
 ) -> int:
     """Run the TREC e2e for each track. Returns a process exit code.
 
@@ -83,6 +105,17 @@ def run_tracks(
     for spec in specs:
         logger.info("================ TREC track %s ================", spec.key)
         cfg = _track_config(base_config, spec)
+
+        # Re-rank only: re-apply the current ranking logic to a finished run's cached CoT
+        # outputs (no build / index / match / model inference) and re-evaluate. Used to
+        # refresh ranked_trials.json + evaluation_metrics.json after a ranking-logic change.
+        if rerank:
+            try:
+                _rerank_track(spec, evaluate=evaluate)
+            except Exception:
+                logger.exception("Rerank failed for track %s", spec.key)
+                failures += 1
+            continue
 
         # 1) Acquire official topics -> canonical profiles + summaries (idempotent).
         try:

@@ -7,9 +7,12 @@ credit; Irrelevant is excluded.
 See REFACTOR_PLAN.md (PR1).
 """
 
+import json
+
 from trialmatchai.matching.trial_ranker import (
     DISQUALIFIED_SCORE,
     rank_trials,
+    rerank_patient_dir,
     score_trial,
 )
 
@@ -87,6 +90,32 @@ def test_disqualified_ranks_below_even_a_zero_score_eligible_trial():
     ranked = rank_trials([TRIAL_VIOLATED_EXCLUSION, TRIAL_ALL_NOT_MET])
     assert ranked[0]["TrialID"] == "NOT_MET"
     assert ranked[-1]["TrialID"] == "VIOLATED"
+
+
+def test_rerank_patient_dir_reapplies_current_scoring_from_cached_cot(tmp_path):
+    """rerank_patient_dir re-ranks a finished run's cached CoT outputs with the current
+    scoring, no inference. Here the pre-existing order puts an Unclear-heavy trial first
+    (higher reranker score); after re-ranking, the genuinely all-Met trial leads."""
+    (tmp_path / "ranked_trials.json").write_text(json.dumps({"RankedTrials": [
+        {"TrialID": "NCT_UNCLEAR", "Score": 1.0, "RerankerScore": 0.9, "FirstLevelScore": 0.1},
+        {"TrialID": "NCT_ALLMET", "Score": 0.9, "RerankerScore": 0.5, "FirstLevelScore": 0.1},
+    ]}))
+    (tmp_path / "NCT_ALLMET.json").write_text(json.dumps({
+        "Inclusion_Criteria_Evaluation": [{"Classification": "Met"}, {"Classification": "Met"}],
+        "Exclusion_Criteria_Evaluation": [],
+    }))
+    (tmp_path / "NCT_UNCLEAR.json").write_text(json.dumps({
+        "Inclusion_Criteria_Evaluation": [
+            {"Classification": "Met"}, {"Classification": "Unclear"}, {"Classification": "Unclear"},
+        ],
+        "Exclusion_Criteria_Evaluation": [],
+    }))
+    assert rerank_patient_dir(str(tmp_path)) == 2
+    ranked = json.loads((tmp_path / "ranked_trials.json").read_text())["RankedTrials"]
+    assert ranked[0]["TrialID"] == "NCT_ALLMET"      # all-Met (band 1.0) now leads
+    assert ranked[0]["EligibilityScore"] == 1.0
+    # A dir with no ranked_trials.json is a no-op (returns 0, writes nothing).
+    assert rerank_patient_dir(str(tmp_path / "nonexistent")) == 0
 
 
 def test_score_trial_normalizes_classification_variants():
