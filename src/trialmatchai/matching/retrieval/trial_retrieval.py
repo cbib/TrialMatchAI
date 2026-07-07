@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -228,8 +230,16 @@ class ClinicalTrialSearch:
 
         channel_hits = []
         failed_channels = 0
-        for channel in query_plan.channels:
-            embeddings = self._embed_terms(channel.terms, mode)
+        # Embed each channel's terms up front on the (single) GPU embedder -- kept sequential
+        # because concurrent forward passes on one model are not thread-safe. Embedding is cheap
+        # (~0.2s total); the cost is the per-channel search below.
+        prepared = [
+            (channel, self._embed_terms(channel.terms, mode))
+            for channel in query_plan.channels
+        ]
+
+        def _search_channel(item):
+            channel, embeddings = item
             try:
                 trials, scores = self.search_backend.search_trials(
                     primary_terms=channel.terms,
@@ -243,11 +253,34 @@ class ClinicalTrialSearch:
                     vector_score_threshold=vector_score_threshold,
                     search_mode=mode,
                 )
-            except Exception:
+                return channel, trials, scores, None
+            except Exception as exc:  # captured, re-raised into the caller thread's result
+                return channel, None, None, exc
+
+        # The per-channel searches are independent and dominated by LanceDB's native FTS/vector
+        # scan and numpy re-ranking, both of which release the GIL -- so a thread pool turns the
+        # ~21 sequential channel searches into a concurrent fan-out (the prior sequential loop was
+        # ~5s x 21 = the whole first-level latency). Reads on a LanceDB table are concurrency-safe.
+        if len(prepared) > 1:
+            # Respect the cgroup CPU allotment (SLURM/containers) rather than the whole machine:
+            # sched_getaffinity reflects --cpus-per-task; os.cpu_count() would oversubscribe.
+            try:
+                cpus = len(os.sched_getaffinity(0))
+            except AttributeError:  # non-Linux fallback
+                cpus = os.cpu_count() or 4
+            workers = min(len(prepared), max(1, cpus))
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                results = list(executor.map(_search_channel, prepared))
+        else:
+            results = [_search_channel(item) for item in prepared]
+
+        for channel, trials, scores, exc in results:
+            if exc is not None:
                 failed_channels += 1
-                logger.exception(
-                    "First-level channel search failed for %s; skipping channel.",
+                logger.warning(
+                    "First-level channel search failed for %s; skipping channel: %s",
                     channel.kind,
+                    exc,
                 )
                 continue
             if trials:

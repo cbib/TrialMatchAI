@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
+import numpy as np
+
 from trialmatchai.utils.logging_config import setup_logging
 from trialmatchai.utils.text import flatten_text
 
@@ -757,15 +759,22 @@ def _vector_score(
 
 
 def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
-    size = min(len(left), len(right))
+    # Vectorized with numpy: the first-level re-ranker calls this millions of times per patient
+    # (every candidate row x every vector field x every query-term vector), so a pure-Python
+    # 1024-dim loop dominated retrieval latency (~5s/channel). numpy's BLAS dot is ~100x faster
+    # and numerically equivalent to the prior sequential sum (differences ~1e-15, rank-stable).
+    a = np.asarray(left, dtype=np.float64).ravel()
+    b = np.asarray(right, dtype=np.float64).ravel()
+    size = min(a.shape[0], b.shape[0])
     if size == 0:
         return 0.0
-    dot = sum(float(left[i]) * float(right[i]) for i in range(size))
-    left_norm = math.sqrt(sum(float(left[i]) ** 2 for i in range(size)))
-    right_norm = math.sqrt(sum(float(right[i]) ** 2 for i in range(size)))
+    a = a[:size]
+    b = b[:size]
+    left_norm = math.sqrt(float(a @ a))
+    right_norm = math.sqrt(float(b @ b))
     if left_norm == 0 or right_norm == 0:
         return 0.0
-    return dot / (left_norm * right_norm)
+    return float(a @ b) / (left_norm * right_norm)
 
 
 def _lexical_score(query: str, text: str) -> float:
