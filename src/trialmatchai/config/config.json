@@ -100,7 +100,7 @@
     "first_level": {
       "enabled": true,
       "max_trials": 1000,
-      "per_channel_size": 300,
+      "per_channel_size": 600,
       "fusion": "rrf",
       "rrf_k": 60,
       "vector_score_threshold": 0.0,
