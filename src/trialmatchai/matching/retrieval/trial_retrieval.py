@@ -134,7 +134,10 @@ class ClinicalTrialSearch:
         mode = (search_mode or "hybrid").lower()
         embeddings: Dict[str, List[float]] = {}
         if mode in {"vector", "hybrid"} and self.embedder is not None:
-            vectors = self.embedder.embed_texts(all_terms)
+            # Query-side encoder: for an asymmetric embedder (e.g. MedCPT) this is the query
+            # encoder; symmetric embedders route embed_queries back to the single model.
+            embed_queries = getattr(self.embedder, "embed_queries", self.embedder.embed_texts)
+            vectors = embed_queries(all_terms)
             embeddings = dict(zip(all_terms, vectors))
             if not embeddings:
                 logger.warning(
@@ -310,7 +313,10 @@ class ClinicalTrialSearch:
     def _embed_terms(self, terms: list[str], mode: str) -> dict[str, list[float]]:
         if mode not in {"vector", "hybrid"} or self.embedder is None:
             return {}
-        vectors = self.embedder.embed_texts(terms)
+        # Query-side encoder (asymmetric embedders route to their query encoder; symmetric
+        # embedders fall back to the single model).
+        embed_queries = getattr(self.embedder, "embed_queries", self.embedder.embed_texts)
+        vectors = embed_queries(terms)
         return dict(zip(terms, vectors))
 
 

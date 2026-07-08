@@ -89,6 +89,11 @@ class SearchBackendSettings(BaseModel):
     trials_table: str = "trials"
     criteria_table: str = "criteria"
     candidate_limit: int = Field(1000, ge=1)
+    # Vector similarity for the ANN index and re-ranker. "cosine" (default) suits normalized
+    # embedders (bge-m3); "dot" suits inner-product dual-encoders (e.g. MedCPT).
+    vector_metric: Literal["cosine", "dot"] = "cosine"
+    # Hybrid blend of the first-level score: (1 - vector_weight) * text + vector_weight * vector.
+    vector_weight: float = Field(0.5, ge=0.0, le=1.0)
 
 
 class RegistrySettings(BaseModel):
@@ -108,10 +113,14 @@ class RegistrySettings(BaseModel):
 class EmbedderSettings(BaseModel):
     backend: Literal["hf", "hashing"] = "hf"
     model_name: str = "BAAI/bge-m3"
+    # A distinct query_model_name selects an asymmetric dual-encoder (separate document/query
+    # encoders sharing one space, e.g. MedCPT's article/query encoders); None = symmetric.
+    query_model_name: str | None = None
     revision: str | None = None
     trust_remote_code: bool = False
     pooling: str = "mean"
     max_length: int = Field(512, ge=1)
+    query_max_length: int | None = Field(default=None, ge=1)
     batch_size: int = Field(32, ge=1)
     use_gpu: bool = True
     use_fp16: bool = False

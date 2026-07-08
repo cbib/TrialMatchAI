@@ -190,6 +190,8 @@ class LanceDBSearchBackend:
         trials_table: str = "trials",
         criteria_table: str = "criteria",
         candidate_limit: int = 1000,
+        vector_metric: str = "cosine",
+        vector_weight: float = 0.5,
     ) -> None:
         try:
             import lancedb  # type: ignore
@@ -202,6 +204,19 @@ class LanceDBSearchBackend:
         self.trials_table = trials_table
         self.criteria_table = criteria_table
         self.candidate_limit = candidate_limit
+        # "cosine" (default) or "dot" -- the similarity used by both the ANN index and the Python
+        # re-ranker. "dot" suits dual-encoders trained for inner-product retrieval (e.g. MedCPT).
+        # Validated here (not just in pydantic settings) because from_config reads a raw dict: an
+        # unknown metric would otherwise build that ANN index but fall open to cosine in the
+        # re-ranker, silently desyncing the two.
+        if vector_metric not in {"cosine", "dot"}:
+            raise ValueError(f"vector_metric must be 'cosine' or 'dot', got {vector_metric!r}")
+        self.vector_metric = vector_metric
+        # Hybrid blend: final score = (1 - vector_weight) * text + vector_weight * vector.
+        # 0.5 is the historical default; raise to lean on the embedder, lower to lean on BM25.
+        if not 0.0 <= vector_weight <= 1.0:
+            raise ValueError(f"vector_weight must be in [0, 1], got {vector_weight}")
+        self.vector_weight = float(vector_weight)
         # Do NOT create db_path here: a read-only backend (e.g. healthcheck) must not fabricate
         # an empty DB and mask a never-built index. _write_rows creates the dir when it indexes.
         self.db = lancedb.connect(str(self.db_path))
@@ -217,6 +232,8 @@ class LanceDBSearchBackend:
             trials_table=search_cfg.get("trials_table", "trials"),
             criteria_table=search_cfg.get("criteria_table", "criteria"),
             candidate_limit=int(search_cfg.get("candidate_limit", 1000)),
+            vector_metric=search_cfg.get("vector_metric", "cosine"),
+            vector_weight=float(search_cfg.get("vector_weight", 0.5)),
         )
 
     def health(self, *, require_tables: bool = False) -> list[str]:
@@ -253,11 +270,12 @@ class LanceDBSearchBackend:
         docs: Sequence[Mapping[str, Any]],
         *,
         recreate: bool = True,
+        metric: str | None = None,
     ) -> int:
         rows = [build_trial_record(doc) for doc in docs]
         table = self._write_rows(self.trials_table, rows, recreate=recreate)
         _create_fts_index(table, "search_text")
-        _create_vector_index(table, "search_vector")
+        _create_vector_index(table, "search_vector", metric=metric or self.vector_metric)
         return len(rows)
 
     def index_criteria(
@@ -284,7 +302,7 @@ class LanceDBSearchBackend:
                 self._delete_where(self.trials_table, _nct_where(nct_ids))
         table = self._write_rows(self.trials_table, rows, recreate=False)
         _create_fts_index(table, "search_text")
-        _create_vector_index(table, "search_vector")
+        _create_vector_index(table, "search_vector", metric=self.vector_metric)
         return len(rows)
 
     def replace_criteria_for_trials(
@@ -348,6 +366,8 @@ class LanceDBSearchBackend:
             size=size,
             vector_score_threshold=vector_score_threshold,
             search_mode=search_mode,
+            vector_metric=self.vector_metric,
+            vector_weight=self.vector_weight,
         )
         return [hit.source for hit in hits], [hit.score for hit in hits]
 
@@ -483,6 +503,12 @@ class LanceDBSearchBackend:
     ) -> list[dict[str, Any]]:
         try:
             search = table.search(list(vector), vector_column_name=vector_column)
+            # Pin the distance metric so candidate generation matches the re-ranker (and so a
+            # brute-force fallback on a small corpus doesn't default to L2 for a dot index).
+            try:
+                search = search.metric(self.vector_metric)
+            except Exception:
+                pass  # older LanceDB: rely on the index's own metric
             if where:
                 search = search.where(where)
             return list(search.limit(limit).to_list())
@@ -566,11 +592,13 @@ def _rank_trial_rows(
     size: int,
     vector_score_threshold: float,
     search_mode: str,
+    vector_metric: str = "cosine",
+    vector_weight: float = 0.5,
 ) -> list[SearchHit]:
     mode = (search_mode or "hybrid").lower()
     bm25_norm = _bm25_norms(rows)
-    hits: list[SearchHit] = []
-    for raw in rows:
+
+    def scored_row(raw: Mapping[str, Any]) -> tuple[dict[str, Any], float, float] | None:
         # Index rows already carry derived fields; rebuild only for raw docs (e.g. in-memory).
         row = dict(raw) if "search_text" in raw else build_trial_record(raw)
         if not _trial_passes_filters(
@@ -580,7 +608,7 @@ def _rank_trial_rows(
             overall_status=overall_status,
             pre_selected_nct_ids=pre_selected_nct_ids,
         ):
-            continue
+            return None
         text_score = _weighted_text_score(row, primary_terms, TRIAL_TEXT_WEIGHTS)
         if other_terms:
             text_score = max(
@@ -588,15 +616,44 @@ def _rank_trial_rows(
                 0.75 * _weighted_text_score(row, other_terms, TRIAL_TEXT_WEIGHTS),
             )
         text_score = _fuse_text(bm25_norm.get(_row_key(raw)), text_score)
-        vector_score = _trial_vector_score(row, primary_terms, other_terms, embeddings)
+        vector_raw = _trial_vector_score(row, primary_terms, other_terms, embeddings, vector_metric)
+        return row, text_score, vector_raw
+
+    if vector_metric == "dot":
+        # Dot products are unbounded, so buffer them and min-max normalize across the batch before
+        # blending with the [0,1] text score (otherwise the larger scale would dominate the blend).
+        prelim = [s for raw in rows if (s := scored_row(raw)) is not None]
+        normalize_vector = _batch_vector_normalizer([v for _, _, v in prelim])
+        scored = ((row, text, normalize_vector(vraw)) for row, text, vraw in prelim)
+    else:
+        # Cosine (default): field scores are already in [0,1], so a single pass with no per-batch
+        # buffering -- behaviour is identical to the pre-metric ranker.
+        scored = (s for raw in rows if (s := scored_row(raw)) is not None)
+
+    hits: list[SearchHit] = []
+    for row, text_score, vector_score in scored:
         if mode in {"vector", "hybrid"} and vector_score < vector_score_threshold:
             continue
-        score = _combine_scores(mode, text_score, vector_score)
+        score = _combine_scores(mode, text_score, vector_score, vector_weight)
         if score <= 0:
             continue
         hits.append(SearchHit(source=row, score=score))
     hits.sort(key=lambda hit: hit.score, reverse=True)
     return hits[:size]
+
+
+def _batch_vector_normalizer(values: Sequence[float]):
+    """Min-max normalize raw dot-product scores to [0,1] across the candidate batch so they blend
+    with the [0,1] text score. A zero-span batch (all-equal, e.g. no query vector matched any
+    field) carries no discriminating signal, so map it to a neutral 0.0 rather than inflating
+    every candidate to the batch maximum."""
+    if not values:
+        return lambda v: 0.0
+    low, high = min(values), max(values)
+    span = high - low
+    if span <= 0:
+        return lambda v: 0.0
+    return lambda v: (v - low) / span
 
 
 def _rank_criteria_rows(
@@ -619,6 +676,10 @@ def _rank_criteria_rows(
     )
     bm25_norm = _bm25_norms(rows)
     hits: list[SearchHit] = []
+    # NOTE: second-level criteria ranking intentionally stays on cosine + a 0.5 text/vector blend.
+    # The vector_metric / vector_weight knobs are wired only into first-level trial retrieval so
+    # far; threading them here (and into index_criteria) is future work. A dot-configured embedder
+    # therefore scores trials with dot but criteria with cosine.
     for raw in rows:
         row = dict(raw) if "search_text" in raw else build_criteria_record(raw)
         if allowed and row.get("nct_id") not in allowed:
@@ -638,12 +699,12 @@ def _rank_criteria_rows(
     return hits[:size]
 
 
-def _combine_scores(mode: str, text_score: float, vector_score: float) -> float:
+def _combine_scores(mode: str, text_score: float, vector_score: float, vector_weight: float = 0.5) -> float:
     if mode == "bm25":
         return text_score
     if mode == "vector":
         return vector_score
-    return 0.5 * text_score + 0.5 * vector_score
+    return (1.0 - vector_weight) * text_score + vector_weight * vector_score
 
 
 def _bm25_norms(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
@@ -712,6 +773,7 @@ def _trial_vector_score(
     primary_terms: Sequence[str],
     other_terms: Sequence[str],
     embeddings: Mapping[str, Sequence[float]],
+    metric: str = "cosine",
 ) -> float:
     primary_vectors = [
         embeddings[term] for term in primary_terms if term in embeddings and embeddings[term]
@@ -725,7 +787,7 @@ def _trial_vector_score(
         field_vector = _clean_vector(row.get(field))
         if not field_vector:
             continue
-        score += weight * _max_vector_score(primary_vectors, field_vector)
+        score += weight * _max_vector_score(primary_vectors, field_vector, metric)
         weight_total += weight
     if other_vectors:
         # Field-weight secondary terms like primary, but fold in at a fixed fraction (not into
@@ -733,27 +795,40 @@ def _trial_vector_score(
         for field, weight in TRIAL_VECTOR_WEIGHTS:
             field_vector = _clean_vector(row.get(field))
             if field_vector:
-                score += SECONDARY_TERM_WEIGHT * weight * _max_vector_score(other_vectors, field_vector)
+                score += SECONDARY_TERM_WEIGHT * weight * _max_vector_score(other_vectors, field_vector, metric)
     if weight_total == 0:
         return 0.0
-    return min(score / weight_total, 1.0)
+    weighted = score / weight_total
+    # Cosine field scores are already in [0,1]; dot products are unbounded and get batch-normalized
+    # by the caller, so don't clamp them here.
+    return weighted if metric == "dot" else min(weighted, 1.0)
 
 
 def _max_vector_score(
     query_vectors: Sequence[Sequence[float]],
     field_vector: Sequence[float],
+    metric: str = "cosine",
 ) -> float:
     if not query_vectors or not field_vector:
         return 0.0
-    return max(_vector_score(vector, field_vector) for vector in query_vectors)
+    return max(_vector_score(vector, field_vector, metric) for vector in query_vectors)
 
 
 def _vector_score(
     left: Sequence[float] | None,
     right: Sequence[float] | None,
+    metric: str = "cosine",
 ) -> float:
     if not left or not right:
         return 0.0
+    if metric == "dot":
+        # Raw inner product -- for dual-encoders trained with dot-product similarity (e.g.
+        # MedCPT), where the embedding magnitude carries relevance that cosine would discard.
+        # Unbounded; _rank_trial_rows min-max normalizes these per batch before blending.
+        a = np.asarray(left, dtype=np.float64).ravel()
+        b = np.asarray(right, dtype=np.float64).ravel()
+        n = min(a.shape[0], b.shape[0])
+        return float(a[:n] @ b[:n]) if n else 0.0
     similarity = _cosine(left, right)
     return max(0.0, min(1.0, (similarity + 1.0) / 2.0))
 
@@ -964,9 +1039,9 @@ def _create_fts_index(table: Any, column: str) -> None:
         logger.warning("Could not create LanceDB FTS index on %s: %s", column, exc)
 
 
-def _create_vector_index(table: Any, column: str) -> None:
+def _create_vector_index(table: Any, column: str, metric: str = "cosine") -> None:
     try:
-        table.create_index(vector_column_name=column, metric="cosine")
+        table.create_index(vector_column_name=column, metric=metric)
     except TypeError:
         try:
             table.create_index(column)

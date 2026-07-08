@@ -51,6 +51,13 @@ class HashingTextEmbedder:
     def embed_texts(self, texts: Sequence[str]) -> List[List[float]]:
         return [self._embed(text) for text in texts if text and text.strip()]
 
+    # Symmetric embedder: documents and queries share the single model.
+    def embed_documents(self, texts: Sequence[str]) -> List[List[float]]:
+        return self.embed_texts(texts)
+
+    def embed_queries(self, texts: Sequence[str]) -> List[List[float]]:
+        return self.embed_texts(texts)
+
     def _embed(self, text: str) -> List[float]:
         vector = [0.0] * self.dimensions
         tokens = re.findall(r"[A-Za-z0-9]+", text.casefold())
@@ -126,6 +133,14 @@ class TextEmbedder:
             vectors.extend(pooled.cpu().tolist())
         return vectors
 
+    # Symmetric embedder: documents and queries share the single model. AsymmetricTextEmbedder
+    # overrides these to route to separate encoders (e.g. MedCPT's article/query encoders).
+    def embed_documents(self, texts: Sequence[str]) -> List[List[float]]:
+        return self.embed_texts(texts)
+
+    def embed_queries(self, texts: Sequence[str]) -> List[List[float]]:
+        return self.embed_texts(texts)
+
     def _pool(self, outputs: Any, attention_mask: Any) -> Any:
         if self.config.pooling == "cls":
             return outputs.last_hidden_state[:, 0, :]
@@ -136,6 +151,49 @@ class TextEmbedder:
         return summed / counts
 
 
+class AsymmetricTextEmbedder:
+    """Dual-encoder embedder (e.g. MedCPT) with separate document and query encoders trained
+    to share one vector space. ``embed_documents``/``embed_queries`` route to the matching
+    encoder; ``embed_texts`` falls back to the document encoder for callers that do not yet
+    distinguish the two sides. Both encoders must emit the same dimension."""
+
+    def __init__(self, doc_config: TextEmbedderConfig, query_config: TextEmbedderConfig):
+        logger.info(
+            "Loading asymmetric embedder: document=%s query=%s",
+            doc_config.model_name,
+            query_config.model_name,
+        )
+        self.document_encoder = TextEmbedder(doc_config)
+        self.query_encoder = TextEmbedder(query_config)
+        self.config = doc_config
+        self.device = self.document_encoder.device
+        # Fail fast if the two encoders don't share a vector space: a mismatched width would
+        # otherwise surface as silently-truncated dot/cosine scores at query time, not an error.
+        doc_dim = len(self.document_encoder.embed_documents(["probe"])[0])
+        query_dim = len(self.query_encoder.embed_queries(["probe"])[0])
+        if doc_dim != query_dim:
+            raise ValueError(
+                "Asymmetric embedder encoders must emit the same dimension: "
+                f"{doc_config.model_name} -> {doc_dim}, {query_config.model_name} -> {query_dim}"
+            )
+
+    def embed_documents(self, texts: Sequence[str]) -> List[List[float]]:
+        return self.document_encoder.embed_texts(texts)
+
+    def embed_queries(self, texts: Sequence[str]) -> List[List[float]]:
+        return self.query_encoder.embed_texts(texts)
+
+    def embed_texts(self, texts: Sequence[str]) -> List[List[float]]:
+        # Neutral default for un-routed callers: treat input as documents.
+        return self.document_encoder.embed_texts(texts)
+
+    def embed_text(self, text: str) -> List[float]:
+        vectors = self.embed_documents([text])
+        if not vectors:
+            raise ValueError("Cannot embed empty text.")
+        return vectors[0]
+
+
 def _batched(items: Sequence[str], batch_size: int) -> Iterable[Sequence[str]]:
     if batch_size <= 0:
         raise ValueError("batch_size must be positive.")
@@ -143,8 +201,11 @@ def _batched(items: Sequence[str], batch_size: int) -> Iterable[Sequence[str]]:
         yield items[i : i + batch_size]
 
 
-def build_embedder(config: dict) -> TextEmbedder:
-    """Construct a TextEmbedder (or HashingTextEmbedder) from a config dict's ``embedder`` section."""
+def build_embedder(
+    config: dict,
+) -> "TextEmbedder | AsymmetricTextEmbedder | HashingTextEmbedder":
+    """Construct an embedder from a config dict's ``embedder`` section: HashingTextEmbedder for the
+    ``hashing`` backend, AsymmetricTextEmbedder when a ``query_model_name`` is set, else TextEmbedder."""
     embedder_cfg = config.get("embedder", {}) or {}
     backend = embedder_cfg.get("backend", "hf")
     if backend == "hashing":
@@ -154,20 +215,34 @@ def build_embedder(config: dict) -> TextEmbedder:
         )
     if backend != "hf":
         raise ValueError(f"Unsupported embedder backend: {backend}")
-    return TextEmbedder(
-        TextEmbedderConfig(
+
+    def _cfg(model_name: str, max_length: int) -> TextEmbedderConfig:
+        return TextEmbedderConfig(
             backend="hf",
-            model_name=embedder_cfg.get("model_name", "BAAI/bge-m3"),
+            model_name=model_name,
             revision=embedder_cfg.get("revision"),
             trust_remote_code=embedder_cfg.get("trust_remote_code", False),
             pooling=embedder_cfg.get("pooling", "mean"),
-            max_length=embedder_cfg.get("max_length", 512),
+            max_length=max_length,
             batch_size=embedder_cfg.get("batch_size", 32),
             use_gpu=embedder_cfg.get("use_gpu", True),
             use_fp16=embedder_cfg.get("use_fp16", False),
             normalize=embedder_cfg.get("normalize", True),
         )
-    )
+
+    doc_model = embedder_cfg.get("model_name", "BAAI/bge-m3")
+    doc_max_length = int(embedder_cfg.get("max_length", 512))
+    # A distinct query_model_name signals an asymmetric dual-encoder (e.g. MedCPT): documents
+    # and queries are embedded by different models sharing one space. Queries are typically
+    # short, so query_max_length defaults to max_length but can be set lower.
+    query_model = embedder_cfg.get("query_model_name")
+    if query_model:
+        query_max_length = int(embedder_cfg.get("query_max_length", doc_max_length))
+        return AsymmetricTextEmbedder(
+            _cfg(doc_model, doc_max_length),
+            _cfg(query_model, query_max_length),
+        )
+    return TextEmbedder(_cfg(doc_model, doc_max_length))
 
 
 def _load_embedding_dependencies():
