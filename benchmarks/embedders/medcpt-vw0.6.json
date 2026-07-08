@@ -1,0 +1,55 @@
+{
+  "embedder": "medcpt",
+  "model_name": "ncbi/MedCPT-Article-Encoder",
+  "query_model_name": "ncbi/MedCPT-Query-Encoder",
+  "per_channel_size": 600,
+  "max_trials": 2000,
+  "similarity": "dot",
+  "vector_weight": 0.6,
+  "tracks": {
+    "21": {
+      "n_patients_grade2": 75,
+      "n_patients_grade1and2": 75,
+      "recall_grade2": {
+        "recall@10": 0.077,
+        "recall@100": 0.4227,
+        "recall@300": 0.726,
+        "recall@500": 0.8374,
+        "recall@700": 0.885,
+        "recall@1000": 0.9149,
+        "recall@2000": 0.9485
+      },
+      "recall_grade1and2": {
+        "recall@10": 0.0781,
+        "recall@100": 0.4315,
+        "recall@300": 0.7212,
+        "recall@500": 0.8323,
+        "recall@700": 0.8777,
+        "recall@1000": 0.9095,
+        "recall@2000": 0.9445
+      }
+    },
+    "22": {
+      "n_patients_grade2": 50,
+      "n_patients_grade1and2": 50,
+      "recall_grade2": {
+        "recall@10": 0.0964,
+        "recall@100": 0.5057,
+        "recall@300": 0.7492,
+        "recall@500": 0.8349,
+        "recall@700": 0.8724,
+        "recall@1000": 0.9027,
+        "recall@2000": 0.9404
+      },
+      "recall_grade1and2": {
+        "recall@10": 0.0819,
+        "recall@100": 0.4697,
+        "recall@300": 0.7235,
+        "recall@500": 0.8159,
+        "recall@700": 0.8548,
+        "recall@1000": 0.8846,
+        "recall@2000": 0.9268
+      }
+    }
+  }
+}

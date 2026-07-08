@@ -1,0 +1,55 @@
+{
+  "embedder": "bge-m3",
+  "model_name": "BAAI/bge-m3",
+  "query_model_name": null,
+  "per_channel_size": 600,
+  "max_trials": 2000,
+  "similarity": "cosine",
+  "vector_weight": 0.6,
+  "tracks": {
+    "21": {
+      "n_patients_grade2": 75,
+      "n_patients_grade1and2": 75,
+      "recall_grade2": {
+        "recall@10": 0.0719,
+        "recall@100": 0.3869,
+        "recall@300": 0.6714,
+        "recall@500": 0.7837,
+        "recall@700": 0.8372,
+        "recall@1000": 0.8778,
+        "recall@2000": 0.9282
+      },
+      "recall_grade1and2": {
+        "recall@10": 0.0803,
+        "recall@100": 0.4129,
+        "recall@300": 0.682,
+        "recall@500": 0.7919,
+        "recall@700": 0.8417,
+        "recall@1000": 0.8771,
+        "recall@2000": 0.9251
+      }
+    },
+    "22": {
+      "n_patients_grade2": 50,
+      "n_patients_grade1and2": 50,
+      "recall_grade2": {
+        "recall@10": 0.0864,
+        "recall@100": 0.4745,
+        "recall@300": 0.7054,
+        "recall@500": 0.7971,
+        "recall@700": 0.8405,
+        "recall@1000": 0.8837,
+        "recall@2000": 0.9313
+      },
+      "recall_grade1and2": {
+        "recall@10": 0.0761,
+        "recall@100": 0.4401,
+        "recall@300": 0.6876,
+        "recall@500": 0.782,
+        "recall@700": 0.8291,
+        "recall@1000": 0.871,
+        "recall@2000": 0.9143
+      }
+    }
+  }
+}

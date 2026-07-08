@@ -29,5 +29,31 @@
     "normalize": true,
     "similarity": "cosine",
     "_note": "MedCPT forced into the pipeline's cosine metric (normalized). Kept for the record -- this handicaps MedCPT vs its native dot-product; compare to 'medcpt'."
+  },
+  "qwen3-0.6b": {
+    "backend": "hf",
+    "model_name": "Qwen/Qwen3-Embedding-0.6B",
+    "pooling": "last",
+    "max_length": 512,
+    "normalize": true,
+    "trust_remote_code": true,
+    "query_instruction": "Given a patient's clinical profile, retrieve clinical trials the patient may be eligible for",
+    "_note": "SOTA general embedder (Qwen3, 2025). Decoder-based: last-token pooling + query instruction (documents raw); 1024-dim, cosine."
+  },
+  "biolord-2023": {
+    "backend": "hf",
+    "model_name": "FremyCompany/BioLORD-2023",
+    "pooling": "mean",
+    "max_length": 512,
+    "normalize": true,
+    "_note": "Biomedical sentence-embedder (BioLORD-2023). Mean pooling, 768-dim, symmetric, cosine."
+  },
+  "pubmedbert-neuml": {
+    "backend": "hf",
+    "model_name": "NeuML/pubmedbert-base-embeddings",
+    "pooling": "mean",
+    "max_length": 512,
+    "normalize": true,
+    "_note": "PubMedBERT fine-tuned for embeddings (NeuML). Mean pooling, 768-dim, symmetric, cosine."
   }
 }

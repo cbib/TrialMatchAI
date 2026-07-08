@@ -1,0 +1,55 @@
+{
+  "embedder": "qwen3-0.6b",
+  "model_name": "Qwen/Qwen3-Embedding-0.6B",
+  "query_model_name": null,
+  "per_channel_size": 600,
+  "max_trials": 2000,
+  "similarity": "cosine",
+  "vector_weight": 0.6,
+  "tracks": {
+    "21": {
+      "n_patients_grade2": 75,
+      "n_patients_grade1and2": 75,
+      "recall_grade2": {
+        "recall@10": 0.0692,
+        "recall@100": 0.3969,
+        "recall@300": 0.6798,
+        "recall@500": 0.7956,
+        "recall@700": 0.8512,
+        "recall@1000": 0.887,
+        "recall@2000": 0.9337
+      },
+      "recall_grade1and2": {
+        "recall@10": 0.0786,
+        "recall@100": 0.4243,
+        "recall@300": 0.6955,
+        "recall@500": 0.8006,
+        "recall@700": 0.8532,
+        "recall@1000": 0.8853,
+        "recall@2000": 0.9306
+      }
+    },
+    "22": {
+      "n_patients_grade2": 50,
+      "n_patients_grade1and2": 50,
+      "recall_grade2": {
+        "recall@10": 0.0913,
+        "recall@100": 0.4762,
+        "recall@300": 0.7211,
+        "recall@500": 0.8024,
+        "recall@700": 0.845,
+        "recall@1000": 0.8802,
+        "recall@2000": 0.9241
+      },
+      "recall_grade1and2": {
+        "recall@10": 0.0796,
+        "recall@100": 0.4461,
+        "recall@300": 0.7025,
+        "recall@500": 0.7888,
+        "recall@700": 0.8344,
+        "recall@1000": 0.8696,
+        "recall@2000": 0.9119
+      }
+    }
+  }
+}

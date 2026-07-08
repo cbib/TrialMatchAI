@@ -1,0 +1,55 @@
+{
+  "embedder": "pubmedbert-neuml",
+  "model_name": "NeuML/pubmedbert-base-embeddings",
+  "query_model_name": null,
+  "per_channel_size": 600,
+  "max_trials": 2000,
+  "similarity": "cosine",
+  "vector_weight": 0.6,
+  "tracks": {
+    "21": {
+      "n_patients_grade2": 75,
+      "n_patients_grade1and2": 75,
+      "recall_grade2": {
+        "recall@10": 0.0785,
+        "recall@100": 0.4168,
+        "recall@300": 0.7077,
+        "recall@500": 0.8143,
+        "recall@700": 0.8647,
+        "recall@1000": 0.9034,
+        "recall@2000": 0.9425
+      },
+      "recall_grade1and2": {
+        "recall@10": 0.0827,
+        "recall@100": 0.4314,
+        "recall@300": 0.7106,
+        "recall@500": 0.8182,
+        "recall@700": 0.8653,
+        "recall@1000": 0.9012,
+        "recall@2000": 0.9403
+      }
+    },
+    "22": {
+      "n_patients_grade2": 50,
+      "n_patients_grade1and2": 50,
+      "recall_grade2": {
+        "recall@10": 0.0949,
+        "recall@100": 0.4934,
+        "recall@300": 0.7233,
+        "recall@500": 0.8213,
+        "recall@700": 0.8526,
+        "recall@1000": 0.8938,
+        "recall@2000": 0.933
+      },
+      "recall_grade1and2": {
+        "recall@10": 0.0802,
+        "recall@100": 0.4625,
+        "recall@300": 0.7088,
+        "recall@500": 0.8082,
+        "recall@700": 0.8433,
+        "recall@1000": 0.8794,
+        "recall@2000": 0.9207
+      }
+    }
+  }
+}
