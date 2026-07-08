@@ -12,7 +12,7 @@ logger = setup_logging(__name__)
 
 
 EmbedderBackend = Literal["hf", "hashing"]
-PoolingStrategy = Literal["cls", "mean"]
+PoolingStrategy = Literal["cls", "mean", "last"]
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,9 @@ class TextEmbedderConfig:
     use_fp16: bool = False
     normalize: bool = True
     hashing_dimensions: int = 64
+    # Instruction prepended to QUERIES only (documents are embedded raw), for instruction-tuned
+    # embedders such as Qwen3-Embedding ("Instruct: {task}\nQuery:{text}"). None = no instruction.
+    query_instruction: str | None = None
 
 
 class HashingTextEmbedder:
@@ -139,12 +142,21 @@ class TextEmbedder:
         return self.embed_texts(texts)
 
     def embed_queries(self, texts: Sequence[str]) -> List[List[float]]:
+        if self.config.query_instruction:
+            texts = [f"Instruct: {self.config.query_instruction}\nQuery:{t}" for t in texts]
         return self.embed_texts(texts)
 
     def _pool(self, outputs: Any, attention_mask: Any) -> Any:
         if self.config.pooling == "cls":
             return outputs.last_hidden_state[:, 0, :]
         token_embeddings = outputs.last_hidden_state
+        if self.config.pooling == "last":
+            # Last non-pad token per sequence (the sentence embedding for decoder embedders like
+            # Qwen3-Embedding). Works with right padding (the tokenizer default): real tokens are
+            # contiguous from index 0, so the last one is at sum(mask)-1; a causal model's last
+            # token only attends to earlier real tokens, so trailing pads don't affect it.
+            last_idx = attention_mask.sum(dim=1) - 1
+            return token_embeddings[self._torch.arange(token_embeddings.shape[0]), last_idx]
         mask = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
         summed = self._torch.sum(token_embeddings * mask, dim=1)
         counts = self._torch.clamp(mask.sum(dim=1), min=1e-9)
@@ -228,6 +240,7 @@ def build_embedder(
             use_gpu=embedder_cfg.get("use_gpu", True),
             use_fp16=embedder_cfg.get("use_fp16", False),
             normalize=embedder_cfg.get("normalize", True),
+            query_instruction=embedder_cfg.get("query_instruction"),
         )
 
     doc_model = embedder_cfg.get("model_name", "BAAI/bge-m3")

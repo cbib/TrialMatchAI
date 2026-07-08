@@ -126,12 +126,14 @@ class EmbedderSettings(BaseModel):
     use_fp16: bool = False
     normalize: bool = True
     hashing_dimensions: int = Field(64, ge=1)
+    # Instruction prepended to queries only, for instruction-tuned embedders (e.g. Qwen3-Embedding).
+    query_instruction: str | None = None
 
     @field_validator("pooling")
     @classmethod
     def validate_pooling(cls, value: str) -> str:
-        if value not in {"mean", "cls"}:
-            raise ValueError("embedder.pooling must be 'mean' or 'cls'")
+        if value not in {"mean", "cls", "last"}:
+            raise ValueError("embedder.pooling must be 'mean', 'cls', or 'last'")
         return value
 
 

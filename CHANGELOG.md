@@ -4,6 +4,15 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Instruction-tuned / decoder embedders in the benchmark.** `last`-token pooling and a
+  query-only `query_instruction` prefix, so decoder embedders such as Qwen3-Embedding — which
+  pool the final token and prepend `Instruct: {task}\nQuery:` to queries but embed documents raw
+  — run in the embedder benchmark. Registry entries added for `qwen3-0.6b`, `biolord-2023`, and
+  `pubmedbert-neuml`; the README recall figure now compares embedders (general vs clinical).
+
 ## [0.5.0] — 2026-07-08
 
 ### Added
