@@ -1,0 +1,33 @@
+{
+  "_about": "Embedder models benchmarked for first-level trial retrieval. Each entry is a config['embedder'] block. A distinct query_model_name marks an asymmetric dual-encoder (separate query/document encoders sharing one space). Results live in benchmarks/embedders/<name>.json; concept-linking is held fixed on bge-m3 so only the trial-retrieval embedder varies.",
+  "bge-m3": {
+    "backend": "hf",
+    "model_name": "BAAI/bge-m3",
+    "pooling": "mean",
+    "max_length": 512,
+    "normalize": true,
+    "_note": "Current default. General multilingual embedder, symmetric, 1024-dim."
+  },
+  "medcpt": {
+    "backend": "hf",
+    "model_name": "ncbi/MedCPT-Article-Encoder",
+    "query_model_name": "ncbi/MedCPT-Query-Encoder",
+    "pooling": "cls",
+    "max_length": 512,
+    "query_max_length": 64,
+    "normalize": false,
+    "similarity": "dot",
+    "_note": "Biomedical dual-encoder trained on PubMed query-article pairs (the retriever TrialGPT uses). Asymmetric, 768-dim; article encoder for trials, query encoder for patient queries. Uses its native DOT-PRODUCT similarity on unnormalized embeddings (magnitude carries relevance)."
+  },
+  "medcpt-cosine": {
+    "backend": "hf",
+    "model_name": "ncbi/MedCPT-Article-Encoder",
+    "query_model_name": "ncbi/MedCPT-Query-Encoder",
+    "pooling": "cls",
+    "max_length": 512,
+    "query_max_length": 64,
+    "normalize": true,
+    "similarity": "cosine",
+    "_note": "MedCPT forced into the pipeline's cosine metric (normalized). Kept for the record -- this handicaps MedCPT vs its native dot-product; compare to 'medcpt'."
+  }
+}
