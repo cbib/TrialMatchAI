@@ -4,6 +4,37 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-07-08
+
+### Added
+- **Asymmetric dual-encoder embedders.** Setting `embedder.query_model_name` selects an
+  embedder whose document and query sides use different encoders that share one vector space
+  (e.g. MedCPT's article encoder for trials and query encoder for patient queries). Trial
+  documents are embedded with the document encoder and first-level query terms with the query
+  encoder; symmetric embedders (the default `BAAI/bge-m3`) are unaffected. The two encoders are
+  checked to emit the same dimension at load time.
+- **Configurable first-level vector similarity** via `search_backend.vector_metric`: `cosine`
+  (default) or `dot`. It drives both the LanceDB ANN index and the Python re-ranker, so a
+  dual-encoder trained for inner-product retrieval (unnormalized embeddings, e.g. MedCPT) can be
+  scored with its native metric instead of cosine.
+- **Configurable hybrid blend** via `search_backend.vector_weight` (default `0.5`): the
+  first-level score is `(1 - vector_weight) · text + vector_weight · vector`, so retrieval can
+  lean further on the embedder or on BM25.
+- **First-level embedder benchmark harness** (`scripts/benchmark_embedder.py` +
+  `benchmarks/embedders/registry.json`). It builds an isolated trials-only index per embedder by
+  re-embedding the TREC qrels corpus, then reports first-level recall@k for both grade-2
+  (eligible) and grade-1+2 (relevant) definitions — non-destructively, each model writing its own
+  index and `benchmarks/embedders/<name>.json`, with concept-linking held on a fixed reference
+  embedder so only the retrieval embedder varies.
+
+### Fixed
+- The cosine re-ranker keeps its original single-pass scoring; only the `dot` path buffers
+  candidates to min-max normalize the vector score before blending. An all-equal `dot` batch (no
+  matching query vector) now maps to a neutral `0.0` instead of inflating every candidate.
+- `vector_metric`/`vector_weight` are validated where the backend is constructed, and incremental
+  `upsert_trials` now rebuilds the trial vector index with the configured metric instead of
+  hard-coded cosine.
+
 ## [0.4.1] — 2026-07-06
 
 ### Added
