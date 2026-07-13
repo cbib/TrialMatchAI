@@ -36,20 +36,21 @@ Trials, models, indexes, and results all live on your own machine.
 ## Performance
 
 On the official **TREC Clinical Trials** benchmark (2021 + 2022, 125 topics pooled),
-this release ranks eligible trials more accurately than the published TrialMatchAI
-system (“paper”) and than **TrialGPT** (Jin et al., *Nature Communications* 2024):
+both TrialMatchAI configurations in this release — clinical **MedCPT + MedGemma** and
+general **bge-m3 + phi-4** — rank eligible trials more accurately than the published
+TrialMatchAI system (“paper”) and than **TrialGPT** (Jin et al., *Nature Communications* 2024):
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance_dark.png">
-  <img alt="Clinical-trial ranking performance on TREC CT 2021+2022 (pooled): nDCG@10 and P@10 for TrialMatchAI (this release) vs the paper vs TrialGPT" src="docs/assets/performance_light.png" width="760">
+  <img alt="Clinical-trial ranking performance on TREC CT 2021+2022 (pooled): nDCG@10 and graded P@10 for two TrialMatchAI configurations (MedCPT+MedGemma and bge-m3+phi-4) vs the paper vs TrialGPT" src="docs/assets/performance_light.png" width="760">
 </picture>
 
 <sub>nDCG@10 and graded P@10 pooled over TREC Clinical Trials 2021 + 2022 (125 topics),
-computed on judged trials. **This release** and the **paper** are evaluated with the
-identical ranking metric on the same topics, so that comparison is exact; **TrialGPT** is
-the value reported in Jin et al. (2024), whose evaluation additionally includes the SIGIR
-2016 cohort, so it is an indicative reference rather than a matched run. Reproduce ours with
-`trialmatchai trec --tracks "21 22"`.</sub>
+computed on judged trials. The two **TrialMatchAI** configurations and the **paper** are
+evaluated with the identical ranking metric on the same topics, so those comparisons are exact;
+**TrialGPT** is the value reported in Jin et al. (2024), whose evaluation additionally includes
+the SIGIR 2016 cohort, so it is an indicative reference rather than a matched run. Reproduce ours
+with `trialmatchai trec --tracks "21 22"`.</sub>
 
 **Retrieval recall by embedder** — the share of **eligible** trials (qrels grade 2) the
 first-level search surfaces among its top-*k* candidates, comparing four embedders: two
