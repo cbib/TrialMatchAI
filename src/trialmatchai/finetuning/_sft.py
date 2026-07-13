@@ -176,8 +176,7 @@ def run_sft(
     model.config.use_cache = False  # required with gradient checkpointing
 
     if config.load_in_4bit:
-        # Freeze base weights, cast layer norms to fp32, enable gradient
-        # checkpointing — required for stable 4-bit (QLoRA) training.
+        # Freeze base weights, fp32 layer norms, gradient checkpointing: required for stable QLoRA.
         model = deps["prepare_model_for_kbit_training"](
             model, use_gradient_checkpointing=True
         )

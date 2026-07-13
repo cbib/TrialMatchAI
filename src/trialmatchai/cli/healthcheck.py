@@ -4,7 +4,7 @@ import argparse
 import sys
 
 from trialmatchai.config.config_loader import load_config
-from trialmatchai.search import LanceDBSearchBackend
+from trialmatchai.search import build_search_backend
 from trialmatchai.services.preflight import run_preflight_checks
 from trialmatchai.utils.logging_config import setup_logging
 
@@ -37,7 +37,7 @@ def main() -> int:
 
     config = load_config(args.config)
     issues = 0
-    search_backend = LanceDBSearchBackend.from_config(config)
+    search_backend = build_search_backend(config)
 
     preflight_issues = run_preflight_checks(
         config,

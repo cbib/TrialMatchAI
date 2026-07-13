@@ -160,8 +160,8 @@ def _age_bound(text: str, match: re.Match[str], comparator: str, value: float) -
 
 def _sex_constraints(text: str) -> list[Constraint]:
     lower = text.casefold()
-    # In a pregnancy/contraception criterion, female/male describes the condition, not a sex restriction;
-    # emitting sex==female here would trip the near-ubiquitous pregnancy exclusion for every woman.
+    # In a pregnancy/contraception criterion, female/male describes the condition, not a sex
+    # restriction; sex==female here would trip the near-ubiquitous pregnancy exclusion for every woman.
     if re.search(r"\b(pregnan|breast[\s-]?feed|lactat|contracept|childbearing)", lower):
         return []
     constraints: list[Constraint] = []

@@ -73,11 +73,12 @@ def run_preflight_checks(
 
         model_cfg = config.get("model", {})
         if rag_enabled and rag_backend == "vllm":
+            # Optional: a base CoT model (no LoRA) runs with cot_adapter_path unset/empty.
             _require_path(
                 issues,
                 "model.cot_adapter_path",
                 model_cfg.get("cot_adapter_path"),
-                required=True,
+                required=False,
             )
         if reranker_enabled and reranker_backend == "vllm":
             _require_path(
@@ -138,9 +139,9 @@ def run_preflight_checks(
     if require_search_tables:
         if search_backend is None:
             try:
-                from trialmatchai.search import LanceDBSearchBackend
+                from trialmatchai.search import build_search_backend
 
-                search_backend = LanceDBSearchBackend.from_config(config)
+                search_backend = build_search_backend(config)
             except Exception as exc:
                 issues.append(f"Search backend is not available: {exc}")
                 search_backend = None

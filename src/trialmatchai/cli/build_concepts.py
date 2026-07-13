@@ -117,9 +117,8 @@ def _concepts_fingerprint(
     embedder_revision: str | None = None,
     skip_embeddings: bool = False,
 ) -> str:
-    # Embedder identity must be in the fingerprint: stored vectors must share the
-    # query-time embedding space, so a model swap (or toggling embeddings) invalidates
-    # the store. Mirrors _prepare_signature in orchestration.py.
+    # Embedder identity must be in the fingerprint: stored vectors must match the
+    # query-time embedding space. Mirrors _prepare_signature in orchestration.py.
     return digest(
         _CONCEPTS_STATE_VERSION,
         sources,
@@ -179,9 +178,8 @@ def run_build_concepts(
     if not force and not concept_csv:
         ready, rows_present = _concept_table_ready(db_path, table_name)
         recorded = _read_concepts_fingerprint(db_path)
-        # Backward-compatible: a pre-marker store (recorded is None) still skips on
-        # presence; only an explicit fingerprint mismatch rebuilds, so a large existing
-        # store is never needlessly re-embedded.
+        # Backward-compatible: a pre-marker store (recorded is None) skips on presence;
+        # only an explicit fingerprint mismatch rebuilds, sparing a needless re-embed.
         if ready and (recorded is None or recorded == concepts_fp):
             logger.info(
                 "Concept store already present at %s/%s (%s concepts); skipping. "

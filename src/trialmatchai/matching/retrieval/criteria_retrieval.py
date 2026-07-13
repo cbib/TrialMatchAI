@@ -62,7 +62,10 @@ class SecondStageRetriever:
                     )
                     mode = "bm25"
                 else:
-                    vectors = self.embedder.embed_texts([query])
+                    # Use the query encoder: for asymmetric embedders (e.g. MedCPT) embed_texts()
+                    # is the DOCUMENT encoder and mis-embeds short condition queries, collapsing
+                    # recall. embed_queries() == embed_texts for symmetric embedders (bge-m3).
+                    vectors = self.embedder.embed_queries([query])
                     if vectors:
                         query_vector = vectors[0]
                     else:
@@ -200,9 +203,8 @@ class SecondStageRetriever:
     def aggregate_to_trials(
         self, criteria: List[Dict], threshold: float = 0.5, method: str = "weighted"
     ) -> List[Dict]:
-        # A criterion matched by several paraphrases appears once per query; collapse to the
-        # best score per UNIQUE criterion first so a trial isn't inflated for matching many
-        # paraphrases (which would skew sqrt/weighted aggregation toward query overlap).
+        # A criterion matched by several paraphrases appears once per query; keep only the best
+        # score per UNIQUE criterion so a trial isn't inflated by query overlap (skews sqrt/weighted).
         best_by_criterion: dict[tuple[str, str], float] = {}
         for criterion in criteria:
             source = criterion.get("_source") or {}

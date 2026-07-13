@@ -116,7 +116,12 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--reuse-index", action="store_true", help="Reuse an existing per-track index instead of rebuilding.")
     ap.add_argument("--vector-weight", type=float, default=0.5, help="Hybrid blend: score = (1-w)*text + w*vector (default 0.5).")
+    ap.add_argument("--cutoffs", default=None, help="Comma-separated recall@k cutoffs (default 100,200,300,500,700,1000,2000).")
     args = ap.parse_args()
+
+    if args.cutoffs:
+        global KS
+        KS = [int(x) for x in args.cutoffs.split(",")]
 
     registry = json.loads(Path(args.registry).read_text())
     if args.embedder not in registry:

@@ -1,14 +1,13 @@
 """The single TrialMatchAI pipeline: an ordered registry of idempotent stages.
 
 Every command is a *slice* of this one pipeline. Each stage wraps an
-already-idempotent orchestration function (it internally skips work that is done),
-so the driver only decides **which** stages to run from the user's selection
+already-idempotent orchestration function (it internally skips finished work), so the
+driver only decides **which** stages to run from the user's selection
 (`--only` / `--skip` / `--from` / `--to`) and which to **force** (`--force`).
 
-Because each stage is idempotent, running the whole pipeline from any starting
-state "just works": finished stages are cheap no-ops, unfinished ones run. That is
-the "one e2e workflow, maximally modular, never redo finished work" contract — a
-stage is the unit of modularity, and the e2e run is simply "run every stage".
+Because each stage is idempotent, a run from any starting state "just works": finished
+stages are cheap no-ops, unfinished ones run — the "one e2e workflow, maximally modular,
+never redo finished work" contract, where the e2e run is simply "run every stage".
 """
 
 from __future__ import annotations

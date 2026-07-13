@@ -76,8 +76,7 @@ def main() -> int:
         return 1
 
     # Build the concept store BEFORE prepare/index so build_system can link entities
-    # between prepare and index, giving the search tables concept IDs instead of
-    # leaving every entity at concept_store_unavailable.
+    # in between, giving search tables concept IDs instead of concept_store_unavailable.
     link_concepts = bool(args.concepts or args.concepts_csv)
     if link_concepts:
         logger.info("=== build: concepts stage ===")

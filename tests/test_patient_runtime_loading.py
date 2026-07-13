@@ -91,11 +91,7 @@ def test_main_pipeline_returns_nonzero_when_all_patients_fail(tmp_path, monkeypa
 
     monkeypatch.setattr(main_module, "load_config", lambda config_path=None: config)
     monkeypatch.setattr(main_module, "run_preflight_checks", lambda *args, **kwargs: [])
-    monkeypatch.setattr(
-        main_module.LanceDBSearchBackend,
-        "from_config",
-        classmethod(lambda cls, cfg: _Backend()),
-    )
+    monkeypatch.setattr(main_module, "build_search_backend", lambda cfg: _Backend())
     monkeypatch.setattr(embedding_module, "build_embedder", lambda cfg: object())
     monkeypatch.setattr(main_module, "build_entity_annotator", lambda cfg, embedder: None)
     monkeypatch.setattr(

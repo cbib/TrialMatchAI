@@ -1,14 +1,13 @@
 """Fine-tune the biomedical NER model (GLiNER2).
 
 Uses the native GLiNER2 training stack (GLiNER2Trainer / TrainingConfig /
-InputExample). Produces either a full checkpoint (``<output_dir>/best``) or a
-LoRA adapter (``<output_dir>/final``) that plugs into the pipeline via
+InputExample). Produces a full checkpoint (``<output_dir>/best``) or a LoRA
+adapter (``<output_dir>/final``) that plugs into the pipeline via
 ``entity_extraction.model_name`` with backend "gliner2".
 
-GLiNER2 data can be flat entity extraction, schema-based JSON structures,
-classifications, relations, or a mix of those tasks. Character-span NER rows
-are converted automatically. ``entity_descriptions`` is back-filled from the
-entity schema so flat entity examples use the same label semantics as inference.
+Character-span NER rows are converted automatically; ``entity_descriptions`` is
+back-filled from the entity schema so flat entity examples use the same label
+semantics as inference.
 """
 
 from __future__ import annotations

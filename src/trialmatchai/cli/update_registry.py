@@ -17,7 +17,7 @@ from trialmatchai.registry.updater import (
     RegistryUpdater,
     normalize_keywords,
 )
-from trialmatchai.search import InMemorySearchBackend, LanceDBSearchBackend
+from trialmatchai.search import InMemorySearchBackend, build_search_backend
 from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
@@ -118,7 +118,7 @@ def main() -> int:
         timeout=float(registry_cfg.get("request_timeout", 30.0)),
         rate_limit_per_second=float(registry_cfg.get("rate_limit_per_second", 2.0)),
     )
-    backend = InMemorySearchBackend() if args.dry_run else LanceDBSearchBackend.from_config(config)
+    backend = InMemorySearchBackend() if args.dry_run else build_search_backend(config)
     embedder = _NullEmbedder() if args.dry_run else _build_embedder(config)
     entity_annotator = None if args.dry_run else _build_entity_annotator(config, embedder)
 

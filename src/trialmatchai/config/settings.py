@@ -66,7 +66,8 @@ class ModelQuantizationSettings(BaseModel):
 class ModelSettings(BaseModel):
     base_model: str
     quantization: ModelQuantizationSettings
-    cot_adapter_path: str
+    # None runs the base CoT model with no LoRA adapter (e.g. MedGemma, already instruction-tuned).
+    cot_adapter_path: str | None = None
     reranker_model_path: str
     reranker_adapter_path: str
     trust_remote_code: bool = False
@@ -84,16 +85,25 @@ class GlobalSettings(BaseModel):
 
 
 class SearchBackendSettings(BaseModel):
-    backend: Literal["lancedb"] = "lancedb"
+    # Resolved via the plugin registry at build_search_backend (raises on a typo), so a plain str
+    # not a Literal that needs widening per backend. ``type`` preferred; ``backend`` is legacy.
+    type: str | None = None
+    backend: str = "lancedb"
     db_path: str = "data/search"
     trials_table: str = "trials"
     criteria_table: str = "criteria"
     candidate_limit: int = Field(1000, ge=1)
-    # Vector similarity for the ANN index and re-ranker. "cosine" (default) suits normalized
-    # embedders (bge-m3); "dot" suits inner-product dual-encoders (e.g. MedCPT).
-    vector_metric: Literal["cosine", "dot"] = "cosine"
+    # ANN index/re-ranker similarity. None follows the embedder (cosine if normalized, dot if not,
+    # e.g. MedCPT); set explicitly to pin it regardless of the embedder.
+    vector_metric: Literal["cosine", "dot"] | None = None
     # Hybrid blend of the first-level score: (1 - vector_weight) * text + vector_weight * vector.
     vector_weight: float = Field(0.5, ge=0.0, le=1.0)
+    # Re-embed the corpus with the config embedder at index-build time (vs reusing prepare-time
+    # vectors). Required to switch embedders: otherwise the new-model query dim-mismatches the old
+    # index vectors and silently falls back to BM25.
+    reembed_index: bool = False
+    # Keep undeclared backend knobs; they reach the tolerant .get() consumer via the non-lossy loader.
+    model_config = ConfigDict(extra="allow")
 
 
 class RegistrySettings(BaseModel):
@@ -111,7 +121,10 @@ class RegistrySettings(BaseModel):
 
 
 class EmbedderSettings(BaseModel):
-    backend: Literal["hf", "hashing"] = "hf"
+    # Embedder family resolved via the plugin registry at build_embedder; plain str (not a Literal)
+    # so a new family needs no schema edit. ``type`` preferred; ``backend`` is legacy (hf | hashing).
+    type: str | None = None
+    backend: str = "hf"
     model_name: str = "BAAI/bge-m3"
     # A distinct query_model_name selects an asymmetric dual-encoder (separate document/query
     # encoders sharing one space, e.g. MedCPT's article/query encoders); None = symmetric.
@@ -128,6 +141,11 @@ class EmbedderSettings(BaseModel):
     hashing_dimensions: int = Field(64, ge=1)
     # Instruction prepended to queries only, for instruction-tuned embedders (e.g. Qwen3-Embedding).
     query_instruction: str | None = None
+    # Vector metric this embedder's space is trained for; None derives from ``normalize`` (cosine
+    # if normalized, dot if not). The search backend reads it so the metric follows the embedder.
+    native_metric: Literal["cosine", "dot"] | None = None
+    # Keep undeclared embedder knobs (they reach the tolerant .get() consumer via the non-lossy loader).
+    model_config = ConfigDict(extra="allow")
 
     @field_validator("pooling")
     @classmethod
@@ -163,11 +181,9 @@ class SearchSettings(BaseModel):
     max_trials_second_level: int = Field(100, ge=1)
     # Keep the top 1/N of reranked second-level trials before CoT (N=1 keeps all).
     second_level_keep_divisor: int = Field(3, ge=1)
-    # How the second-level shortlist combines the first-level (retrieval) and second-level
-    # (reranker) rankings. "rrf" fuses the two by rank, so a strong retrieval hit keeps a
-    # floor and is not evicted when the reranker fails to score its criteria; "score_sum"
-    # is the earlier behaviour of adding the two raw scores (whose scales differ, so one
-    # signal dominates and can drop retrieval-ranked trials).
+    # How the shortlist fuses first-level (retrieval) and second-level (reranker) rankings. "rrf"
+    # fuses by rank, so a strong retrieval hit isn't evicted when the reranker fails to score it;
+    # "score_sum" adds raw scores (mismatched scales let one signal dominate and drop retrieval hits).
     shortlist_fusion: Literal["rrf", "score_sum"] = "rrf"
     shortlist_rrf_k: int = Field(60, ge=1)
     shortlist_first_level_weight: float = Field(1.0, ge=0.0)
@@ -208,6 +224,10 @@ class RagSettings(BaseModel):
     backend: Literal["vllm", "transformers"] = "vllm"
     batch_size: int = Field(4, ge=1)
     max_trials_rag: int = Field(20, ge=1)
+    # Suppress chain-of-thought <think> in the eligibility stage for reasoning models (Qwen3):
+    # sends enable_thinking=False / a /no_think prefix and strips residual think tags.
+    no_think: bool = False
+    model_config = ConfigDict(extra="allow")
 
 
 class VllmSettings(BaseModel):
@@ -220,10 +240,24 @@ class VllmSettings(BaseModel):
     gpu_memory_utilization: float = Field(0.5, gt=0.0, le=1.0)
     max_model_len: int = Field(8192, ge=256)
     tensor_parallel_size: int = Field(1, ge=1)
+    # In-flight vLLM weight quantization (e.g. "bitsandbytes" NF4 4-bit) so a large base model (32B
+    # CoT) fits one card without a pre-quantized checkpoint. "" = none (bf16). Must be a field or
+    # it is dropped before the loader.
+    quantization: str = ""
+    # Disable vLLM's custom all-reduce kernel. Required for tensor_parallel_size>1 on multi-GPU
+    # nodes WITHOUT NVLink (A40/L40 over PCIe), where it dies with CUDA 'invalid argument'; falls
+    # back to NCCL all-reduce (pair with NCCL_P2P_DISABLE=1).
+    disable_custom_all_reduce: bool = False
+    # Skip CUDA graph capture, freeing ~6-7GB per GPU for KV cache. Useful when a large model
+    # (e.g. a 27B tensor-parallel across 48GB cards) would otherwise starve the KV cache.
+    enforce_eager: bool = False
     # fp8 KV cache halves KV memory so a large window (e.g. 8192) fits on one 48GB card;
     # max_num_seqs caps concurrency so that tight KV budget does not thrash.
     kv_cache_dtype: Literal["auto", "fp8", "fp8_e4m3", "fp8_e5m2"] | None = None
     max_num_seqs: int | None = Field(None, ge=1)
+    # Keep undeclared vLLM runtime knobs (e.g. swap_space, enable_prefix_caching) — they reach
+    # load_vllm_engine's tolerant .get() via the non-lossy loader, no new field required.
+    model_config = ConfigDict(extra="allow")
 
 
 class CotSettings(BaseModel):
@@ -238,6 +272,7 @@ class LLMRerankerSettings(BaseModel):
     # to fit both engines on a smaller card (e.g. 48GB A40/L40).
     gpu_memory_utilization: float = Field(0.4, gt=0.0, le=1.0)
     tensor_parallel_size: int = Field(1, ge=1)
+    model_config = ConfigDict(extra="allow")
 
 
 class QueryExpansionSettings(BaseModel):
@@ -251,6 +286,9 @@ class QueryExpansionSettings(BaseModel):
     max_main_conditions: int = Field(11, ge=1)
     max_other_conditions: int = Field(50, ge=1)
     trust_remote_code: bool = False
+    # Suppress <think> during expansion for reasoning models (read at query_expansion.py:_resolve_settings).
+    no_think: bool = False
+    model_config = ConfigDict(extra="allow")
 
 
 class ReportingSettings(BaseModel):

@@ -1,10 +1,10 @@
 """Runtime CoT query expansion (restored from the legacy pipeline).
 
-Runs a chain-of-thought model over each patient's narrative to produce the expanded
+Runs a chain-of-thought model over each patient's narrative to produce expanded
 keywords (primary conditions + synonyms, secondary factors, expanded sentences) that
-feed first-level retrieval. Verbatim SYSTEM_PROMPT and generation behaviour preserved
-from the legacy matcher; model/backend are ``query_expansion`` config knobs defaulting
-to the CoT reasoning model. Disabled by default; the TREC preset enables it.
+feed first-level retrieval. SYSTEM_PROMPT and generation behaviour are preserved
+verbatim from the legacy matcher; model/backend are ``query_expansion`` config knobs.
+Disabled by default; the TREC preset enables it.
 """
 
 from __future__ import annotations
@@ -78,6 +78,9 @@ def _resolve_settings(config: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "max_main_conditions": int(qe.get("max_main_conditions", 11)),
         "max_other_conditions": int(qe.get("max_other_conditions", 50)),
+        # Suppress chain-of-thought for this extractive task: reasoning models otherwise
+        # fill the token budget with <think>, never emit the JSON, and expansion falls back.
+        "no_think": bool(qe.get("no_think", False)),
     }
 
 
@@ -136,10 +139,25 @@ class QueryExpander:
 
     # -- generation -------------------------------------------------------- #
     def _generate(self, narrative: str) -> str:
+        no_think = bool(self.settings.get("no_think"))
+        user_content = ("/no_think\n" + narrative) if no_think else narrative
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": narrative},
+            {"role": "user", "content": user_content},
         ]
+        # Qwen3.x-style templates take enable_thinking; harmless-and-ignored elsewhere (guarded).
+        tmpl_kwargs = {"enable_thinking": False} if no_think else {}
+
+        def _apply_template(tokenize):
+            try:
+                return self.tokenizer.apply_chat_template(
+                    messages, add_generation_prompt=True, tokenize=tokenize, **tmpl_kwargs
+                )
+            except TypeError:
+                return self.tokenizer.apply_chat_template(
+                    messages, add_generation_prompt=True, tokenize=tokenize
+                )
+
         if self.backend == "transformers":
             import torch
 
@@ -158,9 +176,7 @@ class QueryExpander:
         # vllm
         from vllm import SamplingParams
 
-        prompt_text = self.tokenizer.apply_chat_template(
-            messages, add_generation_prompt=True, tokenize=False
-        )
+        prompt_text = _apply_template(tokenize=False)
         params = SamplingParams(temperature=0.0, max_tokens=self.settings["max_new_tokens"])
         results = self.engine.generate([prompt_text], params, lora_request=self.lora_request)
         return results[0].outputs[0].text if results and results[0].outputs else ""

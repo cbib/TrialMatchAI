@@ -1,0 +1,20 @@
+{
+  "bge-m3": {
+    "backend": "hf",
+    "model_name": "BAAI/bge-m3",
+    "pooling": "cls",
+    "normalize": true,
+    "native_metric": "cosine",
+    "max_length": 512
+  },
+  "medcpt": {
+    "backend": "hf",
+    "model_name": "ncbi/MedCPT-Article-Encoder",
+    "query_model_name": "ncbi/MedCPT-Query-Encoder",
+    "pooling": "cls",
+    "normalize": false,
+    "native_metric": "dot",
+    "max_length": 512,
+    "query_max_length": 64
+  }
+}

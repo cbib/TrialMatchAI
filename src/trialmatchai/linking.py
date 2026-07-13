@@ -1,11 +1,10 @@
 """Link already-extracted entities in the prepared criteria to concept IDs.
 
-Used when the concept store is built *after* prepare (which then ran NER-only,
-leaving ``linker_status="concept_store_unavailable"``): relinks the persisted
-entities against the store without re-running NER. Idempotent -- only entities never
-linked against a store are (re)linked (``force`` redoes all) -- and only trials whose
-prepare is complete (trial JSON marker exists) are touched, so a concurrent
-``prepare`` writer is undisturbed.
+Used when the concept store is built *after* prepare (which ran NER-only, leaving
+``linker_status="concept_store_unavailable"``): relinks persisted entities against the
+store without re-running NER. Idempotent -- only entities never linked against a store
+are (re)linked (``force`` redoes all), and only trials whose prepare is complete (trial
+JSON marker exists) are touched, so a concurrent ``prepare`` writer is undisturbed.
 """
 
 from __future__ import annotations
@@ -24,9 +23,8 @@ logger = setup_logging(__name__)
 # Statuses meaning no link decision was ever made against a store -> (re)link.
 _RELINK_STATUSES = frozenset({"not_linked", "concept_store_unavailable"})
 
-# Per-trial resume journal: append-only log of already-linked trial IDs so a crashed run resumes
-# by skipping them by id instead of re-walking the corpus. A header line binds it to the
-# prepared-corpus fingerprint, so it's discarded when the corpus changes.
+# Per-trial resume journal: append-only log of linked trial IDs so a crashed run skips them by id
+# instead of re-walking the corpus. Header binds it to the corpus fingerprint (discarded on change).
 _LINK_PROGRESS_VERSION = "1"
 _LINK_JOURNAL_NAME = ".link_progress.jsonl"
 
@@ -105,8 +103,8 @@ def link_corpus(
     cache: dict[tuple[str, str], dict[str, Any]] = {}
     relinked_trials = skipped_trials = resumed_skip = 0
 
-    # Per-trial resume: skip trials already linked in a prior run by id (via the journal),
-    # without re-reading their criteria; the journal is discarded if the corpus changed, and ``force`` ignores it.
+    # Resume: skip trials already linked in a prior run by id (via the journal) without re-reading
+    # their criteria; journal is discarded if the corpus changed, and ``force`` ignores it.
     journal_path = criteria_root / _LINK_JOURNAL_NAME
     corpus_fp = dir_fingerprint(trials_root)
     header_valid, completed = (

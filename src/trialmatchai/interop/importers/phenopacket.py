@@ -44,9 +44,8 @@ def import_phenopacket(
         demographics=_demographics(data.get("subject") or {}),
         provenance=[provenance],
     )
-    # Isolate each section: a single malformed item (e.g. a string where an
-    # ontology-class object is expected) must not abort the whole import in
-    # non-strict mode — only re-raise when strict.
+    # Isolate each section: one malformed item must not abort the whole import in
+    # non-strict mode (only re-raise when strict).
     for add_section in (
         _add_phenotypes,
         _add_diseases,

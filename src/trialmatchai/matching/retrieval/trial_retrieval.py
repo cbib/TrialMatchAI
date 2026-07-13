@@ -260,10 +260,9 @@ class ClinicalTrialSearch:
             except Exception as exc:  # captured, re-raised into the caller thread's result
                 return channel, None, None, exc
 
-        # The per-channel searches are independent and dominated by LanceDB's native FTS/vector
-        # scan and numpy re-ranking, both of which release the GIL -- so a thread pool turns the
-        # ~21 sequential channel searches into a concurrent fan-out (the prior sequential loop was
-        # ~5s x 21 = the whole first-level latency). Reads on a LanceDB table are concurrency-safe.
+        # Per-channel searches are independent and dominated by LanceDB's FTS/vector scan and
+        # numpy re-ranking, both of which release the GIL, so a thread pool fans out the ~21
+        # channel searches (previously ~5s x 21 sequential). LanceDB reads are concurrency-safe.
         if len(prepared) > 1:
             # Respect the cgroup CPU allotment (SLURM/containers) rather than the whole machine:
             # sched_getaffinity reflects --cpus-per-task; os.cpu_count() would oversubscribe.

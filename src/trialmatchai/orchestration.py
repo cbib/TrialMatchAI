@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, Sequence
 
-from trialmatchai.search import LanceDBSearchBackend
+from trialmatchai.search import build_search_backend
 from trialmatchai.utils.file_utils import is_valid_json_file, write_json_file
 from trialmatchai.utils.logging_config import setup_logging
 from trialmatchai.utils.pipeline_state import (
@@ -173,6 +173,111 @@ def _iter_criteria_docs(folder: Path, nct_filter: set[str] | None) -> Iterator[d
             yield _read_json(path)
 
 
+# Trial text fields whose vectors the backend scores on (mirrors registry.preparation).
+_TRIAL_VECTOR_FIELDS = (
+    ("brief_title", "brief_title_vector"),
+    ("brief_summary", "brief_summary_vector"),
+    ("condition", "condition_vector"),
+    ("eligibility_criteria", "eligibility_criteria_vector"),
+)
+
+
+def _reembed_docs_inplace(
+    config: Dict[str, Any],
+    trial_docs: list[dict],
+    criteria_docs: list[dict],
+) -> None:
+    """Replace the corpus's pre-computed vectors with the config embedder's (document side).
+
+    Without this, build_index reuses the prepare-time vectors, so an embedder swap never reaches
+    retrieval — the query dim-mismatches the index and silently falls back to BM25. Empty text
+    keeps an empty vector, matching registry.preparation._embed_texts.
+    """
+    from trialmatchai.models.embedding import build_embedder
+
+    embedder = build_embedder(config)
+    embed_documents = getattr(embedder, "embed_documents", embedder.embed_texts)
+
+    texts: list[str] = []
+    slots: list[tuple[dict, str]] = []
+    for doc in trial_docs:
+        for text_field, vector_field in _TRIAL_VECTOR_FIELDS:
+            text = str(doc.get(text_field) or "")
+            if text.strip():
+                texts.append(text)
+                slots.append((doc, vector_field))
+            else:
+                doc[vector_field] = []
+    for doc in criteria_docs:
+        text = str(doc.get("criterion") or "")
+        if text.strip():
+            texts.append(text)
+            slots.append((doc, "criterion_vector"))
+        else:
+            doc["criterion_vector"] = []
+
+    logger.info(
+        "Re-embedding %s document texts with the config embedder (%s trials, %s criteria)...",
+        len(texts),
+        len(trial_docs),
+        len(criteria_docs),
+    )
+    # Chunk so progress is visible and peak memory is bounded.
+    chunk = 8192
+    done = 0
+    for start in range(0, len(texts), chunk):
+        batch = texts[start : start + chunk]
+        vectors = embed_documents(batch)
+        for (doc, vector_field), vector in zip(slots[start : start + chunk], vectors):
+            doc[vector_field] = list(vector)
+        done += len(batch)
+        logger.info("Re-embedded %s/%s texts", done, len(texts))
+
+
+_EMBEDDER_SIDECAR = "_embedder.json"
+
+
+def _embedder_identity(config: Dict[str, Any]) -> dict:
+    """Model-load-free identity of the embedder's vector space, to detect an embedder swap between
+    builds. Excludes ``dim`` (needs a model load); a ``model_name`` change is a sufficient proxy."""
+    from trialmatchai.models.embedding.text_embedder import native_metric_from_config
+
+    ec = config.get("embedder", {}) or {}
+    return {
+        "backend": ec.get("type") or ec.get("backend") or "hf",
+        "model_name": ec.get("model_name"),
+        "query_model_name": ec.get("query_model_name"),
+        "normalize": bool(ec.get("normalize", True)),
+        "native_metric": native_metric_from_config(config),
+    }
+
+
+def _read_embedder_sidecar(db_path: str | Path) -> dict | None:
+    """Return the embedder provenance recorded next to the index, or None when absent/unreadable.
+    Absent (e.g. a pre-provenance index like data/search_medcpt_*) means 'trust stored vectors'."""
+    path = Path(db_path) / _EMBEDDER_SIDECAR
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.warning("Could not read embedder provenance %s (ignoring).", path)
+        return None
+
+
+def _write_embedder_sidecar(db_path: str | Path, identity: dict, *, reembedded: bool) -> None:
+    """Record which embedder the index vectors correspond to, so a later build detects a swap."""
+    path = Path(db_path)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        (path / _EMBEDDER_SIDECAR).write_text(
+            json.dumps({"identity": identity, "reembedded": reembedded, "tmai_schema": 1}, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        logger.warning("Could not write embedder provenance to %s: %s", path, exc)
+
+
 def build_index(
     config: Dict[str, Any],
     *,
@@ -183,21 +288,34 @@ def build_index(
 ) -> dict[str, Any]:
     """Build the LanceDB search tables, optionally restricted to ``nct_filter``.
 
-    Skips when both tables already exist unless ``force``. The backend (and thus
-    the target db path) comes from ``config['search_backend']``.
+    Skips when both tables already exist AND the recorded embedder still matches the configured
+    one (unless ``force``). If the embedder changed, the index is rebuilt and re-embedded
+    automatically so retrieval matches the new embedder instead of silently falling back to BM25.
     """
-    backend = LanceDBSearchBackend.from_config(config)
+    backend = build_search_backend(config)
     search_cfg = config.get("search_backend", {})
     trials_table = search_cfg.get("trials_table", "trials")
     criteria_table = search_cfg.get("criteria_table", "criteria")
+    identity = _embedder_identity(config)
 
+    auto_reembed = False
     if (
         not force
         and backend.table_exists(trials_table)
         and backend.table_exists(criteria_table)
     ):
-        logger.info("Index stage skipped: tables already present at %s", backend.db_path)
-        return {"skipped": True, "db_path": str(backend.db_path)}
+        stored = _read_embedder_sidecar(backend.db_path)
+        if stored is not None and stored.get("identity") != identity:
+            logger.warning(
+                "Index at %s was built with embedder %s but config requests %s — rebuilding and "
+                "re-embedding so retrieval matches (this was a silent BM25 fallback before).",
+                backend.db_path, stored.get("identity"), identity,
+            )
+            auto_reembed = True  # fall through to rebuild + re-embed
+        else:
+            provenance = "embedder matches" if stored else "no provenance recorded; trusting stored vectors"
+            logger.info("Index stage skipped: tables present at %s (%s).", backend.db_path, provenance)
+            return {"skipped": True, "db_path": str(backend.db_path)}
 
     nct_set = set(nct_filter) if nct_filter is not None else None
     trial_docs = list(_iter_trial_docs(Path(processed_trials_folder), nct_set))
@@ -216,11 +334,20 @@ def build_index(
             + ". The corpus appears unprepared — run `trialmatchai build` (prepare) first."
         )
 
+    # Re-embed when requested or when an embedder swap was detected (auto_reembed), so retrieval
+    # reaches the new embedder instead of the prepare-time vectors (see _reembed_docs_inplace).
+    do_reembed = bool(search_cfg.get("reembed_index", False) or auto_reembed)
+    if do_reembed:
+        _reembed_docs_inplace(config, trial_docs, criteria_docs)
+
     n_trials = backend.index_trials(trial_docs, recreate=True)
     logger.info("Indexed %s trial documents.", n_trials)
 
     n_criteria = backend.index_criteria(criteria_docs, recreate=True)
     logger.info("Indexed %s criteria documents.", n_criteria)
+
+    # Record which embedder these vectors correspond to, so a later build auto-detects a swap.
+    _write_embedder_sidecar(backend.db_path, identity, reembedded=do_reembed)
 
     return {
         "skipped": False,
@@ -578,7 +705,7 @@ def build_state(
     pt = Path(processed_trials_folder)
     pc = Path(processed_criteria_folder)
     search_cfg = config.get("search_backend", {})
-    backend = LanceDBSearchBackend.from_config(config)
+    backend = build_search_backend(config)
     trials_table = backend.table_exists(search_cfg.get("trials_table", "trials"))
     criteria_table = backend.table_exists(search_cfg.get("criteria_table", "criteria"))
     linker = config.get("concept_linker", {})

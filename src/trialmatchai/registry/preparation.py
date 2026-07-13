@@ -205,9 +205,8 @@ def compute_criteria_id(nct_id: str, criterion: str) -> str:
 
 
 def _embed_texts(embedder: TextEmbeddingBackend, texts: Sequence[str]) -> list[list[float]]:
-    # Document-side encoder: trial field text is indexed as documents, so an asymmetric
-    # embedder (e.g. MedCPT) uses its article encoder here. Symmetric embedders route
-    # embed_documents back to their single model.
+    # Document-side encoder: trial text is indexed as documents, so an asymmetric embedder
+    # (e.g. MedCPT) uses its article encoder here; symmetric embedders route back to one model.
     embed_documents = getattr(embedder, "embed_documents", embedder.embed_texts)
     vectors_by_nonempty_text = iter(
         embed_documents([text for text in texts if text.strip()])

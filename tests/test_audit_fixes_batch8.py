@@ -368,10 +368,7 @@ def _setup_pipeline(monkeypatch, tmp_path, patient_inputs, first_level):
     }
     monkeypatch.setattr(main_module, "load_config", lambda config_path=None: config)
     monkeypatch.setattr(main_module, "run_preflight_checks", lambda *a, **k: [])
-    monkeypatch.setattr(
-        main_module.LanceDBSearchBackend, "from_config",
-        classmethod(lambda cls, cfg: _Backend()),
-    )
+    monkeypatch.setattr(main_module, "build_search_backend", lambda cfg: _Backend())
     monkeypatch.setattr(embedding_module, "build_embedder", lambda cfg: object())
     monkeypatch.setattr(main_module, "build_entity_annotator", lambda cfg, embedder: None)
     monkeypatch.setattr(main_module, "_load_patient_inputs", lambda cfg: patient_inputs)
@@ -619,9 +616,7 @@ def test_build_index_validates_criteria_before_writing_trials(tmp_path, monkeypa
             return len(list(docs))
 
     fake = FakeBackend()
-    monkeypatch.setattr(
-        orch.LanceDBSearchBackend, "from_config", classmethod(lambda cls, config: fake)
-    )
+    monkeypatch.setattr(orch, "build_search_backend", lambda config: fake)
 
     config = {"search_backend": {"trials_table": "trials", "criteria_table": "criteria"}}
     with pytest.raises(RuntimeError, match="No criteria documents"):

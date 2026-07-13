@@ -27,42 +27,39 @@ class LLMReranker:
         max_lora_rank: int = 32,
         dtype: str = "auto",
         tensor_parallel_size: int = 1,
+        quantization: str = "",
+        kv_cache_dtype: str | None = None,
     ):
-        from vllm import LLM, SamplingParams  # type: ignore
+        from vllm import SamplingParams  # type: ignore
 
-        try:
-            from vllm.lora.request import LoRARequest  # type: ignore
-        except ImportError:  # pragma: no cover - older vLLM
-            LoRARequest = None  # type: ignore
+        # Build via the SHARED vLLM loader (not an inline vllm.LLM) so the reranker inherits the
+        # CoT engine's knobs (quantization, kv_cache_dtype, max_model_len cap, LoRARequest
+        # fallback) and joins the one engine cache. Scoring is unchanged.
+        from trialmatchai.models.llm.vllm_loader import load_vllm_engine
 
         self.batch_size = batch_size
-        enable_lora = bool(adapter_path) and LoRARequest is not None
-        if adapter_path and not enable_lora:
-            logger.warning(
-                "Reranker adapter requested but LoRA is unavailable in this vLLM "
-                "build; using the base model."
-            )
-
-        self.llm = LLM(
-            model=str(model_path),
-            revision=revision,
-            trust_remote_code=trust_remote_code,
-            enable_lora=enable_lora,
-            max_lora_rank=max_lora_rank if enable_lora else 16,
-            gpu_memory_utilization=gpu_memory_utilization,
-            max_model_len=max_model_len,
-            dtype=dtype,
-            # Shard across GPUs when >1: lets the reranker share a multi-GPU allocation with the
-            # tensor-parallel CoT engine instead of fighting it for a single device.
-            tensor_parallel_size=tensor_parallel_size,
-            # Single-token output: CUDA graphs buy nothing. enforce_eager skips graph capture
-            # and a small max_num_seqs caps memory so this coexists with the CoT engine + embedder.
-            enforce_eager=True,
-            max_num_seqs=max(self.batch_size, 16),
-        )
-        self.tokenizer = self.llm.get_tokenizer()
-        self.lora_request = (
-            LoRARequest("reranker_adapter", 1, str(adapter_path)) if enable_lora else None
+        model_config = {
+            "base_model": str(model_path),
+            "cot_adapter_path": str(adapter_path) if adapter_path else None,
+            "trust_remote_code": trust_remote_code,
+            "base_model_revision": revision,
+        }
+        vllm_cfg = {
+            "dtype": dtype,
+            "gpu_memory_utilization": gpu_memory_utilization,
+            "max_model_len": max_model_len,
+            "tensor_parallel_size": tensor_parallel_size,
+            "max_lora_rank": max_lora_rank,
+            "quantization": quantization,
+            "kv_cache_dtype": kv_cache_dtype,
+            # Single-token output: CUDA graphs buy nothing. enforce_eager skips graph capture and a
+            # small max_num_seqs caps memory so this coexists with the CoT engine + embedder.
+            "enforce_eager": True,
+            "max_num_seqs": max(self.batch_size, 16),
+            "adapter_name": "reranker_adapter",
+        }
+        self.llm, self.tokenizer, self.lora_request = load_vllm_engine(
+            model_config=model_config, vllm_cfg=vllm_cfg
         )
 
         self.applicable_token_id, self.not_applicable_token_id = self._yes_no_token_ids()

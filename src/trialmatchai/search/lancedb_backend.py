@@ -9,6 +9,7 @@ from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 import numpy as np
 
+from trialmatchai.plugins import register
 from trialmatchai.utils.logging_config import setup_logging
 from trialmatchai.utils.text import flatten_text
 
@@ -204,11 +205,11 @@ class LanceDBSearchBackend:
         self.trials_table = trials_table
         self.criteria_table = criteria_table
         self.candidate_limit = candidate_limit
-        # "cosine" (default) or "dot" -- the similarity used by both the ANN index and the Python
+        # "cosine" (default) or "dot" -- similarity used by both the ANN index and the Python
         # re-ranker. "dot" suits dual-encoders trained for inner-product retrieval (e.g. MedCPT).
         # Validated here (not just in pydantic settings) because from_config reads a raw dict: an
-        # unknown metric would otherwise build that ANN index but fall open to cosine in the
-        # re-ranker, silently desyncing the two.
+        # unknown metric would build the ANN index but fall open to cosine in the re-ranker,
+        # silently desyncing the two.
         if vector_metric not in {"cosine", "dot"}:
             raise ValueError(f"vector_metric must be 'cosine' or 'dot', got {vector_metric!r}")
         self.vector_metric = vector_metric
@@ -224,25 +225,31 @@ class LanceDBSearchBackend:
     @classmethod
     def from_config(cls, config: Mapping[str, Any]) -> "LanceDBSearchBackend":
         search_cfg = config.get("search_backend", {})
-        backend = search_cfg.get("backend", "lancedb")
+        backend = search_cfg.get("type") or search_cfg.get("backend", "lancedb")
         if backend != "lancedb":
             raise ValueError(f"Unsupported search backend: {backend}")
+        # Metric follows the embedder: an explicit search_backend.vector_metric wins (back-compat),
+        # else it defaults to the metric the configured embedder's space implies (cosine for a
+        # normalized embedder, dot for an unnormalized inner-product one) — no hand-syncing.
+        from trialmatchai.models.embedding.text_embedder import native_metric_from_config
+
+        vector_metric = search_cfg.get("vector_metric") or native_metric_from_config(config)
         return cls(
             search_cfg.get("db_path", "data/search"),
             trials_table=search_cfg.get("trials_table", "trials"),
             criteria_table=search_cfg.get("criteria_table", "criteria"),
             candidate_limit=int(search_cfg.get("candidate_limit", 1000)),
-            vector_metric=search_cfg.get("vector_metric", "cosine"),
+            vector_metric=vector_metric,
             vector_weight=float(search_cfg.get("vector_weight", 0.5)),
         )
 
     def health(self, *, require_tables: bool = False) -> list[str]:
         issues: list[str] = []
         if not require_tables:
-            # Lenient (default): constructing the backend already proved the store is reachable.
-            # A not-yet-built index is legitimate here -- e.g. a pre-build preflight that runs
-            # BEFORE the index is created -- so do not flag a missing/empty DB. Callers that need
-            # a populated index (match readiness) pass require_tables=True for the strict check.
+            # Lenient (default): constructing the backend already proved the store is reachable,
+            # and a not-yet-built index is legitimate here (e.g. a pre-build preflight running
+            # BEFORE the index exists), so do not flag a missing/empty DB. Callers needing a
+            # populated index (match readiness) pass require_tables=True for the strict check.
             return issues
         if not self.db_path.exists():
             issues.append(
@@ -402,6 +409,8 @@ class LanceDBSearchBackend:
             search_mode=search_mode,
             use_entity_synonyms=use_entity_synonyms,
             vector_score_threshold=vector_score_threshold,
+            vector_metric=self.vector_metric,
+            vector_weight=self.vector_weight,
         )
         return [hit.to_es_like_hit() for hit in hits]
 
@@ -643,10 +652,9 @@ def _rank_trial_rows(
 
 
 def _batch_vector_normalizer(values: Sequence[float]):
-    """Min-max normalize raw dot-product scores to [0,1] across the candidate batch so they blend
-    with the [0,1] text score. A zero-span batch (all-equal, e.g. no query vector matched any
-    field) carries no discriminating signal, so map it to a neutral 0.0 rather than inflating
-    every candidate to the batch maximum."""
+    """Min-max normalize raw dot-product scores to [0,1] across the batch so they blend with the
+    [0,1] text score. A zero-span batch (all-equal, e.g. no query vector matched) carries no
+    discriminating signal, so map it to a neutral 0.0 rather than to the batch maximum."""
     if not values:
         return lambda v: 0.0
     low, high = min(values), max(values)
@@ -666,6 +674,8 @@ def _rank_criteria_rows(
     search_mode: str,
     use_entity_synonyms: bool,
     vector_score_threshold: float,
+    vector_metric: str = "cosine",
+    vector_weight: float = 0.5,
 ) -> list[SearchHit]:
     allowed = {nct_id for nct_id in nct_ids if nct_id}
     mode = (search_mode or "hybrid").lower()
@@ -675,23 +685,36 @@ def _rank_criteria_rows(
         else tuple(item for item in CRITERIA_TEXT_WEIGHTS if item[0] == "criterion")
     )
     bm25_norm = _bm25_norms(rows)
-    hits: list[SearchHit] = []
-    # NOTE: second-level criteria ranking intentionally stays on cosine + a 0.5 text/vector blend.
-    # The vector_metric / vector_weight knobs are wired only into first-level trial retrieval so
-    # far; threading them here (and into index_criteria) is future work. A dot-configured embedder
-    # therefore scores trials with dot but criteria with cosine.
-    for raw in rows:
+
+    def scored_row(raw: Mapping[str, Any]) -> tuple[dict[str, Any], float, float] | None:
         row = dict(raw) if "search_text" in raw else build_criteria_record(raw)
         if allowed and row.get("nct_id") not in allowed:
-            continue
+            return None
         text_score = _fuse_text(
             bm25_norm.get(_row_key(raw)),
             _weighted_text_score(row, [query], fields),
         )
-        vector_score = _vector_score(query_vector, _clean_vector(row.get("criterion_vector")))
+        vector_raw = _vector_score(
+            query_vector, _clean_vector(row.get("criterion_vector")), vector_metric
+        )
+        return row, text_score, vector_raw
+
+    if vector_metric == "dot":
+        # Dot products are unbounded: buffer and min-max normalize across the batch before
+        # blending with the [0,1] text score (mirrors _rank_trial_rows), so a dot-configured
+        # embedder (e.g. MedCPT) scores criteria with dot, not cosine.
+        prelim = [s for raw in rows if (s := scored_row(raw)) is not None]
+        normalize_vector = _batch_vector_normalizer([v for _, _, v in prelim])
+        scored = ((row, text, normalize_vector(vraw)) for row, text, vraw in prelim)
+    else:
+        # Cosine (default): field scores already in [0,1]; single pass, identical to before.
+        scored = (s for raw in rows if (s := scored_row(raw)) is not None)
+
+    hits: list[SearchHit] = []
+    for row, text_score, vector_score in scored:
         if mode in {"vector", "hybrid"} and vector_score < vector_score_threshold:
             continue
-        score = _combine_scores(mode, text_score, vector_score)
+        score = _combine_scores(mode, text_score, vector_score, vector_weight)
         if score <= 0:
             continue
         hits.append(SearchHit(source=row, score=score))
@@ -721,8 +744,8 @@ def _bm25_norms(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
     high = max(raw.values())
     if high <= low:
         # Zero span (min-max undefined), e.g. a lone FTS match: map all to 1.0 so a matched row
-        # keeps its BM25 credit. Constant across the batch, so this is only a floor -- the
-        # heuristic still breaks ties.
+        # keeps its BM25 credit. Constant across the batch, so only a floor -- the heuristic
+        # still breaks ties.
         return {key: 1.0 for key in raw}
     span = high - low
     return {key: (value - low) / span for key, value in raw.items()}
@@ -834,10 +857,10 @@ def _vector_score(
 
 
 def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
-    # Vectorized with numpy: the first-level re-ranker calls this millions of times per patient
-    # (every candidate row x every vector field x every query-term vector), so a pure-Python
-    # 1024-dim loop dominated retrieval latency (~5s/channel). numpy's BLAS dot is ~100x faster
-    # and numerically equivalent to the prior sequential sum (differences ~1e-15, rank-stable).
+    # Vectorized with numpy: the re-ranker calls this millions of times per patient (every
+    # candidate row x vector field x query-term vector), so a pure-Python 1024-dim loop dominated
+    # retrieval latency (~5s/channel). numpy's BLAS dot is ~100x faster and numerically equivalent
+    # to the prior sequential sum (differences ~1e-15, rank-stable).
     a = np.asarray(left, dtype=np.float64).ravel()
     b = np.asarray(right, dtype=np.float64).ravel()
     size = min(a.shape[0], b.shape[0])
@@ -1049,3 +1072,8 @@ def _create_vector_index(table: Any, column: str, metric: str = "cosine") -> Non
             logger.warning("Could not create LanceDB vector index on %s: %s", column, exc)
     except Exception as exc:
         logger.warning("Could not create LanceDB vector index on %s: %s", column, exc)
+
+
+# Self-register so `build_search_backend` can resolve search_backend.type/backend == "lancedb"
+# without importing the concrete class. New stores register their own from_config the same way.
+register("search_backend", "lancedb")(LanceDBSearchBackend.from_config)

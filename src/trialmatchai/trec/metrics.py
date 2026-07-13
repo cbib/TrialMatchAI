@@ -1,11 +1,10 @@
 """Ranking-quality metrics for TREC evaluation (complementing recall@k in ``qrels``).
 
 nDCG here is tie-aware (McSherry & Najork, 2008): tied scores each get the mean
-positional discount over the ranks the tie group spans, i.e. the expected nDCG
-over all orderings of the tie, so it is invariant to arbitrary tie-breaking. It
-is also condensed: computed over labeled-and-retrieved trials only, decoupling
-ranking quality from recall. Gain is linear (gain = relevance grade), matching
-trec_eval's default.
+positional discount over the tie group's ranks — the expected nDCG over all tie
+orderings, invariant to arbitrary tie-breaking. It is also condensed (over
+labeled-and-retrieved trials only, decoupling ranking quality from recall). Gain is
+linear (gain = relevance grade), matching trec_eval's default.
 """
 
 from __future__ import annotations
@@ -65,11 +64,10 @@ def ndcg_at_k(
 ) -> float:
     """Tie-aware nDCG@k. ``ordered_ids`` should be the condensed (labeled) list.
 
-    ``ideal_gains`` chooses the IDCG basis. When ``None`` (default) the ideal is built from
-    the gains of ``ordered_ids`` — i.e. the judged-AND-ranked trials, making nDCG
-    recall-independent (it only grades how well the ranked judged trials are ordered). Pass
-    the gains of the FULL judged pool to get the recall-aware ``trec_eval``-style nDCG, where
-    a relevant trial that was never ranked stays in the ideal and lowers the score.
+    ``ideal_gains`` chooses the IDCG basis: ``None`` (default) uses the gains of
+    ``ordered_ids`` (judged-AND-ranked), making nDCG recall-independent; pass the FULL
+    judged pool's gains for recall-aware ``trec_eval``-style nDCG, where an unranked
+    relevant trial stays in the ideal and lowers the score.
     """
     if k <= 0 or not ordered_ids:
         return 0.0
@@ -114,11 +112,11 @@ def condensed_ndcg(
     *,
     full_ideal: bool = False,
 ) -> Dict[int, float]:
-    """Tie-aware nDCG@k per cutoff. The DCG numerator is always condensed to the judged
-    trials (those in ``grade_of``), so unjudged trials never count. ``full_ideal`` selects the
-    IDCG basis: ``False`` (default) normalizes by the ideal over judged-AND-ranked trials
-    (recall-independent); ``True`` normalizes by the ideal over the FULL judged pool
-    (recall-aware, ``trec_eval``-style) so unretrieved relevant trials lower the score.
+    """Tie-aware nDCG@k per cutoff. The DCG numerator is always condensed to judged trials
+    (those in ``grade_of``), so unjudged trials never count. ``full_ideal`` selects the IDCG
+    basis: ``False`` (default) normalizes over judged-AND-ranked trials (recall-independent);
+    ``True`` normalizes over the FULL judged pool (recall-aware, ``trec_eval``-style) so
+    unretrieved relevant trials lower the score.
     """
     condensed = [nid for nid in ranked_ids if nid in grade_of]
     ideal = [float(g) for g in grade_of.values()] if full_ideal else None

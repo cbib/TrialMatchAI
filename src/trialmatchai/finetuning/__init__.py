@@ -7,9 +7,8 @@ Lets users train their own NER (GLiNER2), reranker (LoRA), and CoT eligibility
 - reranker: model.reranker_adapter_path  -> a LoRA adapter
 - CoT:      model.cot_adapter_path        -> a LoRA adapter
 
-All heavy training dependencies are imported lazily, so this package imports
-cleanly without the ``finetune`` extra installed. Install it with
-``uv sync --extra finetune``.
+Heavy training deps are imported lazily, so this package imports cleanly without
+the ``finetune`` extra. Install it with ``uv sync --extra finetune``.
 """
 
 from trialmatchai.finetuning.config import FinetuneConfig

@@ -21,7 +21,7 @@ from trialmatchai.matching.retrieval.location import (
     filter_trials_by_country,
     patient_country,
 )
-from trialmatchai.search import LanceDBSearchBackend
+from trialmatchai.search import build_search_backend
 from trialmatchai.services.preflight import run_preflight_checks
 from trialmatchai.interop.exporters import profile_to_matching_summary
 from trialmatchai.interop.models import PatientProfile
@@ -237,16 +237,11 @@ def _fuse_shortlist_scores(
     first_level_scores: Dict,
     search_config: Mapping[str, Any],
 ) -> Dict[str, float]:
-    """Combine the first-level (retrieval) and second-level (reranker) rankings into the
-    score that selects the pre-CoT shortlist.
+    """Combine first-level (retrieval) and second-level (reranker) rankings into the pre-CoT shortlist score.
 
-    ``rrf`` (default) fuses the two by rank via reciprocal-rank fusion. Because it is
-    computed over the union of both rankings, a trial retrieval placed high keeps a floor
-    even when the reranker never scored it (no criterion cleared the aggregation threshold),
-    so a strong retrieval hit is not silently evicted by a low reranker signal. Rank fusion
-    is also scale-free, which the earlier ``score_sum`` was not: the first-level and
-    reranker scores live on different scales, so summing them let whichever scale was larger
-    dominate the selection.
+    ``rrf`` (default) fuses by rank over the union of both rankings: a high retrieval hit keeps
+    a floor even when the reranker never scored it, and rank fusion is scale-free (unlike the
+    earlier ``score_sum``, where the larger-scaled of the two signals dominated selection).
     """
     mode = str(search_config.get("shortlist_fusion", "rrf")).lower()
     if mode == "score_sum":
@@ -321,9 +316,9 @@ def run_second_level_search(
 
     sorted_trials = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
     keep_divisor = max(1, int(config.get("search", {}).get("second_level_keep_divisor", 3)))
-    # Size the shortlist off the number of reranked trials, not the fused candidate pool:
-    # rank fusion widens the pool with first-level-only trials, and keying the divisor to
-    # that pool would silently enlarge the shortlist and confound a fusion A/B.
+    # Size the shortlist off the reranked count, not the fused pool: rank fusion adds
+    # first-level-only trials, so keying the divisor to the pool would silently enlarge the
+    # shortlist and confound a fusion A/B.
     reranked_count = len(second_level_results) or len(sorted_trials)
     num_top = max(1, min(reranked_count // keep_divisor, top_n))
     # RAG only reasons over rag.max_trials_rag trials; cap the shortlist to match, else trials
@@ -355,9 +350,8 @@ def run_second_level_search(
 def _criteria_source_folders(config: Dict) -> list[str]:
     """Folders to read each trial's criteria text from, in priority order.
 
-    Both carry ``eligibility_criteria`` but cover different provenance; trying both
-    resolves every trial regardless of how it was added, else the ones a folder is
-    missing would silently reason over "no criteria".
+    Both carry ``eligibility_criteria`` but cover different provenance; trying both resolves
+    every trial regardless of how it was added, else missing ones silently reason over "no criteria".
     """
     paths = config.get("paths", {})
     candidates = [
@@ -483,7 +477,7 @@ def main_pipeline(
     paths = config["paths"]
     create_directory(paths["output_dir"])
 
-    search_backend = LanceDBSearchBackend.from_config(config)
+    search_backend = build_search_backend(config)
     preflight_issues = run_preflight_checks(
         config,
         require_patient_inputs=True,
@@ -549,19 +543,24 @@ def main_pipeline(
             elif _reranker_backend(config) == "vllm":
                 from trialmatchai.models.llm.llm_reranker import LLMReranker
 
+                reranker_cfg = config.get("LLM_reranker", {})
+                vllm_cfg = config.get("vllm", {})
                 llm_reranker = LLMReranker(
                     model_path=config["model"]["reranker_model_path"],
                     adapter_path=config["model"]["reranker_adapter_path"],
                     device=config["global"]["device"],
                     gpu_memory_utilization=float(
-                        config.get("LLM_reranker", {}).get("gpu_memory_utilization", 0.4)
+                        reranker_cfg.get("gpu_memory_utilization", 0.4)
                     ),
-                    tensor_parallel_size=int(
-                        config.get("LLM_reranker", {}).get("tensor_parallel_size", 1)
-                    ),
+                    tensor_parallel_size=int(reranker_cfg.get("tensor_parallel_size", 1)),
                     batch_size=config["rag"]["batch_size"] * 2,
                     revision=config["model"].get("reranker_model_revision"),
                     trust_remote_code=config["model"].get("trust_remote_code", False),
+                    max_model_len=int(reranker_cfg.get("max_model_len", 4096)),
+                    # Weight-quantization + kv-cache knobs: reranker-specific override falling back
+                    # to the shared vllm section, so a large reranker fits the same way the CoT does.
+                    quantization=reranker_cfg.get("quantization", vllm_cfg.get("quantization", "")),
+                    kv_cache_dtype=reranker_cfg.get("kv_cache_dtype", vllm_cfg.get("kv_cache_dtype")),
                 )
             else:
                 raise ValueError(

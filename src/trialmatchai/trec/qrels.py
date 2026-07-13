@@ -202,11 +202,9 @@ def evaluate(
                 rec_counts[f"recall@{k}"] += 1
 
         if ranked:
-            # Report nDCG under both IDCG bases: ndcg@k normalizes by the ideal over
-            # judged-AND-ranked trials (recall-independent — pure ordering quality), while
-            # ndcg_full@k normalizes by the ideal over the FULL judged pool (recall-aware,
-            # trec_eval-style — a relevant trial never ranked lowers the score). The DCG
-            # numerator is condensed (ignores unjudged) in both.
+            # Two IDCG bases: ndcg@k normalizes by the ideal over judged-AND-ranked trials
+            # (recall-independent ordering quality); ndcg_full@k by the ideal over the FULL judged
+            # pool (recall-aware, trec_eval-style). DCG numerator is condensed (ignores unjudged) in both.
             ndcg = condensed_ndcg(ranked, score_of, judgments, NDCG_CUTOFFS)
             ndcg_full = condensed_ndcg(ranked, score_of, judgments, NDCG_CUTOFFS, full_ideal=True)
             for k in NDCG_CUTOFFS:
@@ -216,11 +214,9 @@ def evaluate(
                 rank_sums[f"ndcg_full@{k}"] += ndcg_full[k]
                 rank_counts[f"ndcg@{k}"] += 1
                 rank_counts[f"ndcg_full@{k}"] += 1
-            # Condense the ranked list to the judged pool before the precision cutoff, so an
-            # unjudged trial the assessors never saw does not count as a miss. This matches the
-            # condensed_ndcg above (and the docstring's stated "condensed to judged trials"):
-            # a non-pooled system surfaces many unjudged trials, and scoring those as wrong
-            # understated P@k and made it inconsistent with nDCG.
+            # Condense to the judged pool before the precision cutoff so unjudged trials the
+            # assessors never saw don't count as misses (matches condensed_ndcg above). Without
+            # this, a non-pooled system's many unjudged hits understated P@k and clashed with nDCG.
             judged_ranked = [nid for nid in ranked if nid in judgments]
             p_rel = precision_at_k(judged_ranked, rel_set, P_CUTOFF)
             p_elig = precision_at_k(judged_ranked, eligible.get(query_id, set()), P_CUTOFF)

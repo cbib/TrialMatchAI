@@ -106,9 +106,8 @@ def run_tracks(
         logger.info("================ TREC track %s ================", spec.key)
         cfg = _track_config(base_config, spec)
 
-        # Re-rank only: re-apply the current ranking logic to a finished run's cached CoT
-        # outputs (no build / index / match / model inference) and re-evaluate. Used to
-        # refresh ranked_trials.json + evaluation_metrics.json after a ranking-logic change.
+        # Re-rank only: re-apply ranking logic to a finished run's cached CoT outputs and
+        # re-evaluate (no inference). Refreshes ranked_trials.json + evaluation_metrics.json.
         if rerank:
             try:
                 _rerank_track(spec, evaluate=evaluate)
@@ -145,8 +144,7 @@ def run_tracks(
         if not index_only:
             expand_queries(cfg, force=force_rematch)
             # Free the query-expansion phi-4 before matching: matching loads its own CoT-LoRA
-            # phi-4, and two resident instances (~64 GB) OOM the card, silently degrading
-            # eligibility reasoning to constraint-only output.
+            # phi-4, and two resident instances (~64 GB) OOM the card, degrading eligibility output.
             free_models()
 
         # 4) Build the per-track index, restricted to the qrels corpus pool.

@@ -33,16 +33,14 @@ def load_trial_data(
     return trial_data
 
 
-# Eligibility scoring contract (REFACTOR_PLAN.md PR1, audit C1): a single Violated
-# exclusion HARD-DISQUALIFIES the trial (not averaged in, which let a violated trial
-# outrank an eligible one); eligible trials score in [0, 1] by the fraction of decided
-# inclusion criteria (Met/Not Met) that are Met.
+# Eligibility scoring contract (REFACTOR_PLAN.md PR1, audit C1): a single Violated exclusion
+# HARD-DISQUALIFIES (not averaged in, which let a violated trial outrank an eligible one);
+# eligible trials score [0, 1] by the fraction of decided inclusion criteria (Met/Not Met) Met.
 DISQUALIFIED_SCORE = -1.0
 
-# "Unclear" (patient info insufficient to decide a criterion) is the dominant classification.
-# Counting it at partial credit — rather than dropping it — keeps a mostly-Unclear trial from
-# sharing a band with a genuinely all-Met one, which is what let merely-relevant trials
-# outrank eligible ones at the top. "Irrelevant" (criterion does not apply) is still excluded.
+# "Unclear" (info insufficient to decide) is the dominant classification. Partial credit — vs
+# dropping it — keeps a mostly-Unclear trial off the all-Met band (which let merely-relevant
+# trials outrank eligible ones). "Irrelevant" (criterion does not apply) is still excluded.
 _UNCLEAR_CREDIT = 0.5
 
 # Classifications vary in case/markdown/punctuation ("**Violated**", "Met."); normalize
@@ -97,9 +95,9 @@ def score_trial(trial: Dict) -> float:
     return numerator / denominator
 
 
-# Fraction of the gap to the next eligibility band the normalized reranker score may
-# occupy. Strictly < 1.0 keeps a high-reranker trial from crossing bands, so the CoT
-# decision stays primary and the reranker only breaks within-band ties.
+# Fraction of the gap to the next eligibility band the reranker score may occupy. Strictly
+# < 1.0 keeps a high-reranker trial from crossing bands: CoT stays primary, reranker only
+# breaks within-band ties.
 _BLEND_HEADROOM = 0.9
 
 
@@ -111,11 +109,11 @@ def rank_trials(
 ) -> List[Dict]:
     """Rank by eligibility, folding the reranker score in to break the coarse ties.
 
-    ``score_trial`` yields a coarse band (many trials collapse onto one value, e.g. all-Met
-    = 1.0) that a tie-aware nDCG can't credit. So the continuous reranker probability is
-    folded into ``Score`` as a within-band refinement: normalized to [0, 1] and scaled by
-    ``_BLEND_HEADROOM`` to stay inside the gap to the next band. Bands never cross; ``Score``
-    becomes continuous while ``EligibilityScore`` keeps the raw band.
+    ``score_trial`` yields a coarse band (many trials collapse onto one value, e.g. all-Met =
+    1.0) that a tie-aware nDCG can't credit, so the continuous reranker probability is folded
+    into ``Score`` as a within-band refinement (normalized to [0, 1], scaled by
+    ``_BLEND_HEADROOM`` to stay inside the gap to the next band). Bands never cross; ``Score``
+    stays continuous while ``EligibilityScore`` keeps the raw band.
     """
     first_level_scores = first_level_scores or {}
     second_level_scores = second_level_scores or {}
@@ -170,10 +168,10 @@ def save_ranked_trials(ranked_trials: List[Dict], output_file: str):
 
 def rerank_patient_dir(patient_dir: str) -> int:
     """Re-rank one patient's cached chain-of-thought outputs with the current scoring,
-    overwriting ``ranked_trials.json`` in place. No model inference — it reuses the stored
-    per-trial ``NCT*.json`` eligibility outputs plus the reranker/first-level scores already
-    recorded in ``ranked_trials.json``, so a ranking-logic change can be re-applied to a
-    finished run without re-matching. Returns the number of trials ranked (0 = skipped).
+    overwriting ``ranked_trials.json`` in place. No model inference — reuses the stored per-trial
+    ``NCT*.json`` outputs plus the reranker/first-level scores in ``ranked_trials.json``, so a
+    ranking-logic change re-applies to a finished run without re-matching. Returns the number of
+    trials ranked (0 = skipped).
     """
     ranked_path = os.path.join(patient_dir, "ranked_trials.json")
     if not os.path.exists(ranked_path):

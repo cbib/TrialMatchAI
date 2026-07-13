@@ -58,9 +58,8 @@ def _as_float(x, name: str) -> Optional[float]:
         raise TypeError(f"{name} must be float-compatible, got {type(x)}: {x!r}") from e
 
 
-# Process-level cache of built vLLM engines keyed by resolved model/adapter/params, so the
-# per-patient RAG path and the query expander share one engine instead of rebuilding the
-# multi-GB CoT engine repeatedly (wasted minutes, GPU OOM risk).
+# Process-level cache keyed by resolved model/adapter/params: the RAG path and query expander
+# share one engine instead of rebuilding the multi-GB CoT engine (wasted minutes, GPU OOM risk).
 _ENGINE_CACHE: dict = {}
 
 
@@ -139,6 +138,9 @@ def load_vllm_engine(
     # max_num_seqs caps concurrency to keep that tight KV budget from thrashing.
     kv_cache_dtype = _as_str(vllm_cfg.get("kv_cache_dtype", ""), "kv_cache_dtype") or ""
     max_num_seqs = _as_int(vllm_cfg.get("max_num_seqs", None), "max_num_seqs")
+    # Optional weight quantization (e.g. "bitsandbytes" for in-flight 4-bit). Lets a large
+    # base model (e.g. a 27B CoT model) fit on one card without a pre-quantized checkpoint.
+    quantization = _as_str(vllm_cfg.get("quantization", ""), "quantization") or ""
 
     # Optional max_model_len with safe cap based on HF config (unless overridden)
     requested_len = _as_int(vllm_cfg.get("max_model_len", None), "max_model_len")
@@ -171,6 +173,21 @@ def load_vllm_engine(
         engine_kwargs["kv_cache_dtype"] = kv_cache_dtype
     if max_num_seqs is not None and max_num_seqs > 0:
         engine_kwargs["max_num_seqs"] = max_num_seqs
+    if quantization:
+        engine_kwargs["quantization"] = quantization
+        # vLLM needs the bitsandbytes load path to quantize a bf16 checkpoint in-flight.
+        if quantization == "bitsandbytes":
+            engine_kwargs["load_format"] = "bitsandbytes"
+    if bool(vllm_cfg.get("disable_custom_all_reduce", False)):
+        # On multi-GPU nodes WITHOUT NVLink (e.g. A40/L40 over PCIe), vLLM's custom all-reduce
+        # kernel assumes P2P and dies with a CUDA 'invalid argument' (custom_all_reduce.cuh).
+        # Fall back to NCCL all-reduce (also needs NCCL_P2P_DISABLE=1 in the environment).
+        engine_kwargs["disable_custom_all_reduce"] = True
+    if bool(vllm_cfg.get("enforce_eager", False)):
+        # Skip CUDA graph capture. Frees the graph memory (~6-7GB) for the KV cache when the
+        # weights already fill most of a card (e.g. a 27B split across 2x 48GB A40). Slightly
+        # slower decode, but avoids KV-cache starvation.
+        engine_kwargs["enforce_eager"] = True
 
     # Return a cached engine when the same model/adapter/params were already built.
     cache_adapter = _as_str(
@@ -187,6 +204,7 @@ def load_vllm_engine(
         str(engine_kwargs.get("revision", "")),
         kv_cache_dtype,
         str(engine_kwargs.get("max_num_seqs", "default")),
+        quantization,
     )
     cached = _ENGINE_CACHE.get(cache_key)
     if cached is not None:

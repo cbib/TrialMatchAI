@@ -1,11 +1,10 @@
 """Stage-level skip/resume for the build pipeline via fingerprinted completion state.
 
-A stage re-runs when its inputs (path+size+mtime digest), config, or code version change --
-mtime alone is unsound across checkouts. Each stage records its output fingerprint and the
-upstream fingerprint it consumed, so a downstream stage skips instantly (no per-record walk)
-when upstream, config, and code are unchanged and its output is still present. The manifest is
-written atomically only after success, so a crash never leaves a false "complete" marker; a
-``force`` flag always rebuilds.
+A stage re-runs when its inputs (path+size+mtime digest), config, or code version change; mtime
+alone is unsound across checkouts. Each stage records its output and upstream fingerprints so a
+downstream stage skips instantly (no per-record walk) when upstream, config, and code are
+unchanged and its output is present. The manifest is written atomically only after success, so a
+crash never leaves a false "complete" marker; ``force`` always rebuilds.
 """
 
 from __future__ import annotations

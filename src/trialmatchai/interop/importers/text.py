@@ -78,9 +78,8 @@ def _entity_to_fact(entity: dict, provenance: Provenance):
     if entity.get("error_code"):
         return None
     group = str(entity.get("entity_group") or entity.get("class") or "").casefold()
-    # Schema/recognizer groups may arrive space-separated ("sign symptom", "diagnostic test")
-    # while the map keys are underscore-joined; normalize so they don't fall through to the
-    # "observation" default (e.g. sign symptom / cell type must map to phenotype).
+    # Groups may arrive space-separated ("sign symptom") but map keys are underscore-joined;
+    # normalize so they don't fall through to the "observation" default (e.g. -> phenotype).
     category = ENTITY_GROUP_TO_CATEGORY.get(group.replace(" ", "_"), "observation")
     text = str(entity.get("text") or entity.get("entity") or "").strip()
     if not text:
