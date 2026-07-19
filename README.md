@@ -37,44 +37,30 @@ Trials, models, indexes, and results all live on your own machine.
 ## Performance
 
 This release ships two TrialMatchAI configurations: a clinical one that pairs the
-MedCPT retriever with MedGemma, and a general one that pairs bge-m3 with phi-4. On
-the official **TREC Clinical Trials** benchmark (2021 and 2022, 125 topics
-pooled), both of them rank eligible trials more accurately than the published
+MedCPT retriever with MedGemma, and a general one that pairs bge-m3 with phi-4. The
+bars below also include an experimental thinking-model reasoner, Baichuan-M2-32B (on
+MedCPT retrieval). On the official **TREC Clinical Trials** benchmark (2021 and 2022,
+125 topics pooled), all three rank eligible trials more accurately than the published
 TrialMatchAI system (the “paper” bars) and than **TrialGPT** (Jin et al., *Nature
 Communications* 2024):
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance_dark.png">
-  <img alt="Clinical-trial ranking performance on TREC CT 2021+2022 (pooled): nDCG@10 and graded P@10 for two TrialMatchAI configurations (MedCPT+MedGemma and bge-m3+phi-4) vs the paper vs TrialGPT" src="docs/assets/performance_light.png" width="760">
+  <img alt="Clinical-trial ranking performance on TREC CT 2021+2022 (pooled): nDCG@10 and graded P@10 for three TrialMatchAI reasoners (MedCPT+Baichuan-M2-32B, MedCPT+MedGemma, bge-m3+phi-4) vs the paper vs TrialGPT" src="docs/assets/performance_light.png" width="760">
 </picture>
 
 <sub>nDCG@10 and graded P@10 pooled over TREC Clinical Trials 2021 and 2022 (125
-topics), computed on judged trials. The two TrialMatchAI configurations and the
-paper use the identical ranking metric on the same topics, so those comparisons
-are exact. TrialGPT shows the value reported in Jin et al. (2024); their
-evaluation also includes the SIGIR 2016 cohort, so treat it as an indicative
-reference rather than a matched run. Reproduce ours with `trialmatchai trec
---tracks "21 22"`.</sub>
-
-**Reasoning model, side by side.** The eligibility-reasoning model is a config
-swap, so trying a different one is easy. Holding MedCPT retrieval fixed, we ran a
-larger thinking model, Baichuan-M2-32B, against the two default reasoners across
-all 125 TREC topics:
-
-| Configuration | nDCG@10 | graded P@10 | P@10 (eligible) |
-| --- | --- | --- | --- |
-| MedCPT + Baichuan-M2-32B | **0.785** | **0.760** | **0.699** |
-| bge-m3 + phi-4 | 0.776 | 0.745 | 0.690 |
-| MedCPT + MedGemma-27B | 0.765 | 0.738 | 0.690 |
-
-<sub>Pooled over TREC Clinical Trials 2021 and 2022 (125 topics), condensed to
-judged trials, same metric as the figure above. Baichuan-M2-32B ranks eligible
-trials best on every metric, but the margin is small (about 0.01 to 0.02) and comes
-almost entirely from the 2021 track; on 2022 the bge-m3 + phi-4 config is slightly
-ahead. One caveat for a fair read: Baichuan ran with grammar-constrained JSON
-output, so nearly all of its verdicts parsed, while MedGemma and phi-4 had roughly
-8% parse failures that can drop otherwise-eligible trials. The edge is real but
-modest, and partly a formatting effect.</sub>
+topics), computed on judged trials. The three TrialMatchAI configurations and the
+paper use the identical ranking metric on the same topics, so those comparisons are
+exact. TrialGPT shows the value reported in Jin et al. (2024); their evaluation also
+includes the SIGIR 2016 cohort, so treat it as an indicative reference rather than a
+matched run. Baichuan-M2-32B edges the two default reasoners here, but the margin is
+small (about 0.01 to 0.02) and comes almost entirely from the 2021 track; on 2022
+the bge-m3 + phi-4 config is slightly ahead. Read Baichuan's edge with one caveat: it
+ran with grammar-constrained JSON output so nearly all of its verdicts parsed, while
+MedGemma and phi-4 had roughly 8% parse failures that can drop otherwise-eligible
+trials, so part of the gap is a formatting effect. Reproduce ours with `trialmatchai
+trec --tracks "21 22"`.</sub>
 
 **Retrieval recall by embedder.** This is the share of eligible trials (qrels
 grade 2) that the first-level search surfaces among its top *k* candidates, across
