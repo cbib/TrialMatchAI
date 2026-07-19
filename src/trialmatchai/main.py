@@ -424,6 +424,8 @@ def run_rag_processing(
             length_bucket=vllm_cfg.get("length_bucket", True),
             max_model_len=vllm_cfg.get("max_model_len"),
             lora_request=lora_request,
+            chat_template_kwargs=rag_cfg.get("chat_template_kwargs"),
+            guided_json=rag_cfg.get("guided_json", False),
         )
     else:
         raise ValueError(f"Unsupported rag.backend: {rag_backend}")

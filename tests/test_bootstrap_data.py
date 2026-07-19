@@ -45,6 +45,7 @@ def test_bootstrap_data_uses_existing_archives_and_removes_them(tmp_path, monkey
         models_url="https://example.invalid/models.tar.gz",
         criteria_base_url="https://example.invalid",
         criteria_chunks=1,
+        with_models=True,
     )
 
     assert (tmp_path / "data/processed_trials/NCT000001.json").exists()
@@ -60,6 +61,7 @@ def test_bootstrap_data_uses_existing_archives_and_removes_them(tmp_path, monkey
         models_url="https://example.invalid/missing-models.tar.gz",
         criteria_base_url="https://example.invalid/missing",
         criteria_chunks=1,
+        with_models=True,
     )
 
 

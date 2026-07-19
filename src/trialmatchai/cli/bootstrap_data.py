@@ -58,9 +58,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Number of criteria zip chunks to download",
     )
     parser.add_argument(
-        "--skip-models",
+        "--with-models",
         action="store_true",
-        help="Do not download or extract model artifacts",
+        help="Also fetch the fine-tuned adapters from Zenodo into models/. Not needed by "
+        "default: the adapters download from Hugging Face on first use.",
     )
     parser.add_argument(
         "--finetune-data",
@@ -86,7 +87,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         models_url=args.models_url,
         criteria_base_url=args.criteria_base_url,
         criteria_chunks=args.criteria_chunks,
-        skip_models=args.skip_models,
+        with_models=args.with_models,
         finetune_data=args.finetune_data,
         finetune_data_url=args.finetune_data_url,
         force=args.force,
@@ -101,7 +102,7 @@ def bootstrap_data(
     models_url: str = MODELS_URL,
     criteria_base_url: str = CRITERIA_ZIP_BASE_URL,
     criteria_chunks: int = CHUNK_COUNT,
-    skip_models: bool = False,
+    with_models: bool = False,
     finetune_data: bool = False,
     finetune_data_url: str = FINETUNE_DATA_URL,
     force: bool = False,
@@ -137,7 +138,7 @@ def bootstrap_data(
         _safe_extract_tar_gz(processed_archive, data_dir)
         _mark_extract_complete(processed_trials_dir)
 
-    if not skip_models:
+    if with_models:
         models_dir.mkdir(parents=True, exist_ok=True)
         if force or not _extract_complete(models_dir):
             models_archive = data_dir / MODELS_ARCHIVE

@@ -3082,7 +3082,7 @@ wheels = [
 
 [[package]]
 name = "trialmatchai"
-version = "0.6.0"
+version = "0.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "lancedb", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },

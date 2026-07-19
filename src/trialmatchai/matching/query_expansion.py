@@ -51,6 +51,21 @@ Return a JSON object in the exact following structure without any additional com
 
 _EMPTY = {"main_conditions": [], "other_conditions": [], "expanded_sentences": []}
 
+# JSON schema for grammar-constrained keyword expansion (vLLM structured outputs), so a verbose
+# or reasoning model always returns valid keyword JSON instead of prose that fails to parse.
+# maxItems/maxLength bound the arrays so the grammar forces each one closed instead of
+# letting a verbose model emit array items until it exhausts max_tokens (observed under
+# tensor-parallel decode: expansion ran to the full 5000-token budget, ~9 min/patient).
+_KEYWORDS_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "main_conditions": {"type": "array", "maxItems": 11, "items": {"type": "string", "maxLength": 120}},
+        "other_conditions": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 120}},
+        "expanded_sentences": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 400}},
+    },
+    "required": ["main_conditions", "other_conditions", "expanded_sentences"],
+}
+
 
 def _as_list(value: object) -> list:
     """Coerce an expansion field to a list; a bare string becomes ``["cancer"]``, not the
@@ -81,6 +96,7 @@ def _resolve_settings(config: Dict[str, Any]) -> Dict[str, Any]:
         # Suppress chain-of-thought for this extractive task: reasoning models otherwise
         # fill the token budget with <think>, never emit the JSON, and expansion falls back.
         "no_think": bool(qe.get("no_think", False)),
+        "guided_json": bool(qe.get("guided_json", False)),
     }
 
 
@@ -177,7 +193,16 @@ class QueryExpander:
         from vllm import SamplingParams
 
         prompt_text = _apply_template(tokenize=False)
-        params = SamplingParams(temperature=0.0, max_tokens=self.settings["max_new_tokens"])
+        structured = None
+        if self.settings.get("guided_json"):
+            from vllm.sampling_params import StructuredOutputsParams  # type: ignore
+
+            structured = StructuredOutputsParams(json=_KEYWORDS_JSON_SCHEMA)
+        params = SamplingParams(
+            temperature=0.0,
+            max_tokens=self.settings["max_new_tokens"],
+            structured_outputs=structured,
+        )
         results = self.engine.generate([prompt_text], params, lora_request=self.lora_request)
         return results[0].outputs[0].text if results and results[0].outputs else ""
 

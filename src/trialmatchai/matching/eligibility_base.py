@@ -36,6 +36,9 @@ class BaseTrialProcessor:
     batch_size: int = 4
     use_cot: bool = True
     no_think: bool = False
+    # Extra kwargs passed to apply_chat_template, e.g. {"thinking_mode": "on"} for models whose
+    # template toggles reasoning by a named variable rather than enable_thinking (e.g. Baichuan-M2).
+    chat_template_kwargs: dict | None = None
 
     # ---------------------- I/O helpers ----------------------
 
@@ -154,7 +157,7 @@ class BaseTrialProcessor:
         if self.tokenizer is not None and hasattr(self.tokenizer, "apply_chat_template"):
             # enable_thinking=False for reasoning models (e.g. Qwen3); templates that
             # don't declare the var raise TypeError — fall through to the plain prompt.
-            template_kwargs: dict = {}
+            template_kwargs: dict = dict(self.chat_template_kwargs or {})
             if self.no_think:
                 template_kwargs["enable_thinking"] = False
             try:

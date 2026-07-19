@@ -41,10 +41,10 @@
       "bnb_4bit_quant_type": "nf4",
       "bnb_4bit_compute_dtype": "float16"
     },
-    "cot_adapter_path": "models/finetuned_phi_reasoning",
+    "cot_adapter_path": "majdabd33/trialmatchai-phi4-reasoning-lora",
     "reranker_model_path": "google/gemma-2-2b-it",
     "reranker_model_revision": null,
-    "reranker_adapter_path": "models/finetuned_gemma2"
+    "reranker_adapter_path": "majdabd33/trialmatchai-gemma2-reranker-lora"
   },
   "tokenizer": {
     "use_fast": true,

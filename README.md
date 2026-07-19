@@ -56,6 +56,26 @@ evaluation also includes the SIGIR 2016 cohort, so treat it as an indicative
 reference rather than a matched run. Reproduce ours with `trialmatchai trec
 --tracks "21 22"`.</sub>
 
+**Reasoning model, side by side.** The eligibility-reasoning model is a config
+swap, so trying a different one is easy. Holding MedCPT retrieval fixed, we ran a
+larger thinking model, Baichuan-M2-32B, against the two default reasoners across
+all 125 TREC topics:
+
+| Configuration | nDCG@10 | graded P@10 | P@10 (eligible) |
+| --- | --- | --- | --- |
+| MedCPT + Baichuan-M2-32B | **0.785** | **0.760** | **0.699** |
+| bge-m3 + phi-4 | 0.776 | 0.745 | 0.690 |
+| MedCPT + MedGemma-27B | 0.765 | 0.738 | 0.690 |
+
+<sub>Pooled over TREC Clinical Trials 2021 and 2022 (125 topics), condensed to
+judged trials, same metric as the figure above. Baichuan-M2-32B ranks eligible
+trials best on every metric, but the margin is small (about 0.01 to 0.02) and comes
+almost entirely from the 2021 track; on 2022 the bge-m3 + phi-4 config is slightly
+ahead. One caveat for a fair read: Baichuan ran with grammar-constrained JSON
+output, so nearly all of its verdicts parsed, while MedGemma and phi-4 had roughly
+8% parse failures that can drop otherwise-eligible trials. The edge is real but
+modest, and partly a formatting effect.</sub>
+
 **Retrieval recall by embedder.** This is the share of eligible trials (qrels
 grade 2) that the first-level search surfaces among its top *k* candidates, across
 four embedders: two general-purpose ones (bge-m3, Qwen3-Embedding) and two
@@ -139,7 +159,7 @@ export HF_TOKEN=<token>     # required for gated base models (one-time `hf auth 
 ### 1. Build the system, once
 
 ```bash
-trialmatchai bootstrap-data   # download the prepared corpus + model adapters
+trialmatchai bootstrap-data   # download the prepared trial corpus + criteria
 trialmatchai build            # prepare the corpus + build the search index
 trialmatchai build --status   # see exactly what is built (and what isn't)
 ```
@@ -162,12 +182,12 @@ trialmatchai build --concepts --concepts-csv data/omop/CONCEPT.csv --synonym-csv
 
 | Resource | How you get it | Automatic? |
 | --- | --- | --- |
-| Trial corpus (prepared trials + criteria) | `trialmatchai bootstrap-data` (Zenodo) | ✅ automatic |
-| Fine-tuned model adapters | `trialmatchai bootstrap-data` (Zenodo) | ✅ automatic |
+| Trial corpus (prepared trials + criteria) | `trialmatchai bootstrap-data` | ✅ automatic |
+| Fine-tuned adapters ([phi-4 reasoning](https://huggingface.co/majdabd33/trialmatchai-phi4-reasoning-lora), [gemma-2 reranker](https://huggingface.co/majdabd33/trialmatchai-gemma2-reranker-lora)) | downloaded on first use (Hugging Face) | ✅ automatic |
 | Fine-tuning datasets (only if you re-train) | `trialmatchai bootstrap-data --finetune-data` | ✅ automatic (opt-in) |
 | Embedding model | downloaded on first use | ✅ automatic |
 | Concept-linking vocabularies | `trialmatchai build --concepts` | ✅ automatic |
-| Base language models | downloaded on first use | ⚠️ gated models need a one-time `hf auth login` + licence acceptance |
+| Base language models | downloaded on first use | ⚠️ the default reranker `google/gemma-2-2b-it` (and `google/medgemma-27b-text-it` in the clinical config) are gated: accept the licence on Hugging Face, then run `hf auth login` once |
 | OMOP clinical vocabulary (SNOMED/LOINC/RxNorm) | download `CONCEPT.csv` from [OHDSI Athena](https://athena.ohdsi.org/) | ❌ manual (licensed); linking works without it |
 
 From scratch, that is two commands (`bootstrap-data`, then `build --concepts`)
@@ -314,7 +334,7 @@ subcommand. Under the hood they are all slices of **one idempotent pipeline**.
 
 | Command | Purpose |
 | --- | --- |
-| `trialmatchai pipeline` | Run the whole pipeline, or any slice: `--only` / `--from` / `--to` / `--skip` / `--force` over the stages `prepare → concepts → index → ingest → expand → match → eval`. Finished work is skipped. See [docs](https://cbib.github.io/TrialMatchAI/pipeline/). |
+| `trialmatchai pipeline` | Run the whole pipeline, or any slice: `--only` / `--from` / `--to` / `--skip` / `--force` over the stages `prepare → concepts → link → index → ingest → expand → match → eval`. Finished work is skipped. See [docs](https://cbib.github.io/TrialMatchAI/pipeline/). |
 
 The commands below are convenience presets over that pipeline.
 
@@ -323,7 +343,7 @@ The commands below are convenience presets over that pipeline.
 | Command | Purpose |
 | --- | --- |
 | `trialmatchai build` | Prepare the corpus (embeddings and entities) and build the search index. Resumable, with `--status`. |
-| `trialmatchai bootstrap-data` | Download and extract the prepared corpus + model adapters |
+| `trialmatchai bootstrap-data` | Download and extract the prepared trial corpus + criteria (the fine-tuned adapters download from Hugging Face on first use) |
 | `trialmatchai build-concepts` | Build the concept table for entity normalization (optional, OMOP) |
 | `trialmatchai update-registry` | Fetch changed ClinicalTrials.gov studies and update the index |
 
@@ -343,7 +363,7 @@ The commands below are convenience presets over that pipeline.
 | --- | --- |
 | `trialmatchai healthcheck` | Validate config, paths, optional model deps, and search tables |
 | `trialmatchai index` | Lower-level prepare/index of trial and criteria tables |
-| `trialmatchai finetune` | Fine-tune entity extraction, reranker, or eligibility-reasoning models |
+| `trialmatchai finetune` | Fine-tune the entity, reranker, or reasoning models (`cot` / `reranker` / `ner`), or `merge` a trained LoRA adapter into its base |
 
 ## Deployment
 
@@ -421,4 +441,3 @@ paper:
 ## Support
 
 - Email: abdallahmajd7@gmail.com
-- Software archive (DOI): <https://doi.org/10.5281/zenodo.18329084>

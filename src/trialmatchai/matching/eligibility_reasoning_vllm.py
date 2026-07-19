@@ -8,6 +8,42 @@ from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
 
+# JSON schema for grammar-constrained decoding (vLLM structured outputs). Forces every response to
+# be a valid, complete eligibility object with the exact Met/Not Met/Unclear/Irrelevant (inclusion)
+# and Violated/Not Violated/Unclear/Irrelevant (exclusion) vocabulary the trial ranker parses, so a
+# verbose or reasoning model can never truncate mid-JSON or drift off-format.
+_INCLUSION_LABELS = ["Met", "Not Met", "Unclear", "Irrelevant"]
+_EXCLUSION_LABELS = ["Violated", "Not Violated", "Unclear", "Irrelevant"]
+
+
+def _criteria_array(labels: list[str]) -> dict:
+    return {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "Criterion": {"type": "string"},
+                "Classification": {"type": "string", "enum": labels},
+                "Justification": {"type": "string"},
+            },
+            "required": ["Criterion", "Classification", "Justification"],
+        },
+    }
+
+
+ELIGIBILITY_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "Inclusion_Criteria_Evaluation": _criteria_array(_INCLUSION_LABELS),
+        "Exclusion_Criteria_Evaluation": _criteria_array(_EXCLUSION_LABELS),
+        "Final Decision": {
+            "type": "string",
+            "enum": ["Eligible", "Likely Eligible", "Likely Ineligible", "Ineligible"],
+        },
+    },
+    "required": ["Inclusion_Criteria_Evaluation", "Exclusion_Criteria_Evaluation", "Final Decision"],
+}
+
 
 class BatchTrialProcessorVLLM(BaseTrialProcessor):
     def __init__(
@@ -24,6 +60,8 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         length_bucket: bool = True,
         max_model_len: Optional[int] = None,
         lora_request: Optional[Any] = None,
+        chat_template_kwargs: Optional[dict] = None,
+        guided_json: bool = False,
     ):
         """vLLM-backed CoT eligibility processor with optional LoRA adapter."""
         self.llm = llm
@@ -31,6 +69,7 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         self.batch_size = batch_size
         self.use_cot = use_cot
         self.no_think = no_think
+        self.chat_template_kwargs = chat_template_kwargs or {}
         self.max_new_tokens = max_new_tokens
         self.temperature = temperature
         self.top_p = top_p
@@ -49,12 +88,22 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
 
         from vllm import SamplingParams  # type: ignore
 
+        # Grammar-constrained decoding: guarantee a complete, schema-valid eligibility JSON so a
+        # verbose/reasoning model can't truncate or drift off-format (xgrammar backend, auto).
+        structured = None
+        if guided_json:
+            from vllm.sampling_params import StructuredOutputsParams  # type: ignore
+
+            structured = StructuredOutputsParams(json=ELIGIBILITY_JSON_SCHEMA)
+            logger.info("Eligibility decoding constrained to the JSON schema (vLLM structured outputs).")
+
         self.sampling_params = SamplingParams(
             max_tokens=self.max_new_tokens,
             temperature=self.temperature,
             top_p=self.top_p,
             seed=self.seed,
             detokenize=True,
+            structured_outputs=structured,
         )
 
     def _progress_desc(self) -> str:
