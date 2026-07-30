@@ -94,7 +94,10 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         if guided_json:
             from vllm.sampling_params import StructuredOutputsParams  # type: ignore
 
-            structured = StructuredOutputsParams(json=ELIGIBILITY_JSON_SCHEMA)
+            # disable_any_whitespace: xgrammar otherwise permits unbounded whitespace between JSON
+            # tokens, and some models (II-Medical-8B) degenerate into emitting thousands of newlines
+            # after the content, exhausting max_tokens before the closing brace -> unbalanced JSON.
+            structured = StructuredOutputsParams(json=ELIGIBILITY_JSON_SCHEMA, disable_any_whitespace=True)
             logger.info("Eligibility decoding constrained to the JSON schema (vLLM structured outputs).")
 
         self.sampling_params = SamplingParams(

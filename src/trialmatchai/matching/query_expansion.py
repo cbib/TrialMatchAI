@@ -53,15 +53,17 @@ _EMPTY = {"main_conditions": [], "other_conditions": [], "expanded_sentences": [
 
 # JSON schema for grammar-constrained keyword expansion (vLLM structured outputs), so a verbose
 # or reasoning model always returns valid keyword JSON instead of prose that fails to parse.
-# maxItems/maxLength bound the arrays so the grammar forces each one closed instead of
-# letting a verbose model emit array items until it exhausts max_tokens (observed under
-# tensor-parallel decode: expansion ran to the full 5000-token budget, ~9 min/patient).
+# maxItems bounds the array COUNT so the grammar forces each array closed instead of letting a
+# verbose model emit items until it exhausts max_tokens (the original Baichuan runaway). Short-term
+# fields (conditions) keep a small maxLength since they are terms; expanded_sentences deliberately
+# has NO maxLength -- a hard char cap chopped real clinical sentences mid-word. Count is bounded by
+# maxItems and total output by max_new_tokens, so a per-string cap is unnecessary and harmful.
 _KEYWORDS_JSON_SCHEMA = {
     "type": "object",
     "properties": {
         "main_conditions": {"type": "array", "maxItems": 11, "items": {"type": "string", "maxLength": 120}},
         "other_conditions": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 120}},
-        "expanded_sentences": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 400}},
+        "expanded_sentences": {"type": "array", "maxItems": 15, "items": {"type": "string"}},
     },
     "required": ["main_conditions", "other_conditions", "expanded_sentences"],
 }
@@ -197,7 +199,7 @@ class QueryExpander:
         if self.settings.get("guided_json"):
             from vllm.sampling_params import StructuredOutputsParams  # type: ignore
 
-            structured = StructuredOutputsParams(json=_KEYWORDS_JSON_SCHEMA)
+            structured = StructuredOutputsParams(json=_KEYWORDS_JSON_SCHEMA, disable_any_whitespace=True)
         params = SamplingParams(
             temperature=0.0,
             max_tokens=self.settings["max_new_tokens"],

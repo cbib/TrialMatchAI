@@ -32,6 +32,11 @@ class TextEmbedderConfig:
     # Prepended to QUERIES only (documents embedded raw), for instruction-tuned embedders like
     # Qwen3-Embedding ("Instruct: {task}\nQuery:{text}"). None = no instruction.
     query_instruction: str | None = None
+    # E5-style raw prefixes prepended verbatim to queries / documents (e.g. "query: " and
+    # "passage: " for Nemotron-3-Embed, E5, GTE). Distinct from the Qwen3-style query_instruction
+    # template above; query_prefix takes precedence over query_instruction when both are set.
+    query_prefix: str | None = None
+    document_prefix: str | None = None
     # Vector similarity this space is trained for; None derives from ``normalize`` (normalized ->
     # cosine, unnormalized -> dot). The search backend uses it as the default ``vector_metric``.
     native_metric: str | None = None
@@ -198,6 +203,7 @@ class TextEmbedder:
             family="hf", model=self.config.model_name, revision=self.config.revision,
             dim=self.dim, native_metric=self.native_metric, pooling=self.config.pooling,
             normalize=self.config.normalize, query_instruction=self.config.query_instruction,
+            query_prefix=self.config.query_prefix, document_prefix=self.config.document_prefix,
         )
 
     def embed_text(self, text: str) -> List[float]:
@@ -230,10 +236,14 @@ class TextEmbedder:
     # Symmetric embedder: documents and queries share the single model. AsymmetricTextEmbedder
     # overrides these to route to separate encoders (e.g. MedCPT's article/query encoders).
     def embed_documents(self, texts: Sequence[str]) -> List[List[float]]:
+        if self.config.document_prefix:
+            texts = [f"{self.config.document_prefix}{t}" for t in texts]
         return self.embed_texts(texts)
 
     def embed_queries(self, texts: Sequence[str]) -> List[List[float]]:
-        if self.config.query_instruction:
+        if self.config.query_prefix:
+            texts = [f"{self.config.query_prefix}{t}" for t in texts]
+        elif self.config.query_instruction:
             texts = [f"Instruct: {self.config.query_instruction}\nQuery:{t}" for t in texts]
         return self.embed_texts(texts)
 
@@ -362,6 +372,8 @@ def _build_hf_embedder(config: dict) -> "TextEmbedder | AsymmetricTextEmbedder":
             use_fp16=embedder_cfg.get("use_fp16", False),
             normalize=embedder_cfg.get("normalize", True),
             query_instruction=embedder_cfg.get("query_instruction"),
+            query_prefix=embedder_cfg.get("query_prefix"),
+            document_prefix=embedder_cfg.get("document_prefix"),
             native_metric=embedder_cfg.get("native_metric"),
         )
 

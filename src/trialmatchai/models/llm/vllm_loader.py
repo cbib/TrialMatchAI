@@ -188,6 +188,12 @@ def load_vllm_engine(
         # weights already fill most of a card (e.g. a 27B split across 2x 48GB A40). Slightly
         # slower decode, but avoids KV-cache starvation.
         engine_kwargs["enforce_eager"] = True
+    # Grammar-constrained (guided-JSON) decoding otherwise permits unbounded whitespace between JSON
+    # tokens; some models (e.g. II-Medical-8B) degenerate into emitting thousands of newlines after
+    # the content, exhausting max_tokens before the closing brace -> unbalanced/invalid JSON. This
+    # must be set at ENGINE BUILD time on the xgrammar backend -- the per-request StructuredOutputsParams
+    # flag is silently ignored -- so pin xgrammar and disable inter-token whitespace here.
+    engine_kwargs["structured_outputs_config"] = {"backend": "xgrammar", "disable_any_whitespace": True}
 
     # Return a cached engine when the same model/adapter/params were already built.
     cache_adapter = _as_str(
