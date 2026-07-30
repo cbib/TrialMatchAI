@@ -137,17 +137,17 @@ below produces.
 
 ## Quickstart
 
-### 0. Configure the runtime
+### 1. Configure the runtime
 
 ```bash
 cp .env.example .env        # optional local overrides
-export HF_TOKEN=<token>     # required for gated base models (one-time `hf auth login`)
+hf auth login               # authenticate once for gated base models (or set HF_TOKEN=<token> instead)
 ```
 
-### 1. Build the system, once
+### 2. Build the system, once
 
 ```bash
-trialmatchai bootstrap-data   # download the prepared trial corpus + criteria
+trialmatchai bootstrap-data   # download the prepared trial corpus + criteria (~25 GB, one-time)
 trialmatchai build            # prepare the corpus + build the search index
 trialmatchai build --status   # see exactly what is built (and what isn't)
 ```
@@ -181,7 +181,7 @@ trialmatchai build --concepts --concepts-csv data/omop/CONCEPT.csv --synonym-csv
 From scratch, that is two commands (`bootstrap-data`, then `build --concepts`)
 after a one-time `hf auth login`. Everything else is pulled on demand.
 
-### 2. Match patients, repeatably
+### 3. Match patients, repeatably
 
 `e2e` ingests the patient (the format is auto-detected) and matches end to end:
 
