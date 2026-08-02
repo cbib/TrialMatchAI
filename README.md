@@ -38,31 +38,31 @@ Trials, models, indexes, and results all live on your own machine.
 
 This release ships two TrialMatchAI configurations: a clinical one that pairs the
 MedCPT retriever with MedGemma, and a general one that pairs bge-m3 with phi-4. The
-bars below also include two experimental reasoners on MedCPT retrieval: the
-thinking-model Baichuan-M2-32B and a compact II-Medical-8B. On the official **TREC
-Clinical Trials** benchmark (2021 and 2022, 125 topics pooled), all four rank
-eligible trials more accurately than the published TrialMatchAI system (the “paper”
-bars) and than **TrialGPT** (Jin et al., *Nature Communications* 2024):
+bars below also include three experimental reasoners on MedCPT retrieval: the
+thinking-model Baichuan-M2-32B, a 2-bit Qwen3.6-35B-A3B MoE, and a compact
+II-Medical-8B. On the official **TREC Clinical Trials** benchmark (2021 and 2022,
+125 topics pooled), all five rank eligible trials more accurately than the published
+TrialMatchAI system (the “paper” bars) and than **TrialGPT** (Jin et al., *Nature
+Communications* 2024):
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance_dark.png">
-  <img alt="Clinical-trial ranking performance on TREC CT 2021+2022 (pooled): nDCG@10 and graded P@10 for four TrialMatchAI reasoners (MedCPT+Baichuan-M2-32B, MedCPT+MedGemma, bge-m3+phi-4, MedCPT+II-Medical-8B) vs the paper vs TrialGPT" src="docs/assets/performance_light.png" width="820">
+  <img alt="Clinical-trial ranking performance on TREC CT 2021+2022 (pooled): nDCG@10 and graded P@10 for five TrialMatchAI reasoners (MedCPT+Qwen3.6-35B-A3B, MedCPT+Baichuan-M2-32B, MedCPT+MedGemma, bge-m3+phi-4, MedCPT+II-Medical-8B) vs the paper vs TrialGPT" src="docs/assets/performance_light.png" width="880">
 </picture>
 
 <sub>nDCG@10 and graded P@10 pooled over TREC Clinical Trials 2021 and 2022 (125
-topics), computed on judged trials. The four TrialMatchAI configurations and the
+topics), computed on judged trials. The five TrialMatchAI configurations and the
 paper use the identical ranking metric on the same topics, so those comparisons are
 exact. TrialGPT shows the value reported in Jin et al. (2024); their evaluation also
 includes the SIGIR 2016 cohort, so treat it as an indicative reference rather than a
-matched run. Baichuan-M2-32B edges the two default reasoners here, but the margin is
-small (about 0.01 to 0.02) and comes almost entirely from the 2021 track; on 2022
-the bge-m3 + phi-4 config is slightly ahead. Read Baichuan's edge with one caveat: it
-ran with grammar-constrained JSON output so nearly all of its verdicts parsed, while
-MedGemma and phi-4 had roughly 8% parse failures that can drop otherwise-eligible
-trials, so part of the gap is a formatting effect. At the small-model end,
-II-Medical-8B is the most compact reasoner here yet still matches TrialGPT on nDCG@10
-and beats it on graded P@10, so even an 8B model clears the reference bar. Reproduce
-ours with `trialmatchai trec --tracks "21 22"`.</sub>
+matched run. The 2-bit Qwen3.6-35B-A3B MoE (about 3B active parameters) leads on both
+metrics, narrowly ahead of Baichuan-M2-32B; both run with grammar-constrained JSON so
+nearly all of their verdicts parse, while MedGemma and phi-4 had roughly 8% parse
+failures that can drop otherwise-eligible trials, so part of that gap is a formatting
+effect. The margins among the top reasoners are small (about 0.01 to 0.04). At the
+small-model end, II-Medical-8B is the most compact reasoner here yet still matches
+TrialGPT on nDCG@10 and beats it on graded P@10, so even an 8B model clears the
+reference bar. Reproduce ours with `trialmatchai trec --tracks "21 22"`.</sub>
 
 **Retrieval recall by embedder.** This is the share of eligible trials (qrels
 grade 2) that the first-level search surfaces among its top *k* candidates, across
