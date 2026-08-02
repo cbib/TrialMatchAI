@@ -31,6 +31,8 @@ class TopicSource:
     """Where a track's official topics live and how to label them.
 
     kind "nist_xml": download and parse topic XML from ``topics_url``.
+    kind "cds_questionnaire_xml": download and parse TREC-CDS 2023 questionnaire
+    topic XML (per-disorder field/value templates) from ``topics_url``.
     kind "local_raw": read verbatim raw patient text from on-disk ``raw_json``.
     """
 
@@ -55,6 +57,14 @@ TOPIC_SOURCES: dict[str, TopicSource] = {
         id_prefix="trec-2022",
         kind="nist_xml",
         topics_url="https://trec.nist.gov/data/trials/topics2022.xml",
+    ),
+    "23": TopicSource(
+        track="23",
+        id_prefix="trec-2023",
+        kind="cds_questionnaire_xml",
+        topics_url="https://trec.nist.gov/data/trials/topics2023.xml",
+        note="2023 topics are structured questionnaire templates (8 disorders, "
+        "5-12 optional fields each), flattened into a synthetic narrative.",
     ),
     # The SIGIR-2016 collection has no stable direct-download URL (CSIRO portal),
     # so sigir topics come from the verbatim on-disk raw admission statements.
@@ -134,6 +144,40 @@ def parse_topics(path: Path, id_prefix: str) -> dict[str, str]:
     return topics
 
 
+def parse_questionnaire_topics(path: Path, id_prefix: str) -> dict[str, str]:
+    """Parse TREC-CDS 2023 questionnaire topics into {patient_id: flattened_text}.
+
+    2023 topics are per-disorder templates — ``<topic number template>`` holding
+    ``<field name="...">value</field>`` children where any field may be blank and
+    values have no guaranteed format. Non-empty fields are flattened verbatim into
+    one synthetic "name: value." narrative prefixed with the template disorder, so
+    the free-text import / query-expansion / CoT path applies unchanged.
+    """
+    root = ET.parse(path).getroot()
+    topics: dict[str, str] = {}
+    for topic in root.iter("topic"):
+        number = topic.get("number") or topic.get("id")
+        if number is None:
+            continue
+        template = _clean(topic.get("template"))
+        lead = (
+            f"Patient screening questionnaire for {template}."
+            if template
+            else "Patient screening questionnaire."
+        )
+        # Blank fields mean "not provided" — dropping them beats emitting "field: ."
+        # noise; negative answers ("prior surgery: no") stay, they carry signal.
+        fields = [
+            f"{name}: {value}."
+            for field_el in topic.findall("field")
+            if (name := _clean(field_el.get("name"))) and (value := _clean(field_el.text))
+        ]
+        topics[f"{id_prefix}{number.strip()}"] = " ".join([lead, *fields])
+    if not topics:
+        raise ValueError(f"No questionnaire <topic> elements parsed from {path}")
+    return topics
+
+
 def _topic_text(topic: ET.Element) -> str:
     for child_tag in ("summary", "description"):
         child = topic.find(child_tag)
@@ -153,6 +197,8 @@ _AGE_PATTERNS = [
     re.compile(r"(\d{1,3})\s*[- ]?\s*year[\s-]*old", re.I),
     re.compile(r"(\d{1,3})\s*[- ]?\s*(?:yo|y/o|yr)\b", re.I),
     re.compile(r"\b(\d{1,3})\s*[- ]?\s*(?:M|F|male|female|man|woman)\b"),
+    # Questionnaire form (2023 flattened topics): "age: 39."
+    re.compile(r"\bage:\s*(\d{1,3})\b", re.I),
 ]
 _FEMALE = re.compile(r"\b(?:female|woman|girl|lady|\d{1,3}\s*F)\b", re.I)
 _MALE = re.compile(r"\b(?:male|man|boy|gentleman|\d{1,3}\s*M)\b", re.I)
@@ -226,6 +272,9 @@ def load_track_topics(track: str, trec_dir: Path) -> dict[str, str]:
     if source.kind == "nist_xml":
         path = download_topics(track, Path(trec_dir) / "raw_topics")
         return parse_topics(path, source.id_prefix)
+    if source.kind == "cds_questionnaire_xml":
+        path = download_topics(track, Path(trec_dir) / "raw_topics")
+        return parse_questionnaire_topics(path, source.id_prefix)
     if source.kind == "local_raw":
         return _load_local_raw(Path(trec_dir) / source.raw_json)
     raise ValueError(f"Unknown topic source kind: {source.kind}")

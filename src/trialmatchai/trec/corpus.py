@@ -11,11 +11,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # "sigir" has no official direct source (CSIRO portal), so it is not in the default run set.
-TRACK_KEYS = ("21", "22", "sigir")
+# "23" (TREC-CDS 2023: questionnaire topics over a May-2023 registry snapshot) is also
+# excluded from the defaults: its judged corpus extends beyond the bootstrap TREC corpus,
+# so it needs a backfill + prepare pass first (see trialmatchai.trec.backfill).
+TRACK_KEYS = ("21", "22", "23", "sigir")
 DEFAULT_TRACKS = ("21", "22")
 
 # Topic N becomes "<prefix>N", matching the qrels query ids.
-_ID_PREFIX = {"21": "trec-2021", "22": "trec-2022", "sigir": "sigir-2014"}
+_ID_PREFIX = {
+    "21": "trec-2021",
+    "22": "trec-2022",
+    "23": "trec-2023",
+    "sigir": "sigir-2014",
+}
 
 
 @dataclass(frozen=True)

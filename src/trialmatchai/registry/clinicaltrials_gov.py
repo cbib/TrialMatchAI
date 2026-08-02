@@ -80,6 +80,46 @@ class ClinicalTrialsGovClient:
             if not page_token:
                 return
 
+    def iter_studies_by_ids(
+        self,
+        nct_ids: Sequence[str],
+        *,
+        chunk_size: int = 250,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield studies for specific NCT ids (``filter.ids``), in chunked requests.
+
+        Responses are filtered back down to the requested ids: for ids the registry
+        does not know, the API does NOT return an empty set — it answers with
+        arbitrary unrelated studies, which would otherwise be handed to callers as
+        if they had been asked for. Ids the registry no longer has are simply not
+        yielded, so callers can diff to detect withdrawn trials.
+        """
+        if chunk_size < 1:
+            raise ValueError("chunk_size must be positive.")
+        ids = [nct_id for nct_id in nct_ids if nct_id]
+        for start in range(0, len(ids), chunk_size):
+            chunk = ids[start : start + chunk_size]
+            requested = set(chunk)
+            page_token: str | None = None
+            while True:
+                params: dict[str, Any] = {
+                    "format": "json",
+                    "pageSize": self.page_size,
+                    "filter.ids": ",".join(chunk),
+                }
+                if page_token:
+                    params["pageToken"] = page_token
+                payload = self._get_json(params)
+                studies = payload.get("studies") or []
+                if not isinstance(studies, list):
+                    raise RegistrySourceError("ClinicalTrials.gov returned non-list studies.")
+                for study in studies:
+                    if isinstance(study, dict) and _nct_id(study) in requested:
+                        yield study
+                page_token = payload.get("nextPageToken")
+                if not page_token:
+                    break
+
     def _fetch_page(
         self,
         *,
@@ -142,6 +182,16 @@ class ClinicalTrialsGovClient:
         if elapsed < minimum_gap:
             time.sleep(minimum_gap - elapsed)
         self._last_request_at = time.monotonic()
+
+
+def _nct_id(study: dict[str, Any]) -> str:
+    protocol = study.get("protocolSection")
+    if not isinstance(protocol, dict):
+        return ""
+    identification = protocol.get("identificationModule")
+    if not isinstance(identification, dict):
+        return ""
+    return str(identification.get("nctId") or "")
 
 
 def _study_updated_since(study: dict[str, Any], since: date) -> bool:

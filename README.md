@@ -83,6 +83,36 @@ PubMedBERT, lead the two general ones (bge-m3 and the strong general-purpose
 Qwen3-Embedding) at every depth. Domain specialization beats a larger general
 model here. Reproduce with `scripts/benchmark_embedder.py`.</sub>
 
+**TREC Clinical Trials 2023.** The 2023 track replaces the free-text patient
+narratives of 2021/2022 with structured questionnaire templates — 40 topics across
+eight disorders, each 5 to 12 optional fields — over a May-2023 registry snapshot.
+TrialMatchAI parses those templates natively; the numbers below are the bge-m3 +
+phi-4 configuration over the 37 judged topics:
+
+| Metric | rel ≥ 1 | eligible (grade 2) |
+| --- | --- | --- |
+| nDCG@5 | 0.8871 | — |
+| nDCG@10 | 0.8806 | — |
+| nDCG@20 | 0.8718 | — |
+| graded P@10 | 0.8811 | — |
+| Precision@10 | 0.9351 | 0.8270 |
+| Recall@1000 (first level) | 0.6442 | — |
+
+<sub>Condensed metrics (unjudged trials dropped) over the 37 topics NIST judged of
+the 40 released; grade 2 = eligible, 1 = relevant but excluded, 0 = not relevant.
+2023 topics average 604 relevant trials each — four times the 2021/2022 average of
+about 150 — which is why recall@1000 sits at 0.64: covering a 604-trial relevant set
+from a 1000-candidate budget requires 60% of the pool to be relevant. Per-disorder
+nDCG@10 ranges from 0.79 (sickle cell anemia) to 0.99 (rheumatoid arthritis).
+Scored against a corpus restricted to the judged pool
+(17,103 of 17,106 judged NCTs; three are no longer in the registry), so these are
+not directly comparable to full-corpus TREC 2023 submissions. To reproduce, first
+fetch the judged trials the bootstrap corpus does not carry — `python -m
+trialmatchai.trec.backfill --tracks 23`, which pulls them from the live
+ClinicalTrials.gov API — then `trialmatchai build` and `trialmatchai trec --tracks
+"23"`. Skipping the backfill leaves the index short of the judged pool and the run
+warns rather than silently understating recall.</sub>
+
 ## Requirements
 
 - Python 3.11 (`pyproject.toml` requires `>=3.11,<3.12`)

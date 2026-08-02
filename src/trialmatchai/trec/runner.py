@@ -149,7 +149,7 @@ def run_tracks(
 
         # 4) Build the per-track index, restricted to the qrels corpus pool.
         try:
-            build_index(
+            index_stats = build_index(
                 cfg,
                 processed_trials_folder=processed_trials,
                 processed_criteria_folder=processed_criteria,
@@ -160,6 +160,15 @@ def run_tracks(
             logger.exception("Indexing failed for track %s", spec.key)
             failures += 1
             continue
+        indexed = index_stats.get("trials")
+        if indexed is not None and nct_filter and indexed < 0.95 * len(nct_filter):
+            logger.warning(
+                "Track %s index covers only %s/%s judged trials — recall/nDCG will be "
+                "understated. Backfill the normalized corpus "
+                "(python -m trialmatchai.trec.backfill --tracks %s) and prepare it "
+                "(trialmatchai build) before trusting this run.",
+                spec.key, indexed, len(nct_filter), spec.key,
+            )
 
         if index_only:
             pending, done = count_pending(cfg)

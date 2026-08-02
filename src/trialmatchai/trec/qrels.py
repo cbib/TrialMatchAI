@@ -26,6 +26,7 @@ logger = setup_logging(__name__)
 QRELS_URLS: dict[str, str] = {
     "21": "https://trec.nist.gov/data/trials/qrels2021.txt",
     "22": "https://trec.nist.gov/data/trials/qrels2022.txt",
+    "23": "https://trec.nist.gov/data/trials/qrels2023.txt",
 }
 
 DEFAULT_CUTOFFS = (10, 50, 100, 200, 300, 500, 1000)
