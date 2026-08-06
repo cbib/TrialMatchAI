@@ -307,6 +307,12 @@ def run_second_level_search(
     second_level_scores = {
         trial["nct_id"]: trial["score"] for trial in second_level_results
     }
+    # Persist the whole second-level pool, not just the shortlist. Together with
+    # first_level_scores.json this makes shortlist fusion replayable offline, so fusion
+    # weights can be retuned against completed runs instead of costing a GPU job each time.
+    # Measured motivation: shortlist_selection_delta is negative on every run so far, i.e.
+    # the fused shortlist selects worse than a plain first-level cut at the same depth.
+    write_json_file(second_level_scores, f"{output_folder}/second_level_scores.json")
 
     search_config = config.get("search", {})
     combined_scores = _fuse_shortlist_scores(
