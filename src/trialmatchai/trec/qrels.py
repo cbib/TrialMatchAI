@@ -124,6 +124,18 @@ def _retrieved_for_patient(patient_dir: Path) -> list[str]:
     return []
 
 
+def _shortlist_for_patient(patient_dir: Path) -> list[str]:
+    """The trials that actually reached the eligibility (CoT) stage.
+
+    This is the funnel's narrowest point: a relevant trial dropped here is
+    unrecoverable, however good the first-level search was.
+    """
+    shortlist = patient_dir / "top_trials.txt"
+    if not shortlist.exists():
+        return []
+    return [line.strip() for line in shortlist.read_text().splitlines() if line.strip()]
+
+
 def recall_at_k(retrieved: list[str], relevant: set[str], k: int) -> float | None:
     if not relevant:
         return None
@@ -168,6 +180,17 @@ def evaluate(
     Reports recall@k (retrieval, first-level list) and tie-aware nDCG@{5,10,20}
     + P@10 (ranking, condensed to judged trials). P@10 is split into "relevant"
     (grade>=1) and "eligible" (grade==2).
+
+    Also reports funnel metrics when ``top_trials.txt`` is present. recall@k
+    (first-level list) and nDCG@k (ranked list) between them hide the pipeline's
+    largest loss: the shortlist handed to the reasoner is far shorter than the
+    candidate list, and a relevant trial dropped there can never be ranked.
+
+    - ``shortlist_recall`` -- recall of the list the reasoner actually read.
+    - ``funnel_depth_loss`` -- recall given up by shortening the list alone.
+    - ``shortlist_selection_delta`` -- second-level ordering minus a plain
+      first-level cut at the same depth. Negative means the second level
+      selected worse than doing nothing.
     """
     results_dir = Path(results_dir)
     relevant = relevant_ncts(qrels, threshold=threshold)
@@ -176,6 +199,19 @@ def evaluate(
 
     rec_sums = {f"recall@{k}": 0.0 for k in cutoffs}
     rec_counts = {f"recall@{k}": 0 for k in cutoffs}
+    # Funnel instrumentation: recall@k measures the FIRST-LEVEL list, but only the shortlist
+    # reaches the reasoner. That gap is an unrecoverable ceiling on every ranking metric and is
+    # invisible in recall@k. Split it into its two causes: depth (shortlist shorter than the
+    # candidate list) and selection (second-level ordering vs a plain first-level top-N cut).
+    funnel_keys = (
+        "shortlist_recall",
+        "shortlist_size",
+        "first_level_recall_at_shortlist_depth",
+        "shortlist_selection_delta",
+        "funnel_depth_loss",
+    )
+    funnel_sums = {key: 0.0 for key in funnel_keys}
+    funnel_counts = {key: 0 for key in funnel_keys}
     rank_sums = {f"ndcg@{k}": 0.0 for k in NDCG_CUTOFFS}
     rank_sums.update({f"ndcg_full@{k}": 0.0 for k in NDCG_CUTOFFS})
     rank_sums[f"P@{P_CUTOFF}(rel>=1)"] = 0.0
@@ -201,6 +237,26 @@ def evaluate(
             if r is not None:
                 rec_sums[f"recall@{k}"] += r
                 rec_counts[f"recall@{k}"] += 1
+
+        shortlist = _shortlist_for_patient(patient_dir)
+        if shortlist and retrieved:
+            depth = len(shortlist)
+            short_r = recall_at_k(shortlist, rel_set, depth)
+            first_r = recall_at_k(retrieved, rel_set, depth)
+            full_r = recall_at_k(retrieved, rel_set, len(retrieved))
+            funnel = {
+                "shortlist_recall": short_r,
+                "shortlist_size": float(depth),
+                "first_level_recall_at_shortlist_depth": first_r,
+                # > 0 means the second level beat a plain first-level cut at the same depth.
+                "shortlist_selection_delta": short_r - first_r,
+                # Recall thrown away purely by shortening the list.
+                "funnel_depth_loss": full_r - first_r,
+            }
+            row.update(funnel)
+            for key, value in funnel.items():
+                funnel_sums[key] += value
+                funnel_counts[key] += 1
 
         if ranked:
             # Two IDCG bases: ndcg@k normalizes by the ideal over judged-AND-ranked trials
@@ -233,7 +289,11 @@ def evaluate(
             rank_counts[f"graded_P@{P_CUTOFF}"] += 1
         per_query[query_id] = row
 
-    mean = {**_mean(rec_sums, rec_counts), **_mean(rank_sums, rank_counts)}
+    mean = {
+        **_mean(rec_sums, rec_counts),
+        **_mean(funnel_sums, funnel_counts),
+        **_mean(rank_sums, rank_counts),
+    }
     return {
         "recall_relevance_threshold": threshold,
         "num_queries_scored": len(per_query),
