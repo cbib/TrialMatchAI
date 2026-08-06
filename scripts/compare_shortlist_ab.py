@@ -19,15 +19,24 @@ import json
 from pathlib import Path
 
 BASELINE = "fixed"
+# Ordered deliberately. ndcg_full@10 normalizes by the ideal over the FULL judged pool, so a
+# relevant trial that never entered the shortlist counts as a miss -- it is recall-aware, and
+# it is the metric a depth change should be judged on.
 QUALITY = (
     "shortlist_recall",
-    "recall@1000",
-    "ndcg@10",
-    "P@10(rel>=1)",
+    "ndcg_full@10",
     "P@10(eligible)",
+    "P@10(rel>=1)",
+    "recall@1000",
 )
 COST = ("shortlist_size",)
-DIAGNOSTIC = ("funnel_depth_loss", "shortlist_selection_delta")
+# ndcg@10 sits here, NOT in QUALITY. It normalizes by the ideal over judged-AND-RANKED trials,
+# which makes it recall-INDEPENDENT by construction: ranking fewer trials shrinks the ideal
+# too. Replaying finished runs at reduced depth shows it moving the wrong way -- on TREC 2021
+# it reads 0.8948 at depth 10 and 0.8215 at depth 196, while ndcg_full@10 goes 0.6028 -> 0.8197
+# and P@10(eligible) 0.3853 -> 0.7680 over the same range. Judging a depth policy on ndcg@10
+# would conclude that more depth hurts, which is exactly backwards.
+DIAGNOSTIC = ("ndcg@10", "funnel_depth_loss", "shortlist_selection_delta")
 
 
 def load_arm(root: Path, arm: str, track: str) -> dict | None:
@@ -87,7 +96,10 @@ def main() -> int:
         print()
 
     print("  Reading this:")
-    print("    An arm at the SAME shortlist_size as 'fixed' with higher shortlist_recall")
+    print("    Judge a depth change on ndcg_full@10 and P@10(eligible). Both are recall-aware.")
+    print("    Do NOT judge it on ndcg@10 -- that is normalized over judged-AND-ranked trials,")
+    print("    so it is recall-independent and moves the WRONG way as depth grows.")
+    print("    An arm at the SAME shortlist_size as 'fixed' with higher recall-aware quality")
     print("    spends its compute better -- that gain is free.")
     print("    An arm with a LARGER shortlist_size bought its gain with GPU time; compare")
     print("    it against 'fixed' only after noting the extra cost.")
