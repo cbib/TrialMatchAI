@@ -15,6 +15,7 @@ from trialmatchai.matching.trial_ranker import (
     rank_trials,
     save_ranked_trials,
 )
+from trialmatchai.matching.shortlist_depth import choose_shortlist_depth, depth_report
 from trialmatchai.matching.retrieval.trial_retrieval import ClinicalTrialSearch
 from trialmatchai.matching.retrieval.criteria_retrieval import SecondStageRetriever
 from trialmatchai.matching.retrieval.location import (
@@ -307,15 +308,16 @@ def run_second_level_search(
         trial["nct_id"]: trial["score"] for trial in second_level_results
     }
 
+    search_config = config.get("search", {})
     combined_scores = _fuse_shortlist_scores(
         nct_ids=nct_ids,
         second_level_results=second_level_results,
         first_level_scores=first_level_scores,
-        search_config=config.get("search", {}),
+        search_config=search_config,
     )
 
     sorted_trials = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
-    keep_divisor = max(1, int(config.get("search", {}).get("second_level_keep_divisor", 3)))
+    keep_divisor = max(1, int(search_config.get("second_level_keep_divisor", 3)))
     # Size the shortlist off the reranked count, not the fused pool: rank fusion adds
     # first-level-only trials, so keying the divisor to the pool would silently enlarge the
     # shortlist and confound a fusion A/B.
@@ -323,12 +325,33 @@ def run_second_level_search(
     num_top = max(1, min(reranked_count // keep_divisor, top_n))
     # RAG only reasons over rag.max_trials_rag trials; cap the shortlist to match, else trials
     # past the cap get no eligibility output and are silently dropped from the final ranking.
+    upper_bound = len(sorted_trials) or 1
     if _rag_enabled(config):
-        num_top = max(1, min(num_top, int(config.get("rag", {}).get("max_trials_rag", 20))))
+        upper_bound = min(upper_bound, int(config.get("rag", {}).get("max_trials_rag", 20)))
+        num_top = max(1, min(num_top, upper_bound))
+    # The divisor sizes every patient the same. Depth is 94% of the measured shortlist recall
+    # loss and the depth patients need spans 50-1550 trials, so an opt-in policy may widen or
+    # narrow this per patient from the first-level score curve. Default policy returns num_top.
+    fixed_depth = num_top
+    num_top = choose_shortlist_depth(
+        first_level_scores=first_level_scores,
+        fixed_depth=fixed_depth,
+        upper_bound=upper_bound,
+        search_config=search_config,
+    )
     semi_final_trials = sorted_trials[:num_top]
 
     top_trials_path = f"{output_folder}/top_trials.txt"
     write_text_file([trial_id for trial_id, _ in semi_final_trials], top_trials_path)
+    write_json_file(
+        depth_report(
+            chosen=len(semi_final_trials),
+            fixed_depth=fixed_depth,
+            first_level_scores=first_level_scores,
+            search_config=search_config,
+        ),
+        f"{output_folder}/shortlist_depth.json",
+    )
     constraints_config = config.get("constraints", {})
     if constraints_config.get("enabled", True) and constraints_config.get(
         "write_reports",

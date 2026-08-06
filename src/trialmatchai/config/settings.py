@@ -174,6 +174,22 @@ class FirstLevelSearchSettings(BaseModel):
     )
 
 
+class ShortlistSettings(BaseModel):
+    """How deep the shortlist handed to the eligibility reasoner goes.
+
+    "fixed" keeps the divisor-based sizing (one depth for every patient) and is the
+    default. "relative_to_max" sizes each patient from its own first-level score curve,
+    keeping trials scoring at least ``relative_to_max_alpha`` x that patient's top score.
+    See matching/shortlist_depth.py for the offline evidence.
+    """
+
+    policy: Literal["fixed", "relative_to_max"] = "fixed"
+    relative_to_max_alpha: float = Field(0.25, gt=0.0, le=1.0)
+    min_depth: int = Field(50, ge=1)
+    # None -> bounded only by what the reasoner can consume (rag.max_trials_rag).
+    max_depth: int | None = Field(None, ge=1)
+
+
 class SearchSettings(BaseModel):
     mode: Literal["bm25", "vector", "hybrid"] = "hybrid"
     vector_score_threshold: float = Field(0.5, ge=0.0, le=1.0)
@@ -191,6 +207,7 @@ class SearchSettings(BaseModel):
     first_level: FirstLevelSearchSettings = Field(
         default_factory=FirstLevelSearchSettings
     )
+    shortlist: ShortlistSettings = Field(default_factory=ShortlistSettings)
 
     @model_validator(mode="before")
     @classmethod
