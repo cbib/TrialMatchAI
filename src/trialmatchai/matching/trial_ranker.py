@@ -36,6 +36,24 @@ def load_trial_data(
 # Eligibility scoring contract (REFACTOR_PLAN.md PR1, audit C1): a single Violated exclusion
 # HARD-DISQUALIFIES (not averaged in, which let a violated trial outrank an eligible one);
 # eligible trials score [0, 1] by the fraction of decided inclusion criteria (Met/Not Met) Met.
+#
+# DO NOT SOFTEN THIS. It looks far too brittle -- one Violated label out of a mean 9 (max 63)
+# exclusion criteria irreversibly sinks a trial, and it fires on 19% of trials the TREC judges
+# rated ELIGIBLE (25% on 2023). It was measured anyway, by replaying the completed runs from
+# cached CoT, and every relaxation is WORSE:
+#
+#   rule                   TREC 2021 ndcg_full@10 / P@10(elig)   2022            2023
+#   >=1 violated (this)          0.8197 / 0.7680                 0.7481/0.6940   0.8806/0.8270
+#   >=2 violated                 0.7907 / 0.7280                 0.7317/0.6760   0.8592/0.7676
+#   >=3 violated                 0.7839 / 0.7147                 0.7293/0.6760   0.8515/0.7568
+#   never disqualify             0.7837 / 0.7133                 0.7295/0.6780   0.8502/0.7541
+#
+# The false-positive rate is real but the rule still pays, because disqualification is ~2.3x
+# more likely on an irrelevant trial than an eligible one (44% vs 19% on 2021). Removing true
+# violations buys more precision than the false ones cost. Inspecting the disagreements also
+# shows many are not model errors at all but genuine clinical ambiguity -- e.g. the reasoner
+# excluding a patient for prior bevacizumab under "no prior biologic therapy", which is
+# defensible even though the assessor graded the trial eligible.
 DISQUALIFIED_SCORE = -1.0
 
 # "Unclear" (info insufficient to decide) is the dominant classification. Partial credit — vs
