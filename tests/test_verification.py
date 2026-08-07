@@ -190,3 +190,35 @@ def test_lab_threshold_flags_an_exclusion_the_reasoner_missed():
     for d in report["disagreements"]:
         assert d["verifier_said"] in ("violated", "not violated")
         assert d["reasoner_said"] == "not violated"
+
+
+def test_verifier_never_asserts_the_positive_label():
+    """Only the negative direction is sound. A criterion is a conjunction and the verifier
+    sees only its authoritative part, so a matching age proves nothing about the rest.
+
+    Regression: an earlier version returned Met when every decisive constraint matched. On
+    TREC 2021 that produced 484 'unclear -> met' and 322 'not met -> met' flips and cost
+    -0.0098 ndcg_full@10, because it asserted whole criteria on the strength of an age match.
+    """
+    text = "Patients aged 18 years or older with histologically confirmed glioma"
+    for claimed in ("Unclear", "Not Met", "Irrelevant"):
+        report = verify_trial_output(
+            trial_output=_output("Inclusion_Criteria_Evaluation", text, claimed),
+            criteria=_criteria(text, "inclusion"),
+            patient_context=_ctx(age=40),  # age clause matches; glioma clause unexamined
+            nct_id="NCT1",
+            config=ENABLED,
+        )
+        assert report["n_disagreements"] == 0, f"must not upgrade {claimed!r} to Met"
+
+
+def test_exclusion_is_not_cleared_by_a_matching_authoritative_constraint():
+    text = "Age over 75 years, or any active infection"
+    report = verify_trial_output(
+        trial_output=_output("Exclusion_Criteria_Evaluation", text, "Unclear"),
+        criteria=_criteria(text, "exclusion"),
+        patient_context=_ctx(age=40),  # not over 75, but infection status is unexamined
+        nct_id="NCT1",
+        config=ENABLED,
+    )
+    assert report["n_disagreements"] == 0

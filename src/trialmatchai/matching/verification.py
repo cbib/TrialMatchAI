@@ -21,6 +21,36 @@ measured on TREC CT 2021-2023: adding a symbolic verifier moved specificity -- t
 to correctly REJECT a trial -- from 24.7% to 75.7%, while the agentic loop around it added
 only 1.4 accuracy points. The verifier is where the value is.
 
+**Measured verdict on TREC: this does not pay, and should stay off.** Replayed over the
+completed runs (corrected logic, no inference):
+
+    TREC 2021   671 disagreements (4.6/100 trials)   ndcg_full@10 +0.0002  P@10(elig) -0.0040
+    TREC 2022   535 disagreements (6.9/100 trials)   ndcg_full@10 -0.0007  P@10(elig) -0.0020
+    TREC 2023     3 disagreements (0.0/100 trials)   no change
+
+Two reasons, both structural rather than fixable here:
+
+1. **Redundant with the hard filters.** Nearly every firing constraint is sex (473 on 2021)
+   or age (226), and ``search.first_level.hard_filters`` already enforces exactly those at
+   retrieval (``lancedb_backend._trial_passes_filters``). A trial whose age bounds or sex
+   exclude the patient never reaches the reasoner, so the verifier is re-litigating a filter
+   that already ran -- against criterion prose instead of the structured trial fields, which
+   is strictly worse and occasionally wrong.
+2. **Nothing else to check.** lab and performance_status almost never fire, because TREC
+   patient profiles are narrative summaries with no structured lab or ECOG values. TREC 2023
+   produced 3 disagreements across 8,987 trials.
+
+So the ceiling here is set by the DATA, not the logic. The component is sound and cheap, and
+is worth keeping for deployments with real EHR records -- where labs and performance status
+exist and the hard filters may be looser -- but it is not a benchmark win, and enabling it on
+TREC costs a little precision for nothing.
+
+The missing half is abduction: alphaNeSy-CTM pairs its symbolic verifier with an LLM step
+that INFERS structured patient attributes from sparse notes. That is what would give a
+verifier something to check on narrative data. Note also that its headline numbers come from
+a balanced binary eligible/ineligible task (100/100 per year), not corpus ranking, so they do
+not transfer to ndcg/P@10 directly.
+
 Disabled by default (``verification.enabled``). Nothing here calls a model.
 """
 
@@ -49,10 +79,8 @@ AUTHORITATIVE_KINDS = frozenset({"age", "sex", "lab", "performance_status"})
 # Below this the extractor is guessing; a regex that half-matched must not overturn the model.
 MIN_CONFIDENCE = 0.75
 
-_INCLUSION_MET = "met"
 _INCLUSION_NOT_MET = "not met"
 _EXCLUSION_VIOLATED = "violated"
-_EXCLUSION_NOT_VIOLATED = "not violated"
 
 
 def verification_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -94,22 +122,31 @@ def _decisive_evaluations(
 def _verdict_for(polarity: str, decisive: Sequence[Any]) -> str | None:
     """The label the deterministic engine implies, or None if it implies nothing.
 
-    A violated constraint dominates: for an inclusion criterion the patient fails to meet
-    it, and for an exclusion criterion the patient is excluded by it. Requiring every
-    decisive constraint to match before claiming the positive label keeps the verifier
-    conservative -- it is far more willing to say "this does not hold" than "this holds".
+    ONLY the negative direction is sound, and this asymmetry is the whole correctness
+    argument. A criterion is a conjunction, and this verifier sees only the part of it that
+    falls in AUTHORITATIVE_KINDS.
+
+      - A violated authoritative constraint refutes the whole conjunction. "Age >= 18 with
+        confirmed glioma" cannot be Met by a 12-year-old, whatever the glioma status. Sound.
+      - A matched authoritative constraint proves nothing about the rest. That same criterion
+        is NOT Met merely because the patient is 40; the glioma clause is unexamined, and it
+        belongs to the reasoner.
+
+    An earlier version returned the positive labels when every decisive constraint matched.
+    Replayed over the completed runs that produced 484 "unclear -> met" and 322 "not met ->
+    met" flips on TREC 2021 alone, and cost -0.0098 ndcg_full@10 / -0.0133 P@10(eligible):
+    it was asserting whole criteria held on the strength of an age or sex match. Hence
+    abstention unless something is actually refuted.
+
+    Exclusion polarity is already normalized by the engine: status "violated" means the
+    patient HAS the excluded item, so the criterion is Violated (see
+    constraints/evaluation.py _status_and_signal).
     """
     if not decisive:
         return None
-    any_violated = any(item.status == "violated" for item in decisive)
-    all_matched = all(item.status == "matched" for item in decisive)
-    if polarity == "exclusion":
-        if any_violated:
-            return _EXCLUSION_VIOLATED
-        return _EXCLUSION_NOT_VIOLATED if all_matched else None
-    if any_violated:
-        return _INCLUSION_NOT_MET
-    return _INCLUSION_MET if all_matched else None
+    if not any(item.status == "violated" for item in decisive):
+        return None
+    return _EXCLUSION_VIOLATED if polarity == "exclusion" else _INCLUSION_NOT_MET
 
 
 def verify_trial_output(
