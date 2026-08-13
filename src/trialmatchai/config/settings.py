@@ -165,8 +165,6 @@ class FirstLevelSearchSettings(BaseModel):
     fusion: Literal["rrf"] = "rrf"
     rrf_k: int = Field(60, ge=1)
     vector_score_threshold: float = Field(0.0, ge=0.0, le=1.0)
-    llm_expansion_enabled: bool = False
-    llm_max_terms: int = Field(12, ge=0)
     write_reports: bool = True
     # "location" is opt-in (country-level, site-aware); not in the default set.
     hard_filters: list[Literal["age", "sex", "overall_status", "location"]] = Field(
@@ -477,11 +475,6 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
         "TRIALMATCHAI_CONSTRAINTS_WRITE_REPORTS": ("constraints", "write_reports"),
         "TRIALMATCHAI_QUERY_EXPANSION_ENABLED": ("query_expansion", "enabled"),
         "TRIALMATCHAI_FIRST_LEVEL_ENABLED": ("search", "first_level", "enabled"),
-        "TRIALMATCHAI_FIRST_LEVEL_LLM_EXPANSION_ENABLED": (
-            "search",
-            "first_level",
-            "llm_expansion_enabled",
-        ),
         "TRIALMATCHAI_FIRST_LEVEL_WRITE_REPORTS": (
             "search",
             "first_level",
@@ -521,7 +514,6 @@ def apply_env_overrides(raw: Dict[str, Any]) -> Dict[str, Any]:
         "TRIALMATCHAI_FIRST_LEVEL_LLM_MAX_TERMS": (
             "search",
             "first_level",
-            "llm_max_terms",
         ),
         "TRIALMATCHAI_SEARCH_MAX_TRIALS_SECOND_LEVEL": (
             "search",

@@ -15,7 +15,6 @@ from trialmatchai.matching.trial_ranker import (
     rank_trials,
     save_ranked_trials,
 )
-from trialmatchai.matching.query_expansion import build_first_level_expander
 from trialmatchai.matching.shortlist_depth import choose_shortlist_depth, depth_report
 from trialmatchai.matching.retrieval.trial_retrieval import ClinicalTrialSearch
 from trialmatchai.matching.retrieval.criteria_retrieval import SecondStageRetriever
@@ -109,7 +108,6 @@ def run_first_level_search(
     config: Dict,
     search_backend,
     patient_profile: PatientProfile | None = None,
-    llm_query_expander=None,
 ) -> Optional[Tuple]:
     main_conditions = list(keywords.get("main_conditions", []))
     other_conditions = list(keywords.get("other_conditions", []))
@@ -128,9 +126,6 @@ def run_first_level_search(
         search_backend=search_backend,
         embedder=embedder,
         entity_annotator=entity_annotator,
-        # Without this the llm_expansion channel is dead: the planner logs "no expander is
-        # configured" and returns [], however the config flag is set.
-        llm_query_expander=llm_query_expander,
     )
 
     search_cfg = config["search"]
@@ -559,12 +554,6 @@ def main_pipeline(
 
     embedder = build_embedder(config)
     entity_annotator = build_entity_annotator(config, embedder=embedder)
-    # Built once for the whole run, not per patient: it shares the cached CoT engine, and
-    # rebuilding per patient would re-resolve that engine 75 times. None when
-    # search.first_level.llm_expansion_enabled is off, which is the default.
-    llm_query_expander = build_first_level_expander(config)
-    if llm_query_expander is not None:
-        logger.info("First-level LLM query expansion is ON (llm_expansion channel active).")
 
     with warnings.catch_warnings():
         warnings.filterwarnings(
@@ -672,7 +661,6 @@ def main_pipeline(
                         config,
                         search_backend,
                         patient_profile=profile,
-                        llm_query_expander=llm_query_expander,
                     )
             if not result:
                 logger.error("First-level search failed for %s", patient_id)
@@ -807,8 +795,6 @@ def _first_level_search_config(search_cfg: Dict) -> Dict:
     first_level_cfg.setdefault("vector_score_threshold", 0.0)
     first_level_cfg.setdefault("enabled", True)
     first_level_cfg.setdefault("write_reports", True)
-    first_level_cfg.setdefault("llm_expansion_enabled", False)
-    first_level_cfg.setdefault("llm_max_terms", 12)
     first_level_cfg.setdefault("hard_filters", ["age", "sex", "overall_status"])
     return first_level_cfg
 

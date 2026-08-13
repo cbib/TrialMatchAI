@@ -100,7 +100,7 @@
     "mode": "hybrid",
     "vector_score_threshold": 0.5,
     "max_trials_first_level": 2000,
-    "max_trials_second_level": 1000,
+    "max_trials_second_level": 2000,
     "first_level": {
       "enabled": true,
       "max_trials": 2000,
@@ -108,14 +108,17 @@
       "fusion": "rrf",
       "rrf_k": 60,
       "vector_score_threshold": 0.0,
-      "llm_expansion_enabled": false,
-      "llm_max_terms": 12,
       "write_reports": true,
       "hard_filters": [
         "age",
         "sex",
         "overall_status"
       ]
+    },
+    "second_level": {
+      "per_query_size": 1000,
+      "aggregation_threshold": 0.5,
+      "aggregation_method": "weighted"
     }
   },
   "constraints": {
@@ -139,7 +142,7 @@
   "use_cot_reasoning": true,
   "rag": {
     "batch_size": 4,
-    "max_trials_rag": 300,
+    "max_trials_rag": 500,
     "guided_json": true,
     "no_think": true
   },

@@ -35,12 +35,32 @@ Analyze the patient's medical description carefully and extract clinically relev
     - Based solely on the original patient-provided data, generate semantically accurate and medically sound statements resembling real-life medical notes.
     - **Crucial**: Expanded descriptions must strictly reflect explicit patient-reported information without introducing new or inferred medical details.
 
+4. **Broader Disease Categories**:
+    - Provide up to 8 BROADER categories the primary conditions belong to, from narrower to
+      wider (e.g. "Primary Open Angle Glaucoma" -> "Open-Angle Glaucoma", "Glaucoma";
+      "COPD" -> "Lung Diseases", "Respiratory Tract Diseases").
+    - These deliberately trade precision for coverage: a trial may recruit under the category
+      rather than the specific diagnosis.
+    - Do NOT repeat the primary conditions or their synonyms here, and do NOT list a
+      comorbidity as a broader category of the primary condition.
+    - Provide these in the "broader_conditions" list.
+
+5. **Discarded or Uncertain**:
+    - List terms you considered but must NOT be searched, in particular anything the patient
+      description NEGATES ("no prior chemotherapy", "absence of metastases"). Include BOTH the
+      negated phrase and its un-negated form, because searching the bare term would retrieve
+      exactly the wrong trials.
+    - Also include anything you are not confident the description supports.
+    - Provide these in the "discarded_or_uncertain" list, and keep them out of every other list.
+
 Output:
 Return a JSON object in the exact following structure without any additional commentary:
 
 {
 "main_conditions": ["PrimaryCondition", "Synonym1", "Synonym2", "..."],
 "other_conditions": ["AdditionalCondition1", "AdditionalCondition2", "..."],
+"broader_conditions": ["BroaderCategory1", "BroaderCategory2", "..."],
+"discarded_or_uncertain": ["NegatedOrUnsupportedTerm1", "..."],
 "expanded_sentences": [
     "Expanded note for sentence 1...",
     "Expanded note for sentence 2...",
@@ -49,7 +69,20 @@ Return a JSON object in the exact following structure without any additional com
 }
 """.strip()
 
-_EMPTY = {"main_conditions": [], "other_conditions": [], "expanded_sentences": []}
+_EMPTY = {
+    "main_conditions": [],
+    "other_conditions": [],
+    # Broader categories were previously produced by a SECOND llm pass (the llm_expansion
+    # channel). Measured on 4 TREC 2023 patients, 82% of that pass's terms were already in
+    # keywords.json -- it re-read its own input and handed the aliases back. The only thing
+    # it contributed was these broader categories, so they are generated here instead and the
+    # second pass is gone. One LLM call per patient rather than two.
+    "broader_conditions": [],
+    # Negated terms that must NOT be searched. "No prior cataract surgery" means searching
+    # "cataract surgery" retrieves exactly the wrong trials.
+    "discarded_or_uncertain": [],
+    "expanded_sentences": [],
+}
 
 # JSON schema for grammar-constrained keyword expansion (vLLM structured outputs), so a verbose
 # or reasoning model always returns valid keyword JSON instead of prose that fails to parse.
@@ -63,9 +96,17 @@ _KEYWORDS_JSON_SCHEMA = {
     "properties": {
         "main_conditions": {"type": "array", "maxItems": 11, "items": {"type": "string", "maxLength": 120}},
         "other_conditions": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 120}},
+        "broader_conditions": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 120}},
+        "discarded_or_uncertain": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 120}},
         "expanded_sentences": {"type": "array", "maxItems": 15, "items": {"type": "string"}},
     },
-    "required": ["main_conditions", "other_conditions", "expanded_sentences"],
+    "required": [
+        "main_conditions",
+        "other_conditions",
+        "broader_conditions",
+        "discarded_or_uncertain",
+        "expanded_sentences",
+    ],
 }
 
 
@@ -245,180 +286,33 @@ def enrich_summary(
     *,
     max_main_conditions: int = 11,
     max_other_conditions: int = 50,
+    max_broader_conditions: int = 8,
 ) -> Dict[str, Any]:
     """Fold a CoT expansion into a matching summary (legacy keywords.json shape).
 
     ``expanded_sentences`` map to ``patient_narrative``; only non-empty fields
     overwrite, leaving the deterministic summary intact.
+
+    ``broader_conditions`` is kept as its own key rather than merged into main/other, because
+    the planner routes it to the broader_disease channel at weight 0.35. Folding broad
+    categories into main_conditions would search them at weight 1.0, flooding the pool with
+    loosely related trials.
     """
     out = dict(summary)
     main = expansion.get("main_conditions") or []
     other = expansion.get("other_conditions") or []
+    broader = expansion.get("broader_conditions") or []
+    discarded = expansion.get("discarded_or_uncertain") or []
     sentences = expansion.get("expanded_sentences") or []
     if main:
         out["main_conditions"] = main[:max_main_conditions]
     if other:
         out["other_conditions"] = other[:max_other_conditions]
+    if broader:
+        out["broader_conditions"] = broader[:max_broader_conditions]
+    if discarded:
+        # Recorded for provenance and so downstream stages can avoid them; never searched.
+        out["discarded_or_uncertain"] = discarded
     if sentences:
         out["patient_narrative"] = sentences
     return out
-
-
-# --- first-level retrieval query expansion (the llm_expansion search channel) ------------ #
-
-# Distinct from SYSTEM_PROMPT above. That one enriches the patient SUMMARY (conditions and
-# narrative sentences). This one writes RETRIEVAL QUERIES: short noun phrases that should
-# match trial titles, conditions and eligibility text. The two are not interchangeable --
-# the first-level planner buckets these six fields into weighted query channels.
-FIRST_LEVEL_SYSTEM_PROMPT = """
-You expand a patient description into search queries for a clinical trial index.
-
-Write SHORT NOUN PHRASES that would appear in a trial's title, condition list or
-eligibility criteria. Do not write sentences, questions or explanations.
-
-Fill these six fields:
-
-1. "primary_queries": the patient's main disease as a trial would name it. Include the
-   staging or subtype only when the patient description states it.
-2. "disease_aliases": other names for that same disease -- synonyms, abbreviations, older
-   or regional terminology, and the expanded form of any abbreviation.
-3. "broader_queries": the parent disease categories a trial might recruit under, from
-   narrower to wider. These deliberately trade precision for coverage.
-4. "biomarker_queries": genes, mutations, fusions, receptor and expression status, and
-   other molecular markers stated for this patient.
-5. "treatment_queries": drugs, drug classes, procedures and prior therapies stated for
-   this patient.
-6. "discarded_or_uncertain": terms you considered but rejected, and anything you are not
-   confident the patient description supports.
-
-Rules:
-- Use ONLY what the patient description states. Never infer a diagnosis, stage, biomarker
-  or therapy that is not written there. Put anything doubtful in "discarded_or_uncertain".
-- Leave a field as an empty list when the description supports nothing for it. An empty
-  list is correct; an invented term is not.
-- No duplicates within a field.
-
-Return a JSON object with exactly those six keys and no other commentary.
-""".strip()
-
-_FIRST_LEVEL_FIELDS = (
-    "primary_queries",
-    "disease_aliases",
-    "broader_queries",
-    "biomarker_queries",
-    "treatment_queries",
-    "discarded_or_uncertain",
-)
-
-# maxItems bounds the array COUNT for the same reason as _KEYWORDS_JSON_SCHEMA: it forces a
-# verbose model to close each array instead of emitting terms until max_tokens runs out.
-# These are noun phrases, so a short maxLength is safe here (unlike expanded_sentences).
-#
-# The per-field caps are deliberately uneven. search.first_level.llm_max_terms is a SHARED
-# budget across the five query fields, spent in field order (first_level_planner
-# parse_llm_query_expansion), so a model that pads primary_queries starves the biomarker and
-# treatment channels entirely. Capping primary_queries tightly -- a patient has one main
-# disease, not twelve -- keeps the budget available for the later fields.
-_FIRST_LEVEL_MAX_ITEMS = {
-    "primary_queries": 3,
-    "disease_aliases": 8,
-    "broader_queries": 5,
-    "biomarker_queries": 8,
-    "treatment_queries": 8,
-    "discarded_or_uncertain": 12,
-}
-_FIRST_LEVEL_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        field: {
-            "type": "array",
-            "maxItems": _FIRST_LEVEL_MAX_ITEMS[field],
-            "items": {"type": "string", "maxLength": 120},
-        }
-        for field in _FIRST_LEVEL_FIELDS
-    },
-    "required": list(_FIRST_LEVEL_FIELDS),
-}
-
-_FIRST_LEVEL_EMPTY: Dict[str, List[str]] = {field: [] for field in _FIRST_LEVEL_FIELDS}
-
-
-def _first_level_patient_text(profile: Any, matching_summary: Dict[str, Any]) -> str:
-    """Compact patient description for the expander prompt.
-
-    Built from the matching summary rather than the raw profile so it stays in step with
-    what first-level retrieval actually searches on.
-    """
-    summary = matching_summary or {}
-    parts: List[str] = []
-    main = [c for c in _as_list(summary.get("main_conditions")) if c][:12]
-    other = [c for c in _as_list(summary.get("other_conditions")) if c][:30]
-    narrative = [s for s in _as_list(summary.get("patient_narrative")) if s][:12]
-    if main:
-        parts.append("Main conditions: " + "; ".join(main))
-    if other:
-        parts.append("Other conditions and factors: " + "; ".join(other))
-    age, gender = summary.get("age"), summary.get("gender")
-    demographics = [
-        f"Age: {age}" for _ in (1,) if age not in (None, "", "all")
-    ] + [f"Sex: {gender}" for _ in (1,) if gender not in (None, "", "all")]
-    if demographics:
-        parts.append(", ".join(demographics))
-    if narrative:
-        parts.append("Description: " + " ".join(narrative))
-    return "\n".join(parts).strip()
-
-
-class FirstLevelQueryExpander(QueryExpander):
-    """Implements ``LLMQueryExpansionBackend`` for the first-level ``llm_expansion`` channel.
-
-    Reuses QueryExpander's engine, chat-template and structured-output machinery -- so it
-    shares the one cached vLLM engine rather than loading a second copy -- but swaps in the
-    retrieval-query prompt and schema.
-    """
-
-    system_prompt = FIRST_LEVEL_SYSTEM_PROMPT
-    json_schema = _FIRST_LEVEL_JSON_SCHEMA
-
-    def expand_first_level_queries(
-        self,
-        *,
-        profile: Any,
-        matching_summary: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        patient_text = _first_level_patient_text(profile, matching_summary)
-        if not patient_text:
-            return dict(_FIRST_LEVEL_EMPTY)
-        try:
-            raw = self._generate(patient_text)
-            parsed = extract_json_object(BaseTrialProcessor._strip_thinking_tags(raw))
-            if not isinstance(parsed, dict):
-                raise ValueError("first-level expansion output was not a JSON object")
-            return {field: _as_list(parsed.get(field)) for field in _FIRST_LEVEL_FIELDS}
-        except Exception as exc:
-            # Retrieval must not fail because expansion did: the channel is one of eight and
-            # carries weight 0.5, so an empty expansion degrades recall rather than the run.
-            logger.error(
-                "First-level query expansion failed; continuing without that channel: %s", exc
-            )
-            return dict(_FIRST_LEVEL_EMPTY)
-
-
-def build_first_level_expander(config: Dict[str, Any]) -> "FirstLevelQueryExpander | None":
-    """Construct the expander when ``search.first_level.llm_expansion_enabled`` is true.
-
-    Independent of ``query_expansion.enabled``: that flag governs the separate summary
-    enrichment stage. Both may run, and they share one engine.
-    """
-    first_level = (config.get("search") or {}).get("first_level") or {}
-    if not first_level.get("llm_expansion_enabled"):
-        return None
-    try:
-        return FirstLevelQueryExpander(_resolve_settings(config), config)
-    except Exception as exc:
-        logger.error(
-            "search.first_level.llm_expansion_enabled is set but the expander could not be "
-            "built; first-level search continues without that channel: %s",
-            exc,
-        )
-        return None

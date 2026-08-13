@@ -10,7 +10,6 @@ from trialmatchai.matching.retrieval.first_level_planner import (
     FirstLevelCandidateEvidence,
     FirstLevelQueryPlan,
     FirstLevelQueryPlanner,
-    LLMQueryExpansionBackend,
     fuse_first_level_channel_hits,
 )
 from trialmatchai.matching.retrieval.synonyms import disease_synonyms
@@ -30,14 +29,12 @@ class ClinicalTrialSearch:
         search_backend: TrialSearchBackend,
         embedder: Optional[TextEmbedder],
         entity_annotator=None,
-        llm_query_expander: LLMQueryExpansionBackend | None = None,
     ):
         self.search_backend = search_backend
         self.embedder = embedder
         self.entity_annotator = entity_annotator
         self.query_planner = FirstLevelQueryPlanner(
             entity_annotator=entity_annotator,
-            llm_expander=llm_query_expander,
         )
 
     def get_synonyms(self, condition: str) -> List[str]:

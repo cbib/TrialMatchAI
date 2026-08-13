@@ -109,8 +109,6 @@
       "fusion": "rrf",
       "rrf_k": 60,
       "vector_score_threshold": 0.0,
-      "llm_expansion_enabled": false,
-      "llm_max_terms": 12,
       "write_reports": true,
       "hard_filters": [
         "age",
