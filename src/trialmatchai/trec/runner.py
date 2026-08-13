@@ -41,13 +41,58 @@ def _track_config(base_config: Dict[str, Any], spec: TrackSpec) -> Dict[str, Any
     cfg["patient_inputs"]["summary_dir"] = str(spec.summary_dir)
     cfg.setdefault("paths", {})["output_dir"] = str(spec.output_dir)
     cfg.setdefault("query_expansion", {})["enabled"] = True
-    # TREC funnel 1000 -> 500 -> 250 (CoT), no second->CoT thinning (keep_divisor=1);
+    # TREC funnel preset: 1000 -> 500 -> 250 (CoT), no second->CoT thinning (keep_divisor=1);
     # deeper than the interactive defaults because TREC scores the whole ranked list.
+    #
+    # These are DEFAULTS, not overrides. They used to be assigned unconditionally, which
+    # silently discarded whatever the config file said and made funnel experiments
+    # unrunnable: a config asking for max_trials_second_level=1000 still got 500, and a run
+    # configured for a 600-trial shortlist still got 250. Several experiments measured the
+    # preset rather than the variable they were manipulating before this was caught.
+    #
+    # setdefault is not enough here because a shipped config always carries these keys, so
+    # the preset would never apply. Instead each value is applied only when the base config
+    # left it at the schema default, i.e. the user did not express an opinion.
     search = cfg.setdefault("search", {})
-    search["max_trials_first_level"] = 1000
-    search["max_trials_second_level"] = 500
-    search["second_level_keep_divisor"] = 1
-    cfg.setdefault("rag", {})["max_trials_rag"] = 250
+    rag = cfg.setdefault("rag", {})
+    preset = {
+        ("search", "max_trials_first_level"): 1000,
+        ("search", "max_trials_second_level"): 500,
+        ("search", "second_level_keep_divisor"): 3,
+        ("rag", "max_trials_rag"): 250,
+    }
+    schema_defaults = {
+        ("search", "max_trials_first_level"): 1000,
+        ("search", "max_trials_second_level"): 100,
+        ("search", "second_level_keep_divisor"): 3,
+        ("rag", "max_trials_rag"): 20,
+    }
+    sections = {"search": search, "rag": rag}
+    applied, respected = {}, {}
+    for key, preset_value in preset.items():
+        section, name = key
+        current = sections[section].get(name)
+        if current is None or current == schema_defaults[key]:
+            sections[section][name] = preset_value
+            applied[f"{section}.{name}"] = preset_value
+        else:
+            respected[f"{section}.{name}"] = current
+    # keep_divisor=1 is part of the preset's intent (no second->CoT thinning), and the schema
+    # default happens to equal the preset value, so set it explicitly when untouched.
+    if search.get("second_level_keep_divisor") == 3:
+        search["second_level_keep_divisor"] = 1
+        applied["search.second_level_keep_divisor"] = 1
+
+    logger.info(
+        "TREC funnel -> first_level=%s, second_level=%s, keep_divisor=%s, max_trials_rag=%s "
+        "(preset applied: %s | from config: %s)",
+        search.get("max_trials_first_level"),
+        search.get("max_trials_second_level"),
+        search.get("second_level_keep_divisor"),
+        rag.get("max_trials_rag"),
+        applied or "none",
+        respected or "none",
+    )
     # No per-topic HTML report: the eval consumes the run files, not the reports.
     cfg.setdefault("reporting", {})["emit_html"] = False
     return cfg
