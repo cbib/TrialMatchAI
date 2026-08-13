@@ -190,6 +190,37 @@ class ShortlistSettings(BaseModel):
     max_depth: int | None = Field(None, ge=1)
 
 
+class SecondLevelSearchSettings(BaseModel):
+    """Width of the second level — the pipeline's true bottleneck.
+
+    Both values were hardcoded and unreachable from config. Measured on TREC 2023 (37
+    patients, retrieval only), ``per_query_size`` alone sets a hard ceiling on everything
+    downstream, because the reranker and the aggregation threshold can only DROP trials
+    from what retrieval surfaced:
+
+        size   unique trials   % of candidate pool   recall of judged-relevant
+         250            803                 43.1%                      0.5849   <- old default
+         500          1,041                 55.8%                      0.7135
+        1000          1,200                 64.3%                      0.7870
+        2000          1,345                 72.1%                      0.8352
+        4000          1,477                 79.2%                      0.8507
+
+    The candidate pool is ~1,860 trials x ~17 criteria ~= 31,000 criteria, so at 250 the
+    second level examined about a tenth of its own pool. Raising it costs retrieval plus
+    2B-reranker scoring; it does not touch the 35B eligibility model.
+
+    Defaults reproduce the previous hardcoded behaviour exactly, so changing width is an
+    explicit A/B.
+    """
+
+    # Criteria retrieved PER QUERY (~10-13 queries per patient), not per patient.
+    per_query_size: int = Field(250, ge=1)
+    # Criteria scoring below this are dropped in aggregate_to_trials, so a trial whose every
+    # criterion falls short never reaches the shortlist at all.
+    aggregation_threshold: float = Field(0.5, ge=0.0, le=1.0)
+    aggregation_method: Literal["weighted", "avg", "sqrt", "log"] = "weighted"
+
+
 class SearchSettings(BaseModel):
     mode: Literal["bm25", "vector", "hybrid"] = "hybrid"
     vector_score_threshold: float = Field(0.5, ge=0.0, le=1.0)
@@ -208,6 +239,9 @@ class SearchSettings(BaseModel):
         default_factory=FirstLevelSearchSettings
     )
     shortlist: ShortlistSettings = Field(default_factory=ShortlistSettings)
+    second_level: SecondLevelSearchSettings = Field(
+        default_factory=SecondLevelSearchSettings
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -241,6 +275,11 @@ class RagSettings(BaseModel):
     backend: Literal["vllm", "transformers"] = "vllm"
     batch_size: int = Field(4, ge=1)
     max_trials_rag: int = Field(20, ge=1)
+    # Size the eligibility output budget to each trial's criterion count instead of giving
+    # every trial the full vllm.max_new_tokens. Clamped to that ceiling, so it can only lower
+    # the budget for small trials -- large trials keep today's headroom and cannot be
+    # truncated further. See matching/eligibility_reasoning_vllm.adaptive_max_tokens.
+    adaptive_token_budget: bool = False
     # Suppress chain-of-thought <think> in the eligibility stage for reasoning models (Qwen3):
     # sends enable_thinking=False / a /no_think prefix and strips residual think tags.
     no_think: bool = False

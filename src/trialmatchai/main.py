@@ -457,6 +457,7 @@ def run_rag_processing(
             seed=vllm_cfg.get("seed", 1234),
             length_bucket=vllm_cfg.get("length_bucket", True),
             max_model_len=vllm_cfg.get("max_model_len"),
+            adaptive_token_budget=bool(rag_cfg.get("adaptive_token_budget", False)),
             lora_request=lora_request,
             chat_template_kwargs=rag_cfg.get("chat_template_kwargs"),
             guided_json=rag_cfg.get("guided_json", False),
@@ -612,12 +613,24 @@ def main_pipeline(
         else:
             llm_reranker = None
 
+    # search.second_level controls the width of the pipeline's binding bottleneck. Previously
+    # both values were hardcoded in SecondStageRetriever and unreachable from config, which
+    # capped the second level at ~43% of its own candidate pool.
+    second_level_cfg = config["search"].get("second_level") or {}
     gemma_retriever = SecondStageRetriever(
         search_backend=search_backend,
         llm_reranker=llm_reranker,
         embedder=embedder,
         entity_annotator=entity_annotator,
         search_mode=config["search"].get("mode", "hybrid"),
+        size=int(second_level_cfg.get("per_query_size", 250)),
+        aggregation_threshold=float(second_level_cfg.get("aggregation_threshold", 0.5)),
+        aggregation_method=str(second_level_cfg.get("aggregation_method", "weighted")),
+    )
+    logger.info(
+        "Second level width: per_query_size=%s, aggregation_threshold=%s",
+        gemma_retriever.size,
+        gemma_retriever.aggregation_threshold,
     )
 
     completed_patients = 0

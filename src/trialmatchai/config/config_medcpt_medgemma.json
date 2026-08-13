@@ -1,0 +1,155 @@
+{
+  "entity_extraction": {
+    "backend": "gliner2",
+    "model_name": "fastino/gliner2-base-v1",
+    "model_revision": null,
+    "schema_path": "entity_schemas/trialmatchai.yaml",
+    "threshold": 0.8,
+    "batch_size": 8,
+    "device": "auto",
+    "trust_remote_code": false
+  },
+  "concept_linker": {
+    "enabled": true,
+    "db_path": "data/concepts_medcpt",
+    "table": "concepts",
+    "accept_threshold": 0.7,
+    "reject_threshold": 0.5,
+    "margin": 0.05,
+    "rerank": "lexical",
+    "search_limit": 10
+  },
+  "paths": {
+    "output_dir": "results",
+    "trials_json_folder": "data/trials_jsons"
+  },
+  "patient_inputs": {
+    "raw_dir": "data/patients/raw",
+    "profile_dir": "data/patients/profiles",
+    "summary_dir": "data/patients/summaries",
+    "default_format": "auto",
+    "strict_validation": false,
+    "copy_raw": true
+  },
+  "model": {
+    "base_model": "google/medgemma-27b-text-it",
+    "base_model_revision": null,
+    "trust_remote_code": false,
+    "quantization": {
+      "load_in_4bit": true,
+      "bnb_4bit_use_double_quant": true,
+      "bnb_4bit_quant_type": "nf4",
+      "bnb_4bit_compute_dtype": "float16"
+    },
+    "cot_adapter_path": null,
+    "reranker_model_path": "google/gemma-2-2b-it",
+    "reranker_model_revision": null,
+    "reranker_adapter_path": "models/finetuned_gemma2"
+  },
+  "tokenizer": {
+    "use_fast": true,
+    "padding_side": "left"
+  },
+  "global": {
+    "device": 0
+  },
+  "search_backend": {
+    "backend": "lancedb",
+    "db_path": "data/search_medcpt",
+    "trials_table": "trials",
+    "criteria_table": "criteria",
+    "candidate_limit": 1000,
+    "vector_metric": "dot",
+    "vector_weight": 0.6,
+    "reembed_index": true
+  },
+  "registry": {
+    "source": "clinicaltrials.gov",
+    "api_base_url": "https://clinicaltrials.gov/api/v2/studies",
+    "keywords_file": null,
+    "since_days": 7,
+    "max_studies": null,
+    "request_timeout": 30,
+    "rate_limit_per_second": 2,
+    "raw_dir": "data/registry/raw",
+    "manifest_path": "data/registry/manifest.jsonl",
+    "reports_dir": "data/registry/runs",
+    "failure_threshold": 0.25
+  },
+  "embedder": {
+    "backend": "hf",
+    "model_name": "ncbi/MedCPT-Article-Encoder",
+    "query_model_name": "ncbi/MedCPT-Query-Encoder",
+    "pooling": "cls",
+    "max_length": 512,
+    "query_max_length": 64,
+    "normalize": false,
+    "use_gpu": true,
+    "batch_size": 32,
+    "use_fp16": false
+  },
+  "cot": {
+    "batch_size": 10
+  },
+  "LLM_reranker": {
+    "batch_size": 20,
+    "gpu_memory_utilization": 0.15
+  },
+  "search": {
+    "mode": "hybrid",
+    "vector_score_threshold": 0.5,
+    "max_trials_first_level": 2000,
+    "max_trials_second_level": 1000,
+    "first_level": {
+      "enabled": true,
+      "max_trials": 2000,
+      "per_channel_size": 600,
+      "fusion": "rrf",
+      "rrf_k": 60,
+      "vector_score_threshold": 0.0,
+      "llm_expansion_enabled": false,
+      "llm_max_terms": 12,
+      "write_reports": true,
+      "hard_filters": [
+        "age",
+        "sex",
+        "overall_status"
+      ]
+    }
+  },
+  "constraints": {
+    "enabled": true,
+    "score_weight": 0.25,
+    "llm_extraction_enabled": false,
+    "unknown_is_neutral": true,
+    "write_reports": true
+  },
+  "query_expansion": {
+    "enabled": false,
+    "backend": null,
+    "model": null,
+    "adapter": null,
+    "max_new_tokens": 2048,
+    "max_main_conditions": 11,
+    "max_other_conditions": 50
+  },
+  "use_cot_reasoning": true,
+  "rag": {
+    "batch_size": 4,
+    "max_trials_rag": 300
+  },
+  "vllm": {
+    "batch_size": 100,
+    "max_new_tokens": 5000,
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "seed": 1234,
+    "length_bucket": true,
+    "gpu_memory_utilization": 0.78,
+    "max_model_len": 8192,
+    "tensor_parallel_size": 1,
+    "quantization": "",
+    "disable_custom_all_reduce": true,
+    "enforce_eager": true
+  }
+}

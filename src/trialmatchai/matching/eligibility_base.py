@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from trialmatchai.utils.file_utils import read_json_file, write_json_file, write_text_file
 from trialmatchai.utils.json_utils import extract_json_object
@@ -17,6 +17,32 @@ from trialmatchai.utils.logging_config import setup_logging
 from tqdm import tqdm
 
 logger = setup_logging(__name__)
+
+
+def count_criteria(criteria_text: Any) -> int:
+    """Rough count of eligibility criteria in a trial's criteria block.
+
+    Criteria arrive as one free-text block, one criterion per line (occasionally bulleted).
+    Counting non-empty lines and ignoring section headers ("Inclusion Criteria:") is close
+    enough to size an output budget -- it does not need to be exact, only proportional.
+    """
+    if isinstance(criteria_text, (list, tuple)):
+        return sum(1 for item in criteria_text if str(item).strip())
+    text = str(criteria_text or "")
+    count = 0
+    for raw in text.splitlines():
+        line = raw.strip().lstrip("-*• \t")
+        if not line:
+            continue
+        # Section headers introduce criteria rather than being one.
+        if line.rstrip(":").strip().lower() in {
+            "inclusion criteria",
+            "exclusion criteria",
+            "eligibility criteria",
+        }:
+            continue
+        count += 1
+    return count
 
 
 def _is_error_output(path: str) -> bool:
@@ -260,6 +286,9 @@ class BaseTrialProcessor:
                     "nct_id": nct_id,
                     "prompt": prompt,
                     "tok_len": self._token_length(prompt, nct_id),
+                    # Trials range from a handful of criteria to 60+, and the model must emit a
+                    # verdict per criterion, so this drives the adaptive output budget.
+                    "n_criteria": count_criteria(criteria_text),
                 }
             )
 
