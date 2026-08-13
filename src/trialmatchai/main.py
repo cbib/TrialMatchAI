@@ -15,6 +15,7 @@ from trialmatchai.matching.trial_ranker import (
     rank_trials,
     save_ranked_trials,
 )
+from trialmatchai.matching.shortlist_depth import choose_shortlist_depth, depth_report
 from trialmatchai.matching.retrieval.trial_retrieval import ClinicalTrialSearch
 from trialmatchai.matching.retrieval.criteria_retrieval import SecondStageRetriever
 from trialmatchai.matching.retrieval.location import (
@@ -306,16 +307,23 @@ def run_second_level_search(
     second_level_scores = {
         trial["nct_id"]: trial["score"] for trial in second_level_results
     }
+    # Persist the whole second-level pool, not just the shortlist. Together with
+    # first_level_scores.json this makes shortlist fusion replayable offline, so fusion
+    # weights can be retuned against completed runs instead of costing a GPU job each time.
+    # Measured motivation: shortlist_selection_delta is negative on every run so far, i.e.
+    # the fused shortlist selects worse than a plain first-level cut at the same depth.
+    write_json_file(second_level_scores, f"{output_folder}/second_level_scores.json")
 
+    search_config = config.get("search", {})
     combined_scores = _fuse_shortlist_scores(
         nct_ids=nct_ids,
         second_level_results=second_level_results,
         first_level_scores=first_level_scores,
-        search_config=config.get("search", {}),
+        search_config=search_config,
     )
 
     sorted_trials = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
-    keep_divisor = max(1, int(config.get("search", {}).get("second_level_keep_divisor", 3)))
+    keep_divisor = max(1, int(search_config.get("second_level_keep_divisor", 3)))
     # Size the shortlist off the reranked count, not the fused pool: rank fusion adds
     # first-level-only trials, so keying the divisor to the pool would silently enlarge the
     # shortlist and confound a fusion A/B.
@@ -323,12 +331,33 @@ def run_second_level_search(
     num_top = max(1, min(reranked_count // keep_divisor, top_n))
     # RAG only reasons over rag.max_trials_rag trials; cap the shortlist to match, else trials
     # past the cap get no eligibility output and are silently dropped from the final ranking.
+    upper_bound = len(sorted_trials) or 1
     if _rag_enabled(config):
-        num_top = max(1, min(num_top, int(config.get("rag", {}).get("max_trials_rag", 20))))
+        upper_bound = min(upper_bound, int(config.get("rag", {}).get("max_trials_rag", 20)))
+        num_top = max(1, min(num_top, upper_bound))
+    # The divisor sizes every patient the same. Depth is 94% of the measured shortlist recall
+    # loss and the depth patients need spans 50-1550 trials, so an opt-in policy may widen or
+    # narrow this per patient from the first-level score curve. Default policy returns num_top.
+    fixed_depth = num_top
+    num_top = choose_shortlist_depth(
+        first_level_scores=first_level_scores,
+        fixed_depth=fixed_depth,
+        upper_bound=upper_bound,
+        search_config=search_config,
+    )
     semi_final_trials = sorted_trials[:num_top]
 
     top_trials_path = f"{output_folder}/top_trials.txt"
     write_text_file([trial_id for trial_id, _ in semi_final_trials], top_trials_path)
+    write_json_file(
+        depth_report(
+            chosen=len(semi_final_trials),
+            fixed_depth=fixed_depth,
+            first_level_scores=first_level_scores,
+            search_config=search_config,
+        ),
+        f"{output_folder}/shortlist_depth.json",
+    )
     constraints_config = config.get("constraints", {})
     if constraints_config.get("enabled", True) and constraints_config.get(
         "write_reports",
@@ -423,6 +452,7 @@ def run_rag_processing(
             seed=vllm_cfg.get("seed", 1234),
             length_bucket=vllm_cfg.get("length_bucket", True),
             max_model_len=vllm_cfg.get("max_model_len"),
+            adaptive_token_budget=bool(rag_cfg.get("adaptive_token_budget", False)),
             lora_request=lora_request,
             chat_template_kwargs=rag_cfg.get("chat_template_kwargs"),
             guided_json=rag_cfg.get("guided_json", False),
@@ -563,6 +593,7 @@ def main_pipeline(
                     # to the shared vllm section, so a large reranker fits the same way the CoT does.
                     quantization=reranker_cfg.get("quantization", vllm_cfg.get("quantization", "")),
                     kv_cache_dtype=reranker_cfg.get("kv_cache_dtype", vllm_cfg.get("kv_cache_dtype")),
+                    scoring=str(reranker_cfg.get("scoring", "binary")),
                 )
             else:
                 raise ValueError(
@@ -571,12 +602,24 @@ def main_pipeline(
         else:
             llm_reranker = None
 
+    # search.second_level controls the width of the pipeline's binding bottleneck. Previously
+    # both values were hardcoded in SecondStageRetriever and unreachable from config, which
+    # capped the second level at ~43% of its own candidate pool.
+    second_level_cfg = config["search"].get("second_level") or {}
     gemma_retriever = SecondStageRetriever(
         search_backend=search_backend,
         llm_reranker=llm_reranker,
         embedder=embedder,
         entity_annotator=entity_annotator,
         search_mode=config["search"].get("mode", "hybrid"),
+        size=int(second_level_cfg.get("per_query_size", 250)),
+        aggregation_threshold=float(second_level_cfg.get("aggregation_threshold", 0.5)),
+        aggregation_method=str(second_level_cfg.get("aggregation_method", "weighted")),
+    )
+    logger.info(
+        "Second level width: per_query_size=%s, aggregation_threshold=%s",
+        gemma_retriever.size,
+        gemma_retriever.aggregation_threshold,
     )
 
     completed_patients = 0
@@ -752,8 +795,6 @@ def _first_level_search_config(search_cfg: Dict) -> Dict:
     first_level_cfg.setdefault("vector_score_threshold", 0.0)
     first_level_cfg.setdefault("enabled", True)
     first_level_cfg.setdefault("write_reports", True)
-    first_level_cfg.setdefault("llm_expansion_enabled", False)
-    first_level_cfg.setdefault("llm_max_terms", 12)
     first_level_cfg.setdefault("hard_filters", ["age", "sex", "overall_status"])
     return first_level_cfg
 

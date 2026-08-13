@@ -93,3 +93,45 @@ def test_evaluate_precision_is_condensed_to_judged_pool(tmp_path):
     assert mean["P@10(rel>=1)"] == pytest.approx(2 / 10)  # raw would be 0/10
     assert mean["P@10(eligible)"] == pytest.approx(1 / 10)  # only NCT1 is grade 2
     assert mean["graded_P@10"] == pytest.approx((2 + 1) / (10 * 2))  # raw would be 0
+
+
+def test_evaluate_reports_funnel_metrics(tmp_path):
+    """The shortlist (top_trials.txt) is the funnel's narrowest point. Evaluation must expose
+    its recall and split the loss into depth vs second-level selection, since recall@k
+    (first-level list) and nDCG@k (ranked list) both hide it."""
+    q = "trec-1"
+    pdir = tmp_path / q
+    pdir.mkdir()
+    # First level finds all three relevant trials; the shortlist keeps only two slots and
+    # spends one on an irrelevant trial that a plain first-level top-2 would not have picked.
+    (pdir / "nct_ids.txt").write_text("NCT1\nNCT2\nNCT3\nNCT4\n")
+    (pdir / "top_trials.txt").write_text("NCT1\nNCT4\n")
+    (pdir / "ranked_trials.json").write_text(
+        json.dumps({"RankedTrials": [{"TrialID": "NCT1", "Score": 1.0}]})
+    )
+    qrels = {q: {"NCT1": 2, "NCT2": 2, "NCT3": 1, "NCT4": 0}}
+
+    mean = evaluate(qrels, tmp_path, cutoffs=(10,))["mean"]
+
+    assert mean["recall@10"] == 1.0  # first level found everything...
+    assert mean["shortlist_recall"] == pytest.approx(1 / 3)  # ...the reasoner saw a third
+    assert mean["shortlist_size"] == 2
+    assert mean["first_level_recall_at_shortlist_depth"] == pytest.approx(2 / 3)
+    assert mean["shortlist_selection_delta"] == pytest.approx(-1 / 3)  # selection hurt
+    assert mean["funnel_depth_loss"] == pytest.approx(1 / 3)  # depth alone cost this
+
+
+def test_evaluate_funnel_metrics_absent_without_shortlist(tmp_path):
+    """Runs predating the shortlist file must still evaluate, without funnel values."""
+    q = "trec-1"
+    pdir = tmp_path / q
+    pdir.mkdir()
+    (pdir / "nct_ids.txt").write_text("NCT1\n")
+    (pdir / "ranked_trials.json").write_text(
+        json.dumps({"RankedTrials": [{"TrialID": "NCT1", "Score": 1.0}]})
+    )
+
+    mean = evaluate({q: {"NCT1": 2}}, tmp_path, cutoffs=(10,))["mean"]
+
+    assert mean["recall@10"] == 1.0
+    assert mean["shortlist_recall"] is None

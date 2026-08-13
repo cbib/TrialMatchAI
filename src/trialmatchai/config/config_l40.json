@@ -41,10 +41,10 @@
       "bnb_4bit_quant_type": "nf4",
       "bnb_4bit_compute_dtype": "float16"
     },
-    "cot_adapter_path": "majdabd33/trialmatchai-phi4-reasoning-lora",
+    "cot_adapter_path": "models/finetuned_phi_reasoning",
     "reranker_model_path": "google/gemma-2-2b-it",
     "reranker_model_revision": null,
-    "reranker_adapter_path": "majdabd33/trialmatchai-gemma2-reranker-lora"
+    "reranker_adapter_path": "models/finetuned_gemma2"
   },
   "tokenizer": {
     "use_fast": true,
@@ -55,7 +55,7 @@
   },
   "search_backend": {
     "backend": "lancedb",
-    "db_path": "data/search",
+    "db_path": "data/search_a40",
     "trials_table": "trials",
     "criteria_table": "criteria",
     "candidate_limit": 1000
@@ -88,19 +88,19 @@
     "batch_size": 10
   },
   "LLM_reranker": {
-    "batch_size": 20
+    "batch_size": 20,
+    "gpu_memory_utilization": 0.15,
+    "tensor_parallel_size": 2
   },
   "search": {
     "mode": "hybrid",
     "vector_score_threshold": 0.5,
     "max_trials_first_level": 1000,
     "max_trials_second_level": 100,
-    "shortlist_fusion": "rrf",
-    "shortlist_rrf_k": 60,
     "first_level": {
       "enabled": true,
       "max_trials": 1000,
-      "per_channel_size": 600,
+      "per_channel_size": 300,
       "fusion": "rrf",
       "rrf_k": 60,
       "vector_score_threshold": 0.0,
@@ -140,8 +140,8 @@
     "top_p": 1.0,
     "seed": 1234,
     "length_bucket": true,
-    "gpu_memory_utilization": 0.5,
+    "gpu_memory_utilization": 0.6,
     "max_model_len": 8192,
-    "tensor_parallel_size": 1
+    "tensor_parallel_size": 2
   }
 }

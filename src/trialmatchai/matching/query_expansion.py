@@ -35,12 +35,32 @@ Analyze the patient's medical description carefully and extract clinically relev
     - Based solely on the original patient-provided data, generate semantically accurate and medically sound statements resembling real-life medical notes.
     - **Crucial**: Expanded descriptions must strictly reflect explicit patient-reported information without introducing new or inferred medical details.
 
+4. **Broader Disease Categories**:
+    - Provide up to 8 BROADER categories the primary conditions belong to, from narrower to
+      wider (e.g. "Primary Open Angle Glaucoma" -> "Open-Angle Glaucoma", "Glaucoma";
+      "COPD" -> "Lung Diseases", "Respiratory Tract Diseases").
+    - These deliberately trade precision for coverage: a trial may recruit under the category
+      rather than the specific diagnosis.
+    - Do NOT repeat the primary conditions or their synonyms here, and do NOT list a
+      comorbidity as a broader category of the primary condition.
+    - Provide these in the "broader_conditions" list.
+
+5. **Discarded or Uncertain**:
+    - List terms you considered but must NOT be searched, in particular anything the patient
+      description NEGATES ("no prior chemotherapy", "absence of metastases"). Include BOTH the
+      negated phrase and its un-negated form, because searching the bare term would retrieve
+      exactly the wrong trials.
+    - Also include anything you are not confident the description supports.
+    - Provide these in the "discarded_or_uncertain" list, and keep them out of every other list.
+
 Output:
 Return a JSON object in the exact following structure without any additional commentary:
 
 {
 "main_conditions": ["PrimaryCondition", "Synonym1", "Synonym2", "..."],
 "other_conditions": ["AdditionalCondition1", "AdditionalCondition2", "..."],
+"broader_conditions": ["BroaderCategory1", "BroaderCategory2", "..."],
+"discarded_or_uncertain": ["NegatedOrUnsupportedTerm1", "..."],
 "expanded_sentences": [
     "Expanded note for sentence 1...",
     "Expanded note for sentence 2...",
@@ -49,7 +69,20 @@ Return a JSON object in the exact following structure without any additional com
 }
 """.strip()
 
-_EMPTY = {"main_conditions": [], "other_conditions": [], "expanded_sentences": []}
+_EMPTY = {
+    "main_conditions": [],
+    "other_conditions": [],
+    # Broader categories were previously produced by a SECOND llm pass (the llm_expansion
+    # channel). Measured on 4 TREC 2023 patients, 82% of that pass's terms were already in
+    # keywords.json -- it re-read its own input and handed the aliases back. The only thing
+    # it contributed was these broader categories, so they are generated here instead and the
+    # second pass is gone. One LLM call per patient rather than two.
+    "broader_conditions": [],
+    # Negated terms that must NOT be searched. "No prior cataract surgery" means searching
+    # "cataract surgery" retrieves exactly the wrong trials.
+    "discarded_or_uncertain": [],
+    "expanded_sentences": [],
+}
 
 # JSON schema for grammar-constrained keyword expansion (vLLM structured outputs), so a verbose
 # or reasoning model always returns valid keyword JSON instead of prose that fails to parse.
@@ -63,9 +96,17 @@ _KEYWORDS_JSON_SCHEMA = {
     "properties": {
         "main_conditions": {"type": "array", "maxItems": 11, "items": {"type": "string", "maxLength": 120}},
         "other_conditions": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 120}},
+        "broader_conditions": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 120}},
+        "discarded_or_uncertain": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 120}},
         "expanded_sentences": {"type": "array", "maxItems": 15, "items": {"type": "string"}},
     },
-    "required": ["main_conditions", "other_conditions", "expanded_sentences"],
+    "required": [
+        "main_conditions",
+        "other_conditions",
+        "broader_conditions",
+        "discarded_or_uncertain",
+        "expanded_sentences",
+    ],
 }
 
 
@@ -104,6 +145,11 @@ def _resolve_settings(config: Dict[str, Any]) -> Dict[str, Any]:
 
 class QueryExpander:
     """CoT expander; loads its model lazily so import stays base-deps safe."""
+
+    # Overridable by subclasses that reuse this engine/template machinery for a different
+    # extraction task (see FirstLevelQueryExpander).
+    system_prompt: str = SYSTEM_PROMPT
+    json_schema: Dict[str, Any] = _KEYWORDS_JSON_SCHEMA
 
     def __init__(self, settings: Dict[str, Any], config: Dict[str, Any]):
         self.settings = settings
@@ -160,7 +206,7 @@ class QueryExpander:
         no_think = bool(self.settings.get("no_think"))
         user_content = ("/no_think\n" + narrative) if no_think else narrative
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": user_content},
         ]
         # Qwen3.x-style templates take enable_thinking; harmless-and-ignored elsewhere (guarded).
@@ -199,7 +245,7 @@ class QueryExpander:
         if self.settings.get("guided_json"):
             from vllm.sampling_params import StructuredOutputsParams  # type: ignore
 
-            structured = StructuredOutputsParams(json=_KEYWORDS_JSON_SCHEMA, disable_any_whitespace=True)
+            structured = StructuredOutputsParams(json=self.json_schema, disable_any_whitespace=True)
         params = SamplingParams(
             temperature=0.0,
             max_tokens=self.settings["max_new_tokens"],
@@ -240,20 +286,33 @@ def enrich_summary(
     *,
     max_main_conditions: int = 11,
     max_other_conditions: int = 50,
+    max_broader_conditions: int = 8,
 ) -> Dict[str, Any]:
     """Fold a CoT expansion into a matching summary (legacy keywords.json shape).
 
     ``expanded_sentences`` map to ``patient_narrative``; only non-empty fields
     overwrite, leaving the deterministic summary intact.
+
+    ``broader_conditions`` is kept as its own key rather than merged into main/other, because
+    the planner routes it to the broader_disease channel at weight 0.35. Folding broad
+    categories into main_conditions would search them at weight 1.0, flooding the pool with
+    loosely related trials.
     """
     out = dict(summary)
     main = expansion.get("main_conditions") or []
     other = expansion.get("other_conditions") or []
+    broader = expansion.get("broader_conditions") or []
+    discarded = expansion.get("discarded_or_uncertain") or []
     sentences = expansion.get("expanded_sentences") or []
     if main:
         out["main_conditions"] = main[:max_main_conditions]
     if other:
         out["other_conditions"] = other[:max_other_conditions]
+    if broader:
+        out["broader_conditions"] = broader[:max_broader_conditions]
+    if discarded:
+        # Recorded for provenance and so downstream stages can avoid them; never searched.
+        out["discarded_or_uncertain"] = discarded
     if sentences:
         out["patient_narrative"] = sentences
     return out

@@ -31,6 +31,40 @@ def _criteria_array(labels: list[str]) -> dict:
     }
 
 
+# Adaptive output budget. m1 (arXiv:2504.00869) measures an optimal MEDICAL reasoning budget
+# near 4K tokens, "beyond which performance may degrade due to overthinking" -- but that is for
+# a single question. This stage judges every criterion of a trial in ONE call, and trials range
+# from a handful of criteria to 60+, so a flat 4K cap would truncate the large ones into invalid
+# JSON. Scaling with the actual work keeps the per-criterion budget near the measured optimum at
+# both ends.
+#
+# The result is CLAMPED to the configured max_new_tokens, so this can only ever LOWER the budget
+# for small trials -- large trials keep exactly the headroom they have today, and no trial can be
+# truncated more than it already would be.
+_BUDGET_BASE_TOKENS = 1024  # recap, final decision, JSON scaffolding
+_BUDGET_PER_CRITERION_TOKENS = 192  # one verdict + justification
+_BUDGET_FLOOR_TOKENS = 1024
+
+
+def adaptive_max_tokens(
+    n_criteria: int,
+    *,
+    ceiling: int,
+    base: int = _BUDGET_BASE_TOKENS,
+    per_criterion: int = _BUDGET_PER_CRITERION_TOKENS,
+    floor: int = _BUDGET_FLOOR_TOKENS,
+) -> int:
+    """Output-token budget for a trial with ``n_criteria`` criteria.
+
+    A ~17-criterion trial (the TREC 2023 mean) lands near 4K; a 60-criterion trial asks for
+    more and is capped by ``ceiling``. Never exceeds ``ceiling``, never drops below ``floor``.
+    """
+    if n_criteria <= 0:
+        return min(ceiling, max(floor, base))
+    want = base + per_criterion * n_criteria
+    return max(min(floor, ceiling), min(ceiling, want))
+
+
 ELIGIBILITY_JSON_SCHEMA = {
     "type": "object",
     "properties": {
@@ -62,6 +96,7 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         lora_request: Optional[Any] = None,
         chat_template_kwargs: Optional[dict] = None,
         guided_json: bool = False,
+        adaptive_token_budget: bool = False,
     ):
         """vLLM-backed CoT eligibility processor with optional LoRA adapter."""
         self.llm = llm
@@ -71,6 +106,7 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
         self.no_think = no_think
         self.chat_template_kwargs = chat_template_kwargs or {}
         self.max_new_tokens = max_new_tokens
+        self.adaptive_token_budget = adaptive_token_budget
         self.temperature = temperature
         self.top_p = top_p
         self.seed = seed
@@ -179,6 +215,29 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
 
     # ---------------------- Core batch path (vLLM) ----------------------
 
+    def _sampling_params_for(self, batch: List[Dict]) -> Any:
+        """Shared SamplingParams, or one per prompt sized to that trial's criterion count."""
+        if not self.adaptive_token_budget:
+            return self.sampling_params
+        from copy import copy
+
+        params = []
+        for item in batch:
+            budget = adaptive_max_tokens(
+                int(item.get("n_criteria") or 0), ceiling=self.max_new_tokens
+            )
+            per_request = copy(self.sampling_params)
+            per_request.max_tokens = budget
+            params.append(per_request)
+        if params:
+            logger.debug(
+                "Adaptive output budget over batch: min=%s max=%s (ceiling %s)",
+                min(p.max_tokens for p in params),
+                max(p.max_tokens for p in params),
+                self.max_new_tokens,
+            )
+        return params
+
     def _process_batch(self, batch: List[Dict], output_folder: str):
         try:
             prompts = [item["prompt"] for item in batch]
@@ -188,10 +247,15 @@ class BatchTrialProcessorVLLM(BaseTrialProcessor):
 
             safe_lora_request = self._validate_lora_request()
 
+            # One SamplingParams per prompt when the budget is adaptive, so a 5-criterion trial
+            # does not get the same 8K allowance as a 60-criterion one. Falls back to the shared
+            # object when disabled, which is the historical behaviour.
+            params = self._sampling_params_for(batch)
+
             try:
                 results = self.llm.generate(
                     prompts,
-                    self.sampling_params,
+                    params,
                     lora_request=safe_lora_request,
                 )
             except TypeError as e:

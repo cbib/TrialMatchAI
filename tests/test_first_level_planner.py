@@ -1,12 +1,10 @@
 import json
 
-import pytest
 
 from trialmatchai.interop.models import ClinicalFact, PatientProfile, Provenance
 from trialmatchai.main import run_first_level_search
 from trialmatchai.matching.retrieval.first_level_planner import (
     FirstLevelQueryPlanner,
-    parse_llm_query_expansion,
 )
 from trialmatchai.matching.retrieval.trial_retrieval import ClinicalTrialSearch
 from trialmatchai.search import InMemorySearchBackend
@@ -33,7 +31,6 @@ def test_planner_builds_deterministic_channels_and_skips_negated_facts():
             "other_conditions": [],
             "patient_narrative": ["Patient has EGFR-mutated lung cancer."],
         },
-        config={"llm_expansion_enabled": False},
         age=64,
         sex="female",
         overall_status="All",
@@ -63,7 +60,6 @@ def test_planner_builds_per_condition_other_condition_channels():
             ],
             "patient_narrative": ["x"],
         },
-        config={"llm_expansion_enabled": False},
     )
     oc = [c for c in plan.channels if c.kind == "other_condition"]
     assert len(oc) == 2  # one channel per distinct non-primary comorbidity
@@ -82,33 +78,8 @@ def test_planner_no_other_condition_channel_when_empty():
             "other_conditions": [],
             "patient_narrative": ["x"],
         },
-        config={"llm_expansion_enabled": False},
     )
     assert [c for c in plan.channels if c.kind == "other_condition"] == []
-
-
-def test_llm_query_expansion_is_strict_and_capped():
-    parsed = parse_llm_query_expansion(
-        {
-            "primary_queries": ["lung cancer", "lung cancer"],
-            "disease_aliases": ["NSCLC"],
-            "broader_queries": ["solid tumor"],
-            "biomarker_queries": ["EGFR mutation"],
-            "treatment_queries": ["osimertinib"],
-            "discarded_or_uncertain": ["random drift"],
-        },
-        max_terms=3,
-    )
-
-    assert parsed.primary_queries == ["lung cancer"]
-    assert parsed.disease_aliases == ["NSCLC"]
-    assert parsed.broader_queries == ["solid tumor"]
-    assert parsed.biomarker_queries == []
-    assert parsed.treatment_queries == []
-    with pytest.raises(Exception):
-        parse_llm_query_expansion("{bad json", max_terms=3)
-    with pytest.raises(Exception):
-        parse_llm_query_expansion({"primary_queries": [], "extra": []}, max_terms=3)
 
 
 def test_planned_search_fuses_multi_channel_hits_above_single_channel_hits():
@@ -360,7 +331,6 @@ def _config(*, enabled: bool) -> dict:
                 "per_channel_size": 300,
                 "rrf_k": 60,
                 "vector_score_threshold": 0.0,
-                "llm_expansion_enabled": False,
                 "write_reports": True,
             },
         }

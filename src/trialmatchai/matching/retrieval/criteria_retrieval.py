@@ -28,6 +28,8 @@ class SecondStageRetriever:
         llm_reranker: Optional[LLMReranker],
         embedder: Optional[TextEmbedder],
         size: int = 250,
+        aggregation_threshold: float = 0.5,
+        aggregation_method: str = "weighted",
         inclusion_weight: float = 1.0,
         exclusion_weight: float = 0.25,
         entity_annotator=None,
@@ -36,7 +38,13 @@ class SecondStageRetriever:
         self.search_backend = search_backend
         self.llm_reranker = llm_reranker
         self.embedder = embedder
+        # Criteria retrieved PER QUERY. This is the pipeline's binding width constraint:
+        # measured on TREC 2023, 250 surfaces 43% of the candidate pool at 0.585 recall of
+        # judged-relevant trials, while 1000 reaches 64%/0.787. Everything downstream can
+        # only drop trials from what this retrieves.
         self.size = size
+        self.aggregation_threshold = aggregation_threshold
+        self.aggregation_method = aggregation_method
         self.inclusion_weight = inclusion_weight
         self.exclusion_weight = exclusion_weight
         self.entity_annotator = entity_annotator
@@ -201,8 +209,18 @@ class SecondStageRetriever:
         return criteria
 
     def aggregate_to_trials(
-        self, criteria: List[Dict], threshold: float = 0.5, method: str = "weighted"
+        self,
+        criteria: List[Dict],
+        threshold: float | None = None,
+        method: str | None = None,
     ) -> List[Dict]:
+        # None -> the configured values; explicit args still win so callers and tests can pin
+        # them. getattr keeps the historical contract that this method uses no instance state,
+        # so an instance built without __init__ still aggregates at the old 0.5/"weighted".
+        if threshold is None:
+            threshold = getattr(self, "aggregation_threshold", 0.5)
+        if method is None:
+            method = getattr(self, "aggregation_method", "weighted")
         # A criterion matched by several paraphrases appears once per query; keep only the best
         # score per UNIQUE criterion so a trial isn't inflated by query overlap (skews sqrt/weighted).
         best_by_criterion: dict[tuple[str, str], float] = {}
