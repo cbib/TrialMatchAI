@@ -289,6 +289,10 @@ class LLMRerankerSettings(BaseModel):
     # to fit both engines on a smaller card (e.g. 48GB A40/L40).
     gpu_memory_utilization: float = Field(0.4, gt=0.0, le=1.0)
     tensor_parallel_size: int = Field(1, ge=1)
+    # "binary" = historical P(Yes) over Yes/No. "graded" = Expected Relevance Value over a
+    # 3-level scale, which yields an aggregable magnitude instead of a saturated binary.
+    # See models/llm/llm_reranker.py for the evidence; default keeps existing behaviour.
+    scoring: Literal["binary", "graded"] = "binary"
     model_config = ConfigDict(extra="allow")
 
 

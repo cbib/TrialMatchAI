@@ -603,6 +603,7 @@ def main_pipeline(
                     # to the shared vllm section, so a large reranker fits the same way the CoT does.
                     quantization=reranker_cfg.get("quantization", vllm_cfg.get("quantization", "")),
                     kv_cache_dtype=reranker_cfg.get("kv_cache_dtype", vllm_cfg.get("kv_cache_dtype")),
+                    scoring=str(reranker_cfg.get("scoring", "binary")),
                 )
             else:
                 raise ValueError(
