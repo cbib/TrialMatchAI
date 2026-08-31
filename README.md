@@ -5,6 +5,15 @@
 <p><b>TrialMatchAI matches patients to the clinical trials they're eligible for.</b> Give it a patient as clinical notes, FHIR, a Phenopacket, or OMOP data, and it returns a ranked shortlist of trials, each one explained criterion by criterion so you can see why the patient does or doesn't qualify. Everything runs on your own infrastructure on a single GPU server, so patient data never leaves your environment.</p>
 
 <p>
+  <a href="https://github.com/cbib/TrialMatchAI/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/cbib/TrialMatchAI/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://cbib.github.io/TrialMatchAI/"><img alt="Docs" src="https://github.com/cbib/TrialMatchAI/actions/workflows/docs.yml/badge.svg?branch=main"></a>
+  <a href="https://pypi.org/project/trialmatchai/"><img alt="PyPI" src="https://img.shields.io/pypi/v/trialmatchai?logo=pypi&logoColor=white&label=PyPI&color=blue"></a>
+  <a href="https://pypi.org/project/trialmatchai/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/trialmatchai?logo=python&logoColor=white&label=Python"></a>
+  <a href="https://github.com/cbib/TrialMatchAI/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
+  <a href="https://github.com/astral-sh/ruff"><img alt="Linted with Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
+</p>
+
+<p>
   <a href="#installation">Install</a> ·
   <a href="#quickstart">Quickstart</a> ·
   <a href="#how-it-works">How it works</a> ·

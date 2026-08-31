@@ -10,7 +10,14 @@ uv run ruff check .
 uv run pytest
 uv build
 uv run pre-commit run --all-files
-uv run pip-audit --progress-spinner off --ignore-vuln CVE-2025-3000
+uv run pip-audit --progress-spinner off \
+  --ignore-vuln CVE-2025-3000 \
+  --ignore-vuln CVE-2025-69872 \
+  --ignore-vuln CVE-2026-53923 \
+  --ignore-vuln CVE-2026-54236 \
+  --ignore-vuln CVE-2026-12491 \
+  --ignore-vuln CVE-2026-54235 \
+  --ignore-vuln CVE-2026-54233
 ```
 
 Smoke test console commands:

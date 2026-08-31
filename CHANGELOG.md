@@ -4,9 +4,109 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.8.2] — 2026-08-31
+
+### Fixed
+- **`make release-check` no longer fails on a missing script.** The target still invoked
+  `scripts/scan_secrets.py`, which was deleted when the gitleaks pre-commit hook replaced the
+  homegrown scanner; the Makefile line was left behind, so the release gate errored out before
+  reaching the dependency audit. It now runs `pre-commit run gitleaks --all-files`, the same
+  scan CI performs.
+- **The `pip-audit` ignore list no longer drifts between the Makefile and CI.** Both `audit`
+  and `release-check` invoked `pip-audit` with one `--ignore-vuln` flag while CI passed seven,
+  so the local gate and the CI gate disagreed about which advisories were accepted. The list
+  now lives in a single `PIP_AUDIT_IGNORES` variable that both targets consume, with a comment
+  pointing at its CI counterpart. Note that `pip-audit` audits whatever is installed: run in a
+  full ML-extras environment it reports advisories against the optional inference stack that
+  CI, which syncs without extras, never sees.
+
+### Changed
+- **README and docs landing page carry status badges** (CI, docs, PyPI version, supported
+  Python, licence, Ruff). The CI and docs badges are pinned to `main` so a work-in-progress
+  push on a feature branch cannot flip the published badge red.
+- **`.gitignore` covers the experiment output trees.** Per-run result directories, root-level
+  analysis dumps, and exploratory embedder benchmark runs are matched by family patterns
+  instead of being listed one by one. The four benchmark series behind the README recall
+  figure, and the registry that defines them, stay tracked so that figure remains
+  reproducible from a clean clone.
+
+### Documentation
+- **Backfilled the 0.6.0 through 0.8.1 release notes.** The changelog had gone four releases
+  without an entry: the section describing the 0.6.0 work was still sitting under
+  `[Unreleased]`, and 0.7.0, 0.8.0 and 0.8.1 were undocumented entirely.
+
+## [0.8.1] — 2026-08-02
+
+### Fixed
+- **`__version__` synced with `pyproject.toml`.** 0.8.0 shipped with `__version__` still at
+  0.7.0; the version-drift guard in `test_package_imports` caught it on CI.
+
+### Documentation
+- **MedCPT + Qwen3.6-35B-A3B added to the performance figure** (2-bit MoE, roughly 3B active
+  parameters): pooled nDCG@10 0.806 and graded P@10 0.780 over the 125 TREC 2021+2022 topics,
+  the strongest reasoner on both metrics, narrowly ahead of Baichuan-M2-32B.
+
+## [0.8.0] — 2026-08-02
 
 ### Added
+- **TREC Clinical Trials 2023 track.** The 2023 track differs structurally from 2021/2022 and
+  is supported end to end:
+  - Topics are per-disorder questionnaire templates (8 disorders, 5–12 optional fields each)
+    rather than free-text case narratives. `parse_questionnaire_topics` flattens the non-empty
+    fields into a synthetic narrative, so the existing import, query-expansion and
+    chain-of-thought path applies unchanged.
+  - The corpus is a May-2023 registry snapshot whose judged pool extends beyond the bootstrap
+    TREC corpus. `trialmatchai.trec.backfill` fetches the missing judged NCTs from the live
+    ClinicalTrials.gov v2 API and normalizes them for the standard build.
+  - `runner.py` warns when a per-track index covers less than 95% of the judged pool, so a
+    missing backfill surfaces instead of silently understating recall.
+  - Track `23` is registered across corpus/qrels/topics; qrels grading (2/1/0) and the
+    condensed nDCG evaluation are unchanged.
+- **E5-style `query_prefix` / `document_prefix` support** for embedders such as
+  Nemotron-3-Embed, E5 and GTE.
+
+### Fixed
+- **Verbose reasoners now emit valid guided JSON.** Grammar-constrained decoding let xgrammar
+  insert unbounded whitespace between JSON tokens, so verbose reasoners (for example
+  II-Medical-8B) degenerated into thousands of trailing newlines, exhausting `max_tokens`
+  before the closing brace and yielding invalid JSON, along with a large decode slowdown.
+  `disable_any_whitespace` is now set at engine-build time on the xgrammar backend, where the
+  per-request `StructuredOutputsParams` flag is silently ignored.
+- **Dropped the per-string `maxLength` on `expanded_sentences`**, which chopped clinical
+  sentences mid-word. The count is already bounded by `maxItems` plus `max_tokens`.
+
+### Documentation
+- TREC 2023 performance section (bge-m3 + phi-4: nDCG@10 0.881, graded P@10 0.881 over the 37
+  judged topics) with reproduction steps; MedCPT + II-Medical-8B added to the pooled
+  2021+2022 figure; Quickstart renumbered 1/2/3 with clearer gated-model auth and a note that
+  `bootstrap-data` downloads roughly 25 GB.
+
+## [0.7.0] — 2026-07-19
+
+### Added
+- **Fine-tuned adapters hosted on the Hugging Face Hub.** The phi-4 reasoning and gemma-2
+  reranker LoRA adapters are published to the Hub and the default config points at the repo
+  IDs, so they download on first use with no bootstrap step. `bootstrap-data` now fetches only
+  the trial corpus and criteria; the Zenodo adapter copy is opt-in via `--with-models`.
+- **Grammar-constrained JSON decoding** (vLLM structured outputs), opt-in, for the
+  eligibility-reasoning and query-expansion stages, so verbose reasoning models return
+  complete, schema-valid JSON.
+- **`chat_template_kwargs`** for chat templates that toggle reasoning through a named variable,
+  such as Baichuan-M2's `thinking_mode`.
+- `HF_TOKEN` added to `.env.example`.
+
+### Documentation
+- Named the gated base models, added the Hugging Face adapter links, dropped the Zenodo URLs,
+  documented the `finetune merge` subcommand and the pipeline link stage, and added a
+  reasoning-model comparison (Baichuan-M2-32B vs MedGemma vs phi-4). Prose rewritten in a
+  plainer register.
+
+## [0.6.0] — 2026-07-13
+
+### Added
+- **Config-driven model swapping.** Model registries, self-describing embedders and index
+  provenance, so an embedder or reasoner can be swapped through config alone (for example
+  `embedder: {model: "medcpt"}`) with the vector metric following the embedder.
 - **Instruction-tuned / decoder embedders in the benchmark.** `last`-token pooling and a
   query-only `query_instruction` prefix, so decoder embedders such as Qwen3-Embedding — which
   pool the final token and prepend `Instruct: {task}\nQuery:` to queries but embed documents raw

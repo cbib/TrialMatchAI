@@ -1,5 +1,12 @@
 # TrialMatchAI
 
+[![CI](https://github.com/cbib/TrialMatchAI/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/cbib/TrialMatchAI/actions/workflows/ci.yml)
+[![Docs](https://github.com/cbib/TrialMatchAI/actions/workflows/docs.yml/badge.svg?branch=main)](https://github.com/cbib/TrialMatchAI/actions/workflows/docs.yml)
+[![PyPI](https://img.shields.io/pypi/v/trialmatchai?logo=pypi&logoColor=white&label=PyPI&color=blue)](https://pypi.org/project/trialmatchai/)
+[![Python versions](https://img.shields.io/pypi/pyversions/trialmatchai?logo=python&logoColor=white&label=Python)](https://pypi.org/project/trialmatchai/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/cbib/TrialMatchAI/blob/main/LICENSE)
+[![Linted with Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 **TrialMatchAI matches patients to the clinical trials they're eligible for.** Give
 it a patient — clinical notes, FHIR, Phenopacket, or OMOP — and it returns a ranked
 shortlist of trials, each with a transparent, criterion-by-criterion explanation of
