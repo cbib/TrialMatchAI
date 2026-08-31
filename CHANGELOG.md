@@ -4,6 +4,30 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+- **Cleared 13 Dependabot advisories (9 of them high) in leaf dependencies**, without disturbing
+  the pinned inference stack: `pillow` 12.2.0 → 12.3.0 (decompression-bomb and heap
+  out-of-bounds issues in image decoding), `aiohttp` 3.14.1 → 3.14.3 (request smuggling and a
+  malformed-response parser read), `cryptography` 49.0.0 → 50.0.1 (Bleichenbacher oracle in
+  PKCS#7 `EnvelopedData` decryption) and `pymdown-extensions` 11.0 → 11.0.2 (ReDoS in the
+  markdown extensions used to build these docs). `vllm`, `torch`, `torchvision`, `torchaudio`
+  and `mcp` are unchanged.
+
+  None of these were reachable in normal use — this project processes clinical text rather than
+  untrusted images or HTTP, and never calls PKCS#7 decryption — but all four had fixes available
+  and none is load-bearing, so upgrading is cheaper than carrying the advisories.
+
+  The remaining open advisories are against `vllm` and `torch`. Those require moving off the
+  hard-pinned 0.23.0 / 2.11.0 inference stack that every published benchmark was measured on,
+  so they are a deliberate re-baselining exercise rather than a patch.
+
+### Fixed
+- **`pip` upgraded to 26.2.1** so CI's dependency audit passes (PYSEC-2026-3721). `pip` is
+  dev-only here, arriving transitively via `pip-api` ← `pip-audit`, and is never shipped in
+  the wheel.
+
 ## [0.8.2] — 2026-08-31
 
 ### Fixed
