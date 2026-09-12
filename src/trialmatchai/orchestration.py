@@ -366,24 +366,28 @@ def build_index(
 # --------------------------------------------------------------------------- #
 def count_pending(config: Dict[str, Any]) -> tuple[int, int]:
     """Return (pending, done) patient counts for the configured dirs."""
+    from trialmatchai.matching.assessment import match_is_complete
+
     patient_cfg = config.get("patient_inputs", {})
     profile_dir = Path(patient_cfg.get("profile_dir", "data/patients/profiles"))
     output_dir = Path(config["paths"]["output_dir"])
     pending = done = 0
     for profile_path in sorted(profile_dir.glob("*.json")):
         ranked = output_dir / profile_path.stem / "ranked_trials.json"
-        if is_valid_json_file(str(ranked)):
+        if match_is_complete(ranked, config):
             done += 1
         else:
             pending += 1
     return pending, done
 
 
-_MATCH_STATE_VERSION = "1"
+_MATCH_STATE_VERSION = "2"
 
 
 def _match_signature(config: Dict[str, Any]) -> dict:
     """Match-relevant config whose change should invalidate cached patient matches."""
+    from trialmatchai.matching.assessment import assessment_settings
+
     reranker = config.get("LLM_reranker", {})
     model = config.get("model", {})
     return {
@@ -394,7 +398,7 @@ def _match_signature(config: Dict[str, Any]) -> dict:
         "reranker_adapter": model.get("reranker_adapter_path"),
         "reranker_revision": model.get("reranker_model_revision"),
         "cot_model": model.get("base_model"),
-        "use_cot": config.get("use_cot_reasoning"),
+        "assessment": assessment_settings(config),
         "query_expansion": (config.get("query_expansion") or {}).get("enabled"),
         "candidate_limit": (config.get("search_backend") or {}).get("candidate_limit"),
         "search_mode": (config.get("search") or {}).get("mode"),

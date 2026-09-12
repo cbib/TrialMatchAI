@@ -4,8 +4,8 @@
 
 **A configurable CLI for patient-to-trial retrieval and eligibility review.**
 TrialMatchAI imports patient information, searches local LanceDB tables, and writes
-ranked results and HTML reports. Optional models add entity extraction, expansion,
-reranking, and criterion-level assessments.
+ranked results and HTML reports. The default model workflow includes entity extraction, reranking, and
+criterion-level eligibility assessment. Query expansion is separately configurable.
 
 !!! info "Beta release — declared validation scope"
     The release gates test the installed CLI with synthetic data and real CPU search.

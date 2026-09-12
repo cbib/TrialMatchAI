@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 from typing import Any, Dict, List
 
+from trialmatchai.matching.assessment import assessment_enabled as _rag_enabled
 from trialmatchai.utils.logging_config import setup_logging
 
 logger = setup_logging(__name__)
@@ -291,12 +292,6 @@ def _require_patient_inputs(issues: List[str], config: Dict[str, Any]) -> None:
 
 def _reranker_enabled(config: Dict[str, Any]) -> bool:
     return bool(config.get("LLM_reranker", {}).get("enabled", True))
-
-
-def _rag_enabled(config: Dict[str, Any]) -> bool:
-    if not bool(config.get("use_cot_reasoning", True)):
-        return False
-    return bool(config.get("rag", {}).get("enabled", True))
 
 
 def _reranker_backend(config: Dict[str, Any]) -> str:

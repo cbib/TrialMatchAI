@@ -237,7 +237,10 @@ def test_count_pending_uses_valid_ranked_marker(tmp_path):
     for pid in ("P1", "P2", "P3"):
         (profiles / f"{pid}.json").write_text("{}", encoding="utf-8")
     (out / "P1").mkdir(parents=True)
-    (out / "P1" / "ranked_trials.json").write_text("[]", encoding="utf-8")  # done
+    from trialmatchai.matching.assessment import assessment_run_info
+    (out / "P1" / "ranked_trials.json").write_text(json.dumps({
+        "RankedTrials": [], "Run": assessment_run_info({}, [], set()),
+    }), encoding="utf-8")  # Current, valid empty result.
     (out / "P2").mkdir(parents=True)
     (out / "P2" / "ranked_trials.json").write_text("[bad", encoding="utf-8")  # corrupt -> pending
     # P3 has no ranked file -> pending
@@ -255,7 +258,10 @@ def test_run_matching_skips_model_when_all_done(tmp_path, monkeypatch):
     out = tmp_path / "out"
     (profiles / "P1.json").write_text("{}", encoding="utf-8")
     (out / "P1").mkdir(parents=True)
-    (out / "P1" / "ranked_trials.json").write_text("[]", encoding="utf-8")
+    from trialmatchai.matching.assessment import assessment_run_info
+    (out / "P1" / "ranked_trials.json").write_text(json.dumps({
+        "RankedTrials": [], "Run": assessment_run_info({}, [], set()),
+    }), encoding="utf-8")
     config = {"patient_inputs": {"profile_dir": str(profiles)}, "paths": {"output_dir": str(out)}}
 
     monkeypatch.setattr(main_mod, "main_pipeline", _boom)  # must not be called

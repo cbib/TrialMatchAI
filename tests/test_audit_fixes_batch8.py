@@ -389,7 +389,10 @@ def test_resume_all_pending_fail_returns_nonzero(tmp_path, monkeypatch):
     done = PatientProfile.model_validate({"patient_id": "pdone", "demographics": {}})
     out = tmp_path / "results" / "pdone"
     out.mkdir(parents=True)
-    (out / "ranked_trials.json").write_text("[]", encoding="utf-8")  # valid marker -> skipped
+    from trialmatchai.matching.assessment import assessment_run_info
+    (out / "ranked_trials.json").write_text(json.dumps({
+        "RankedTrials": [], "Run": assessment_run_info({"rag": {"enabled": False}, "use_cot_reasoning": False}, [], set()),
+    }), encoding="utf-8")  # Valid current marker -> skipped.
 
     def _boom_first_level(*a, **k):
         raise RuntimeError("forced failure")
@@ -408,7 +411,10 @@ def test_first_level_none_counted_as_failed_on_resume(tmp_path, monkeypatch):
     done = PatientProfile.model_validate({"patient_id": "pdone2", "demographics": {}})
     out = tmp_path / "results" / "pdone2"
     out.mkdir(parents=True)
-    (out / "ranked_trials.json").write_text("[]", encoding="utf-8")
+    from trialmatchai.matching.assessment import assessment_run_info
+    (out / "ranked_trials.json").write_text(json.dumps({
+        "RankedTrials": [], "Run": assessment_run_info({"rag": {"enabled": False}, "use_cot_reasoning": False}, [], set()),
+    }), encoding="utf-8")
 
     main_module = _setup_pipeline(
         monkeypatch, tmp_path,
