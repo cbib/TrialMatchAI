@@ -239,6 +239,8 @@ class BaseTrialProcessor:
         json_folder: str,
         output_folder: str,
         patient_narrative: List[str],
+        *,
+        force: bool = False,
     ):
         """Build a worklist (skipping already-processed trials), length-bucket to
         minimize padding, then process in batches."""
@@ -250,7 +252,7 @@ class BaseTrialProcessor:
         for nct_id in nct_ids:
             existing = f"{output_folder}/{nct_id}.json"
             # Skip only completed trials; recorded failures/unparseable files are retried.
-            if os.path.exists(existing) and not _is_error_output(existing):
+            if not force and os.path.exists(existing) and not _is_error_output(existing):
                 logger.info(f"Skipping existing: {nct_id}")
                 continue
             criteria_text = self._load_trial_data(nct_id, json_folder)

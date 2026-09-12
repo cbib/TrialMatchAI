@@ -4,6 +4,22 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- Eligibility assessment is controlled by `rag.enabled` independently of the CoT
+  prompt setting. Disabling `use_cot_reasoning` now selects direct JSON assessment.
+- Ranked output records assessment controls and availability. Reports explicitly
+  label retrieval-only runs and hide assessments from prior enabled runs.
+- Assessment-control changes invalidate cached matching and per-trial assessment
+  reuse. Legacy matches without mode metadata are recomputed on resume.
+- The flowchart places eligibility assessment on the default path and labels the
+  explicit retrieval-only bypass. Both SVGs state its default-on behavior.
+
+### Migration
+- Set `rag.enabled: false` to skip assessment. `use_cot_reasoning: false` alone no
+  longer disables it. No new GPU or clinical-accuracy qualification is claimed.
+
 ## [0.9.0] — 2026-09-12
 
 ### Added

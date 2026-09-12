@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
   <title id="title">TrialMatchAI</title>
-  <desc id="desc">Patient profiles flow through trial retrieval and criterion review into ranked reports. A configurable CLI with local search and optional model stages.</desc>
+  <desc id="desc">Patient profiles flow through trial retrieval and criterion review into ranked reports. A configurable CLI with local search and configurable model stages.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#101b32"/><stop offset="1" stop-color="#082f38"/></linearGradient>
     <linearGradient id="accent"><stop stop-color="#5eead4"/><stop offset="1" stop-color="#7dd3fc"/></linearGradient>
@@ -33,7 +33,7 @@
       </g>
       <g font-size="13" fill="#b5cbd5">
         <text x="20" y="93">Text · FHIR · Phenopacket · OMOP</text><text x="306" y="93">Local lexical + vector search</text>
-        <text x="592" y="93">Optional model assessments</text><text x="878" y="93">JSON + HTML</text>
+        <text x="592" y="93">Assessment enabled by default</text><text x="878" y="93">JSON + HTML</text>
       </g>
     </g>
     <rect x="52" y="370" width="28" height="3" rx="1.5" fill="url(#accent)"/>

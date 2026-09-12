@@ -64,6 +64,10 @@ def main() -> None:
     assert "demo-patient" in report and "NCT00000001" in report
     assert '"reasoning_available": false' in report
     ranked = demo / "results/demo-patient/ranked_trials.json"
+    payload = json.loads(ranked.read_text())
+    assert payload["Run"]["mode"] == "retrieval_only"
+    assert payload["Run"]["assessment_status"] == "disabled"
+    assert '"mode": "retrieval_only"' in report and "Retrieval-only" in report
     original = (ranked.read_bytes(), ranked.stat().st_mtime_ns)
     run("demo", "--workdir", str(demo), "--resume")
     assert (ranked.read_bytes(), ranked.stat().st_mtime_ns) == original

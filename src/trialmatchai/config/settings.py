@@ -220,7 +220,7 @@ class ConstraintSettings(BaseModel):
 
 
 class RagSettings(BaseModel):
-    enabled: bool = True
+    enabled: bool = Field(True, description="Run eligibility assessment; independent of CoT prompt style.")
     backend: Literal["vllm", "transformers"] = "vllm"
     batch_size: int = Field(4, ge=1)
     max_trials_rag: int = Field(20, ge=1)
@@ -318,7 +318,7 @@ class TrialMatchSettings(BaseModel):
         default_factory=QueryExpansionSettings
     )
     reporting: ReportingSettings = Field(default_factory=ReportingSettings)
-    use_cot_reasoning: bool = True
+    use_cot_reasoning: bool = Field(True, description="Use the CoT assessment prompt; false selects direct JSON assessment.")
     rag: RagSettings
     vllm: VllmSettings
 

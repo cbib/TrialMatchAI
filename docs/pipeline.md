@@ -99,3 +99,23 @@ run_pipeline(ctx, from_stage="index", to_stage="match")
 
 See the [API reference](api.md) for `StageContext`, `Stage`, `select_stages`, and
 `run_pipeline`.
+
+## Assessment modes
+
+This section describes the unreleased changes on `main` after 0.9.0.
+
+Eligibility assessment is enabled by default. `rag.enabled` controls whether it
+runs; `use_cot_reasoning` selects the CoT prompt (`true`) or direct JSON prompt
+(`false`). Both prompts request per-criterion classifications and justifications.
+Set `rag.enabled: false` for retrieval-only execution, as the synthetic CPU demo does.
+`rag.no_think` remains a separate model thinking-mode setting.
+
+`ranked_trials.json` now carries a `Run` object with assessment controls, result mode,
+output availability, and assessed trial IDs. Reports show retrieval-only and partial
+assessment states, and do not join old assessments into a retrieval-only result.
+These fields describe available outputs, not verified clinical completeness.
+
+When upgrading from 0.9.0, configurations that disabled CoT to skip the whole stage
+must explicitly disable `rag.enabled`. Legacy results without this metadata are
+recomputed on resume. Assessment-control changes invalidate both match completion
+and per-trial assessment reuse; full evidence/config/model identity remains P02 work.

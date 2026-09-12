@@ -15,9 +15,8 @@
 </div>
 
 TrialMatchAI imports patient information, searches a local clinical-trial index,
-and produces ranked results and portable HTML reports. Optional local models add
-biomedical entity extraction, query expansion, reranking, and criterion-level
-eligibility assessments.
+and produces ranked results and portable HTML reports. Configured local models perform biomedical entity extraction, reranking, and
+criterion-level eligibility assessment. Query expansion can be enabled separately.
 
 **Release status: beta.** The automated release gates exercise the installed CLI
 with synthetic data and real CPU search. They do not qualify GPU inference,
@@ -57,7 +56,7 @@ benchmark.
 | :--- | :--- | :--- |
 | Patient input | Text, FHIR, Phenopacket, and OMOP importers; canonical profiles and summaries | Format coverage is partial; validate mappings against your source data |
 | Retrieval | Local LanceDB tables, BM25/vector/hybrid search, multi-channel fusion, structured filters | Retrieval quality depends on corpus, embeddings, filters, and candidate budgets |
-| Model stages | Entity extraction, optional query expansion, LLM reranking, criterion assessments | Requires extra dependencies, model access, and runtime qualification |
+| Model stages | Entity extraction, default-on reranking and eligibility assessment, optional query expansion | Requires extra dependencies, model access, and runtime qualification |
 | Review | Ranked JSON, per-trial outputs, individual and multi-patient HTML reports | No hosted clinical workspace, authentication, review queue, or sign-off system |
 | Operations | CLI stages, registry updater, checksum tools, synthetic e2e, verified package publishing | Complete cache invalidation, GPU qualification, and application deployment remain open |
 | Agent behavior | A fixed sequence of configurable stages, with optional LLM expansion | Bounded retrieval/review agents are planned; autonomous task planning is not implemented |
@@ -68,16 +67,37 @@ across ranking quality, clinical workflow, agents, and delivery.
 
 ## How matching works
 
-<img src="https://raw.githubusercontent.com/cbib/TrialMatchAI/main/docs/assets/matching-flow.svg" alt="Matching flow: patient profile, trial retrieval, criterion retrieval, final ranking, and human review; optional query expansion, reranking, and eligibility assessment" width="1120">
+<img src="https://raw.githubusercontent.com/cbib/TrialMatchAI/main/docs/assets/matching-flow.svg" alt="Default matching flow: patient profile, trial retrieval, criterion retrieval, eligibility assessment, final ranking, and human review; explicit retrieval-only bypass" width="1120">
 
 
 The build path prepares trial records and criterion rows, then indexes them.
 During matching, first-level retrieval gathers trial candidates across query
-channels; second-level retrieval selects criterion evidence. Enabled reranking,
-constraint scoring, and eligibility assessment contribute to the final output.
+channels; second-level retrieval selects criterion evidence. Reranking, constraint scoring, and default-on eligibility assessment contribute
+to the final output.
 The code calls its generated eligibility explanations **CoT reasoning**; these
 are model outputs to inspect alongside source evidence, not verified clinical
 reasoning or a guarantee that every criterion has been covered.
+
+In source checkouts after 0.9.0, eligibility assessment and CoT prompt style have
+independent switches (the change is currently unreleased):
+
+| `rag.enabled` | `use_cot_reasoning` | Result |
+| :--- | :--- | :--- |
+| `true` (default) | `true` (default) | Eligibility assessment using the CoT prompt |
+| `true` | `false` | Eligibility assessment using the direct JSON prompt |
+| `false` | Either | Retrieval-only ranking; no eligibility assessment |
+
+Both assessment prompts request criterion classifications and evidence-based
+justifications. `rag.no_think` separately controls supported models' thinking-mode
+settings. Rankings record their mode and assessment availability; reports label
+retrieval-only results and suppress assessments left over from earlier runs.
+Missing or unusable assessment outputs are not an eligibility verdict.
+
+**Migration from 0.9.0:** to disable assessment, explicitly set `rag.enabled: false`.
+Setting only `use_cot_reasoning: false` now keeps assessment enabled. Legacy matches
+without the new mode metadata are recomputed when matching resumes; changing the
+assessment switches also invalidates their cached results. This does not establish
+complete patient/model/corpus cache identity, which remains roadmap work.
 
 The default configuration selects `BAAI/bge-m3` embeddings,
 `fastino/gliner2-base-v1` entity extraction, `google/gemma-2-2b-it` reranking, and

@@ -86,6 +86,9 @@
   .main-head h1 { margin:0; font-size:20px; line-height:28px; font-weight:600; color:var(--n900); }
   .toolbar { position:sticky; top:0; background:var(--n0); border-bottom:1px solid var(--n200);
              display:flex; flex-direction:column; gap:var(--s2); padding:var(--s3) 0; z-index:5; margin-top:var(--s5); }
+  .assessment-note { padding:12px 16px; margin-bottom:16px; border:1px solid var(--n200);
+    border-radius:8px; background:var(--n50); font-size:14px; line-height:20px; }
+  .assessment-note strong { display:block; margin-bottom:4px; }
   .controls { display:flex; gap:var(--s2); align-items:center; flex-wrap:wrap; }
   .search { display:flex; align-items:center; flex:1 1 220px; min-width:170px; height:36px;
             border:1px solid var(--n200); border-radius:var(--r-card); padding:0 var(--s2) 0 var(--s3); background:var(--n0); }
@@ -214,6 +217,7 @@
           <button id="clear" class="linkbtn" type="button" hidden>Clear filters</button>
         </div>
       </div>
+      <div id="assessment-mode" class="assessment-note" role="note"></div>
       <div id="trial-list"></div>
       <footer class="band" id="report-footer"></footer>
     </main>
@@ -306,6 +310,27 @@ const TALLY = [
   { cls: "bad",     glyph: "✕", title: "Ineligible",                 match: ["Ineligible"] },
   { cls: "neutral", glyph: "—", title: "Not assessed",               match: ["Not assessed"] },
 ];
+function assessmentLabel(p) {
+  const run = p.run || {};
+  if (run.assessment_status === "no_candidates") return "No candidate trials";
+  if (run.mode === "retrieval_only") return "Retrieval-only";
+  return run.assessment_status === "partial" ? "Eligibility assessment · incomplete" : "Eligibility assessment";
+}
+function renderAssessmentMode() {
+  const run = CUR.run || {};
+  let detail = "Model assessments are available. Review their evidence and criterion coverage.";
+  if (run.assessment_status === "no_candidates") detail = "No candidates were available for eligibility assessment.";
+  else if (run.mode === "retrieval_only") {
+    detail = run.assessment_status === "disabled"
+      ? "Eligibility assessment was disabled. Scores reflect retrieval relevance only."
+      : "No usable eligibility assessment is available. These results are a retrieval shortlist.";
+  } else if (run.assessment_status === "partial") {
+    detail = "Some candidate assessments are missing or unusable. Unassessed trials have no eligibility verdict.";
+  }
+  const node = document.getElementById("assessment-mode");
+  node.textContent = "";
+  node.append(el("strong", { text: assessmentLabel(CUR) }), el("span", { text: detail }));
+}
 function overviewRow(p) {
   const pt = p.patient || {}, trials = p.trials || [];
   const info = el("div", { class: "pinfo" });
@@ -314,6 +339,7 @@ function overviewRow(p) {
   if (pt.age != null) bits.push("Age " + pt.age);
   if (pt.sex) bits.push(pt.sex);
   bits.push(trials.length + (trials.length === 1 ? " trial" : " trials"));
+  bits.push(assessmentLabel(p));
   info.append(el("div", { class: "pmeta", text: bits.join("  ·  ") }));
   const tally = el("div", { class: "tally" });
   for (const tier of TALLY) {
@@ -488,6 +514,7 @@ function mountPatient(p) {
   const ta = document.getElementById("toggle-all");
   ta.setAttribute("aria-pressed", "false"); ta.textContent = "Expand all";
   renderPatientCard();
+  renderAssessmentMode();
   fillSelect("f-status", (p.trials || []).map(t => (t.meta || {}).overall_status), "All statuses");
   fillSelect("f-phase", (p.trials || []).map(t => (t.meta || {}).phase), "All phases");
   fillVerdict();

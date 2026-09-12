@@ -159,10 +159,13 @@ def rank_trials(
     return ranked_trials
 
 
-def save_ranked_trials(ranked_trials: List[Dict], output_file: str):
+def save_ranked_trials(ranked_trials: List[Dict], output_file: str, *, run_info: Dict | None = None):
     # Do NOT swallow write failures: the caller treats a clean return as a completed
     # patient, so a failed final write must surface to retry it (not mark it done).
-    write_json_file({"RankedTrials": ranked_trials}, output_file)
+    payload = {"RankedTrials": ranked_trials}
+    if run_info is not None:
+        payload["Run"] = run_info
+    write_json_file(payload, output_file)
     logger.info(f"Ranked trials saved to {output_file}")
 
 
@@ -176,7 +179,11 @@ def rerank_patient_dir(patient_dir: str) -> int:
     ranked_path = os.path.join(patient_dir, "ranked_trials.json")
     if not os.path.exists(ranked_path):
         return 0
-    existing = (read_json_file(ranked_path) or {}).get("RankedTrials", [])
+    payload = read_json_file(ranked_path) or {}
+    run_info = payload.get("Run")
+    if isinstance(run_info, dict) and run_info.get("mode") == "retrieval_only":
+        return 0  # Old assessment files do not belong to this retrieval-only result.
+    existing = payload.get("RankedTrials", [])
     shortlist_ids = {r["TrialID"] for r in existing if isinstance(r, dict) and r.get("TrialID")}
     if not shortlist_ids:
         return 0
@@ -197,5 +204,5 @@ def rerank_patient_dir(patient_dir: str) -> int:
     ranked = rank_trials(
         trial_data, first_level_scores=first_level, second_level_scores=second_level
     )
-    save_ranked_trials(ranked, ranked_path)
+    save_ranked_trials(ranked, ranked_path, run_info=run_info)
     return len(ranked)

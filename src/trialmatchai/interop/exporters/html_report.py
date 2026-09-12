@@ -13,12 +13,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from trialmatchai.matching.assessment import has_assessment_output
+
 _TEMPLATE = Path(__file__).parent / "templates" / "report.html"
 _LOGO = Path(__file__).parent / "templates" / "logo.png"
 _DATA_PLACEHOLDER = "__REPORT_DATA__"
 _LOGO_PLACEHOLDER = "__LOGO_SRC__"
-# the sentinel eligibility_base writes for an unparseable model response
-_ERROR_SENTINEL = "invalid_json_response"
 _META_FIELDS = (
     "brief_title",
     "brief_summary",
@@ -115,6 +115,11 @@ def build_report_model(
 
     Trials keep ``ranked_trials.json`` order; ``rank`` is the 1-based position.
     """
+    run = dict(run_info or {})
+    if isinstance(ranked, Mapping) and isinstance(ranked.get("Run"), Mapping):
+        run.update(ranked["Run"])
+    retrieval_only = run.get("mode") == "retrieval_only" or run.get("assessment", {}).get("enabled") is False
+    assessed_ids = run.get("assessed_trial_ids")
     trials: list[dict] = []
     for rank, rec in enumerate(_ranked_records(ranked), start=1):
         tid = str(rec.get("TrialID", "")).strip()
@@ -122,7 +127,10 @@ def build_report_model(
             continue
         elig = eligibility_by_id.get(tid) or {}
         # an unparseable model response left an error sentinel, not an evaluation
-        reasoning_ok = bool(elig) and elig.get("error") != _ERROR_SENTINEL
+        reasoning_ok = (
+            not retrieval_only and has_assessment_output(elig)
+            and (assessed_ids is None or tid in assessed_ids)
+        )
         meta = _trial_meta(meta_by_id.get(tid))
         trials.append(
             {
@@ -137,9 +145,19 @@ def build_report_model(
                 "inclusion": _criteria(elig.get("Inclusion_Criteria_Evaluation")) if reasoning_ok else [],
                 "exclusion": _criteria(elig.get("Exclusion_Criteria_Evaluation")) if reasoning_ok else [],
                 "reasoning_available": reasoning_ok,
-                "cot": (cot_by_id or {}).get(tid),
+                "cot": (cot_by_id or {}).get(tid) if reasoning_ok else None,
             }
         )
+    available = sum(t["reasoning_available"] for t in trials)
+    run.setdefault("mode", "eligibility_assessment" if available else "retrieval_only")
+    run.setdefault("assessment_status", "outputs_available" if available == len(trials) and available else
+                   "partial" if available else "unavailable")
+    if not available:
+        run["mode"] = "retrieval_only"
+        if run["assessment_status"] in {"outputs_available", "partial"}:
+            run["assessment_status"] = "unavailable"
+    elif available < len(trials) and run["assessment_status"] == "outputs_available":
+        run["assessment_status"] = "partial"
     return {
         "patient": {
             "id": patient_summary.get("patient_id"),
@@ -151,7 +169,7 @@ def build_report_model(
         },
         "trials": trials,
         "generated_at": generated_at,
-        "run": dict(run_info or {}),
+        "run": run,
     }
 
 

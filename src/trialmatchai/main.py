@@ -27,13 +27,18 @@ from trialmatchai.interop.exporters import profile_to_matching_summary
 from trialmatchai.interop.models import PatientProfile
 from trialmatchai.utils.file_utils import (
     create_directory,
-    is_valid_json_file,
     read_json_file,
     read_text_file,
     write_json_file,
     write_text_file,
 )
 from trialmatchai.schemas.phenopacket import Keywords
+from trialmatchai.matching.assessment import (
+    assessment_enabled as _rag_enabled,
+    assessment_run_info,
+    has_assessment_output,
+    match_controls_current,
+)
 from trialmatchai.utils.logging_config import reset_request_id, set_request_id, setup_logging
 from trialmatchai.utils.timing import log_timing
 
@@ -391,7 +396,7 @@ def run_rag_processing(
             model_path=config["model"]["base_model"],
             device=str(config.get("global", {}).get("device", "cpu")),
             batch_size=rag_cfg.get("batch_size", 1),
-            use_cot=config.get("use_cot_reasoning", False),
+            use_cot=config.get("use_cot_reasoning", True),
             max_new_tokens=vllm_cfg.get("max_new_tokens", 256),
             temperature=vllm_cfg.get("temperature", 0.0),
             top_p=vllm_cfg.get("top_p", 1.0),
@@ -435,6 +440,7 @@ def run_rag_processing(
         json_folder=_criteria_source_folders(config),
         output_folder=output_folder,
         patient_narrative=patient_narrative,
+        force=not match_controls_current(Path(output_folder) / "ranked_trials.json", config),
     )
     write_json_file({"status": "done"}, f"{output_folder}/rag_output.json")
     logger.info("RAG-based trial matching complete.")
@@ -452,13 +458,13 @@ def _rag_final_ranking(
     retrievable shortlist isn't silently discarded as an empty ranked_trials.json.
     """
     ranked_trials = rank_trials(
-        trial_data,
+        trial_data if any(has_assessment_output(trial) for trial in trial_data) else [],
         first_level_scores=first_level_scores,
         second_level_scores=second_level_scores,
     )
     if not ranked_trials and semi_final_trials:
         logger.warning(
-            "RAG produced no per-trial outputs; ranking by retrieval scores."
+            "No usable eligibility assessment outputs; ranking by retrieval scores."
         )
         ranked_trials = [
             {"TrialID": trial_id, "Score": score}
@@ -588,8 +594,8 @@ def main_pipeline(
         output_folder = Path(paths["output_dir"]) / patient_id
         if resume:
             ranked_path = output_folder / "ranked_trials.json"
-            # Parseable (not just non-empty): a truncated marker re-runs, an empty-but-valid result counts as done.
-            if is_valid_json_file(str(ranked_path)):
+            # Resume only current assessment controls; legacy or changed modes re-run.
+            if match_controls_current(ranked_path, config):
                 logger.info("Resume: skipping already-matched patient %s", patient_id)
                 skipped_patients += 1
                 continue
@@ -646,6 +652,7 @@ def main_pipeline(
                         patient_context,
                     )
 
+            trial_data = []
             if _rag_enabled(config):
                 with log_timing(logger, "RAG processing"):
                     with _inference_context(torch):
@@ -668,19 +675,20 @@ def main_pipeline(
                         first_level_scores=first_level_scores,
                         second_level_scores=second_level_scores,
                     )
-                    save_ranked_trials(
-                        ranked_trials, str(output_folder / "ranked_trials.json")
-                    )
             else:
                 logger.info("RAG processing disabled; ranking by retrieval scores.")
-                save_ranked_trials(
-                    [
-                        {"TrialID": trial_id, "Score": score}
-                        for trial_id, score in semi_final_trials
-                    ],
-                    str(output_folder / "ranked_trials.json"),
-                )
+                ranked_trials = [
+                    {"TrialID": trial_id, "Score": score}
+                    for trial_id, score in semi_final_trials
+                ]
 
+            run_info = assessment_run_info(config, trial_data, {tid for tid, _ in semi_final_trials})
+            save_ranked_trials(ranked_trials, str(output_folder / "ranked_trials.json"), run_info=run_info)
+            if run_info["mode"] == "retrieval_only":
+                logger.info("Result mode: retrieval-only; no eligibility assessment is available (%s).",
+                            run_info["assessment_status"])
+            else:
+                logger.info("Result mode: eligibility assessment (%s).", run_info["assessment_status"])
             _maybe_write_report(output_folder, config)
             logger.info("Pipeline completed for patient %s", patient_id)
             completed_patients += 1
@@ -779,12 +787,6 @@ def _reranker_enabled(config: Dict) -> bool:
 
 def _reranker_backend(config: Dict) -> str:
     return str(config.get("LLM_reranker", {}).get("backend", "vllm"))
-
-
-def _rag_enabled(config: Dict) -> bool:
-    if not bool(config.get("use_cot_reasoning", True)):
-        return False
-    return bool(config.get("rag", {}).get("enabled", True))
 
 
 def _inference_context(torch_module):
