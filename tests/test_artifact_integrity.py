@@ -65,3 +65,32 @@ def test_artifact_cli_json_exit_status(tmp_path, capsys):
     artifact.write_text("bad wheel")
     assert main(["verify", result["manifest"], "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["ok"] is False
+
+
+@pytest.mark.parametrize("explicit_directory", [False, True])
+def test_manifest_symlink_cannot_redirect_verification(tmp_path, capsys, explicit_directory):
+    trusted = tmp_path / "trusted"
+    incoming = tmp_path / "incoming"
+    trusted.mkdir()
+    incoming.mkdir()
+    (trusted / "package.whl").write_bytes(b"known good")
+    (incoming / "package.whl").write_bytes(b"corrupted incoming wheel")
+    manifest = write_manifest(trusted)
+    link = incoming / "SHA256SUMS"
+    link.symlink_to(manifest)
+
+    arguments = ["verify", str(link), "--require-exact", "--json"]
+    if explicit_directory:
+        arguments += ["--directory", str(incoming)]
+    assert main(arguments) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is False
+    assert "manifest must not be a symlink" in result["error"]
+
+
+def test_external_manifest_verifies_the_explicit_artifact_directory(tmp_path):
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "package.whl").write_bytes(b"wheel")
+    manifest = write_manifest(artifacts).rename(tmp_path / "SHA256SUMS")
+    assert verify_manifest(manifest, directory=artifacts, require_exact=True) == ["package.whl"]

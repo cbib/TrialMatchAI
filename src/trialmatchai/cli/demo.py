@@ -18,6 +18,17 @@ _FIXTURE_VERSION = 1
 
 
 def _create_workspace(root: Path) -> dict:
+    # Build beside the destination so publishing is one same-filesystem rename.
+    # A failed or interrupted setup leaves the requested directory empty; retry
+    # can start normally without trusting partially written ownership markers.
+    with tempfile.TemporaryDirectory(prefix=f".{root.name}-init-", dir=root.parent) as temp:
+        staging = Path(temp)
+        config = _write_workspace(root, destination=staging)
+        staging.replace(root)
+    return config
+
+
+def _write_workspace(root: Path, *, destination: Path) -> dict:
     from trialmatchai.config.settings import TrialMatchSettings
 
     package = resources.files("trialmatchai")
@@ -50,7 +61,7 @@ def _create_workspace(root: Path) -> dict:
     # The demo deliberately ignores deployment env overrides and .env files.
     # Its files and database must stay inside this synthetic workspace.
     config = TrialMatchSettings.model_validate(config).to_dict()
-    write_json_file(config, str(root / "config.json"))
+    write_json_file(config, str(destination / "config.json"))
     for number, condition, title, minimum, maximum in (
         (1, "lung cancer", "SYNTHETIC adult lung cancer study", "18 Years", "120 Years"),
         (2, "lung cancer", "SYNTHETIC pediatric lung cancer study", "0 Years", "12 Years"),
@@ -62,15 +73,15 @@ def _create_workspace(root: Path) -> dict:
             "condition": condition, "overall_status": "RECRUITING", "gender": "All",
             "minimum_age": minimum, "maximum_age": maximum,
             "eligibility_criteria": f"Inclusion Criteria:\n- Diagnosis of {condition}.\n- Age within the study limits.",
-        }, str(data / "trials_jsons" / f"{nct_id}.json"))
+        }, str(destination / "data/trials_jsons" / f"{nct_id}.json"))
     write_json_file({"resourceType": "Bundle", "type": "collection", "entry": [
         {"resource": {"resourceType": "Patient", "id": "demo-patient", "gender": "female", "birthDate": "1980-01-01"}},
         {"resource": {"resourceType": "Condition", "id": "demo-condition",
                       "subject": {"reference": "Patient/demo-patient"}, "code": {"text": "lung cancer"}}},
-    ]}, str(root / "patient.fhir.json"))
-    write_json_file({"fixture_version": _FIXTURE_VERSION}, str(root / _MARKER))
+    ]}, str(destination / "patient.fhir.json"))
+    write_json_file({"fixture_version": _FIXTURE_VERSION}, str(destination / _MARKER))
     # Covers the initial fixture/config inputs, not the runtime outputs added later.
-    write_manifest(root)
+    write_manifest(destination)
     return config
 
 
@@ -122,10 +133,16 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.resume and args.workdir is None:
         parser.error("--resume requires --workdir")
+    workdir = args.workdir
     try:
-        result = run_demo(args.workdir, resume=args.resume)
+        if workdir is None:
+            workdir = Path(tempfile.mkdtemp(prefix="trialmatchai-demo-"))
+        result = run_demo(workdir, resume=args.resume)
     except KeyboardInterrupt:
-        print("Demo interrupted. Resume with the same --workdir and --resume.", file=sys.stderr)
+        print("Demo interrupted.", file=sys.stderr)
+        if workdir is not None:
+            resume_flag = " --resume" if (workdir / "SHA256SUMS").is_file() else ""
+            print(f"To retry: trialmatchai demo --workdir {shlex.quote(str(workdir))}{resume_flag}", file=sys.stderr)
         return 130
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"Demo failed: {exc}", file=sys.stderr)

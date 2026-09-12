@@ -4,11 +4,15 @@ Branch: `production/reliability-foundation`, based on `508db33`. Date: 12 Septem
 2026. This records checks for the implementation, separately from the historical
 [baseline review evidence](audit_2026_09_12_validation.md).
 
-- Full local pytest suite: **442 passed**, 41.56 seconds. Includes real CLI e2e.
+- Full local pytest suite after review fixes: **452 passed**, 47.34 seconds.
+  Includes real CLI e2e and 10 regression cases for manifest redirection,
+  interrupted initialization, safe publication, and retry instructions.
   Hugging Face and Transformers downloads were disabled.
-- Fresh frozen base/dev environment: **440 passed, 1 skipped, 1 e2e deselected**;
+- Initial frozen base/dev check, before review fixes: **440 passed, 1 skipped, 1 e2e deselected**;
   its dependency audit found **no known vulnerabilities without exceptions**.
-  The skipped test requires an optional dependency covered by the separate import job.
+  The skipped test compares the package version with an adjacent `pyproject.toml`,
+  which is absent in this non-editable install. The package job checks version
+  consistency from the source checkout separately.
 - Frozen lockfile validation: passed with uv 0.11.24.
 - Wheel and sdist build: passed. Packaged MedCPT and bge-m3 catalogs resolve.
 - Isolated installed-wheel CLI smoke from `/tmp`, with checkout imports forbidden:

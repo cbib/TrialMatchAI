@@ -22,7 +22,9 @@ then runs preparation, a real LanceDB index, import, matching, and HTML reportin
 It uses deterministic CPU embeddings and disables model stages. The output states
 that eligibility reasoning is unavailable, identifies the report, and prints a
 resume command. Use `trialmatchai demo --workdir /path/to/empty-directory` to choose
-the location. `--resume` requires the original, unmodified fixture configuration;
+the location. Initialization publishes its fixtures atomically; if it is interrupted
+before completion, retry the same command without `--resume`. Once initialized,
+`--resume` requires the original, unmodified fixture configuration;
 create a new workspace to try a different configuration. Runtime state is retained
 for inspection. No real patient data is used by this example or by CI.
 
@@ -39,7 +41,7 @@ trialmatchai artifacts verify /path/to/artifacts/SHA256SUMS --require-exact --js
 ```
 
 The manifest uses GNU `sha256sum` text syntax. Paths are relative to its directory,
-with nested directories allowed. Verification rejects missing or corrupt files,
+with nested directories allowed. Verification rejects symlinked manifests, missing or corrupt files,
 unsafe paths, duplicate entries, and symlink artifacts. `--require-exact` also
 rejects extra files. `--directory` selects the artifact root when the manifest is
 stored elsewhere. A manifest hashes every regular file, including hidden files,

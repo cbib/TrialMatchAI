@@ -37,6 +37,9 @@ All notable changes to TrialMatchAI are documented here. The format follows
   so they are a deliberate re-baselining exercise rather than a patch.
 
 ### Fixed
+- Checksum verification rejects manifest symlinks that could redirect verification
+  to another artifact directory. Interrupted demo initialization leaves its chosen
+  directory ready for a normal retry; completed initialization supports `--resume`.
 - Embedder catalog resources are included in built wheels; Make targets use the
   unified CLI. Disabled model stages no longer trigger matching Hub access checks.
 - **`pip` upgraded to 26.2.1** so CI's dependency audit passes (PYSEC-2026-3721). `pip` is

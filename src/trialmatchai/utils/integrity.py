@@ -101,8 +101,12 @@ def write_manifest(directory: str | Path, *, filename: str = "SHA256SUMS") -> Pa
 def verify_manifest(
     manifest: str | Path, *, directory: str | Path | None = None, require_exact: bool = False,
 ) -> list[str]:
-    manifest = Path(manifest).resolve()
-    root = Path(directory).resolve() if directory is not None else manifest.parent
+    manifest = Path(manifest)
+    if manifest.is_symlink():
+        raise ValueError("Checksum manifest must not be a symlink")
+    # Bind the artifact root to the requested location before resolving the file.
+    root = Path(directory).resolve() if directory is not None else manifest.parent.resolve()
+    manifest = manifest.resolve()
     entries = read_manifest(manifest)
     for name, expected in entries.items():
         verify_sha256(_artifact_path(root, name), expected)
