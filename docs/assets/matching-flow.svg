@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="390" viewBox="0 0 1120 390" role="img" aria-labelledby="title desc">
+  <title id="title">TrialMatchAI matching flow</title>
+  <desc id="desc">Patient input becomes a canonical profile and summary, then passes through first-level trial retrieval, second-level criterion retrieval, final ranking, and JSON/HTML reports for human review. A local index supports both retrieval stages. Optional query expansion feeds trial retrieval; optional LLM reranking and eligibility assessment feed final ranking.</desc>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1"><stop stop-color="#101b32"/><stop offset="1" stop-color="#082f38"/></linearGradient>
+    <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1 7 4 1 7" fill="none" stroke="#5eead4" stroke-width="1.3"/></marker>
+    <marker id="optional-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1 7 4 1 7" fill="none" stroke="#93c5fd" stroke-width="1.3"/></marker>
+  </defs>
+  <rect width="1120" height="390" rx="16" fill="url(#background)"/>
+  <g font-family="DejaVu Sans,Segoe UI,Arial,sans-serif">
+    <text x="28" y="34" font-size="13" font-weight="700" letter-spacing="1.7" fill="#5eead4">THE MATCHING PIPELINE</text>
+    <path d="M802 29h26" stroke="#5eead4" stroke-width="1.5"/>
+    <text x="838" y="34" font-size="12" fill="#cbd5e1">Core path</text>
+    <path d="M940 29h26" stroke="#93c5fd" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="976" y="34" font-size="12" fill="#cbd5e1">Optional model</text>
+
+    <g fill="none" stroke="#5eead4" stroke-width="1.5" marker-end="url(#arrow)">
+      <path d="M184 161H208"/><path d="M364 161H388"/>
+      <path d="M544 161H568"/><path d="M724 161H748"/><path d="M904 161H928"/>
+      <path d="M550 104V115H466V127"/><path d="M570 104V115H646V127"/>
+    </g>
+    <g fill="#102e40" stroke="#315362">
+      <rect x="28" y="127" width="156" height="68" rx="9"/>
+      <rect x="208" y="127" width="156" height="68" rx="9"/>
+      <rect x="388" y="127" width="156" height="68" rx="9" fill="#0b4249" stroke="#238b87"/>
+      <rect x="568" y="127" width="156" height="68" rx="9" fill="#0b4249" stroke="#238b87"/>
+      <rect x="748" y="127" width="156" height="68" rx="9" fill="#0b4249" stroke="#238b87"/>
+      <rect x="928" y="127" width="164" height="68" rx="9"/>
+      <rect x="450" y="66" width="220" height="38" rx="19"/>
+    </g>
+    <g fill="#f8fafc" text-anchor="middle" font-size="15" font-weight="600">
+      <text x="106" y="153">Patient input</text><text x="286" y="153">Canonical profile</text>
+      <text x="466" y="153">First level</text><text x="646" y="153">Second level</text>
+      <text x="826" y="153">Final ranking</text><text x="1010" y="153">JSON + HTML</text>
+    </g>
+    <g fill="#cbd5e1" text-anchor="middle" font-size="12">
+      <text x="106" y="177">Supported formats</text><text x="286" y="177">Patient summary</text>
+      <text x="466" y="177">Trial retrieval + fusion</text><text x="646" y="177">Criterion retrieval</text>
+      <text x="826" y="177">Ranked shortlist</text><text x="1010" y="177">Human review</text>
+      <text x="560" y="90">Local trial + criterion index</text>
+    </g>
+
+    <g fill="none" stroke="#93c5fd" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#optional-arrow)">
+      <path d="M286 195V242"/><path d="M394 268H466V195"/>
+      <path d="M622 195V242"/><path d="M592 195V222H550V329H574"/>
+      <path d="M800 267H826V195"/><path d="M800 329H854V195"/>
+    </g>
+    <g fill="#162c47" stroke="#658bba" stroke-dasharray="5 4">
+      <rect x="210" y="242" width="184" height="52" rx="9"/>
+      <rect x="574" y="242" width="226" height="50" rx="9"/>
+      <rect x="574" y="304" width="226" height="50" rx="9"/>
+    </g>
+    <g text-anchor="middle" fill="#dbeafe" font-size="14">
+      <text x="302" y="274">Query expansion</text>
+      <text x="687" y="273">LLM reranking</text>
+      <text x="687" y="326">Eligibility assessment</text>
+      <text x="687" y="343" font-size="11" fill="#b5cbd5">CoT / RAG stage</text>
+    </g>
+  </g>
+</svg>
