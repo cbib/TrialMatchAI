@@ -68,26 +68,8 @@ across ranking quality, clinical workflow, agents, and delivery.
 
 ## How matching works
 
-```mermaid
-flowchart LR
-    P[Patient input] --> I[Canonical profile\nand summary]
-    I --> L1[First level\nTrial retrieval + fusion]
-    L1 --> L2[Second level\nCriterion retrieval]
-    L2 --> F[Final ranking]
-    F --> H[JSON + HTML\nHuman review]
-    I -. optional .-> Q[Query expansion]
-    Q -.-> L1
-    L2 -. optional .-> R[LLM reranking]
-    R -.-> F
-    L2 -. optional .-> E[Eligibility assessment\nCoT / RAG stage]
-    E -.-> F
-    D[(Local trial +\ncriterion index)] --> L1
-    D --> L2
-    classDef primary fill:#0f766e,color:#fff,stroke:#14b8a6
-    classDef optional fill:#eff6ff,color:#1e3a8a,stroke:#60a5fa,stroke-dasharray:5 4
-    class L1,L2,F primary
-    class Q,R,E optional
-```
+<img src="https://raw.githubusercontent.com/cbib/TrialMatchAI/main/docs/assets/matching-flow.svg" alt="Matching flow: patient profile, trial retrieval, criterion retrieval, final ranking, and human review; optional query expansion, reranking, and eligibility assessment" width="1120">
+
 
 The build path prepares trial records and criterion rows, then indexes them.
 During matching, first-level retrieval gathers trial candidates across query
