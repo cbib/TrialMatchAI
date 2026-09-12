@@ -366,7 +366,7 @@ def build_index(
 # --------------------------------------------------------------------------- #
 def count_pending(config: Dict[str, Any]) -> tuple[int, int]:
     """Return (pending, done) patient counts for the configured dirs."""
-    from trialmatchai.matching.assessment import match_controls_current
+    from trialmatchai.matching.assessment import match_is_complete
 
     patient_cfg = config.get("patient_inputs", {})
     profile_dir = Path(patient_cfg.get("profile_dir", "data/patients/profiles"))
@@ -374,7 +374,7 @@ def count_pending(config: Dict[str, Any]) -> tuple[int, int]:
     pending = done = 0
     for profile_path in sorted(profile_dir.glob("*.json")):
         ranked = output_dir / profile_path.stem / "ranked_trials.json"
-        if match_controls_current(ranked, config):
+        if match_is_complete(ranked, config):
             done += 1
         else:
             pending += 1

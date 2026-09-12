@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from pathlib import Path
+from shutil import copyfile
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 from trialmatchai.config.config_loader import load_config
@@ -37,7 +39,8 @@ from trialmatchai.matching.assessment import (
     assessment_enabled as _rag_enabled,
     assessment_run_info,
     has_assessment_output,
-    match_controls_current,
+    match_is_complete,
+    reusable_assessment_ids,
 )
 from trialmatchai.utils.logging_config import reset_request_id, set_request_id, setup_logging
 from trialmatchai.utils.timing import log_timing
@@ -372,17 +375,20 @@ def run_rag_processing(
     top_trials_file: str,
     patient_info: Dict,
     config: Dict,
-):
+) -> List[Dict]:
     top_trials = read_text_file(top_trials_file)
     if not top_trials:
         logger.error("No top trials available for RAG processing.")
-        return
+        return []
 
     top_trials = top_trials[: config["rag"].get("max_trials_rag", 20)]
-    patient_narrative = patient_info.get("patient_narrative", [])
+    patient_narrative = [
+        str(line).strip() for line in (patient_info.get("patient_narrative") or [])
+        if str(line).strip()
+    ]
     if not patient_narrative:
         logger.error("No patient narrative available for RAG processing.")
-        return
+        return []
 
     rag_cfg = config.get("rag", {})
     rag_backend = str(rag_cfg.get("backend", "vllm"))
@@ -435,15 +441,39 @@ def run_rag_processing(
     else:
         raise ValueError(f"Unsupported rag.backend: {rag_backend}")
 
-    rag_processor.process_trials(
-        nct_ids=top_trials,
-        json_folder=_criteria_source_folders(config),
-        output_folder=output_folder,
-        patient_narrative=patient_narrative,
-        force=not match_controls_current(Path(output_folder) / "ranked_trials.json", config),
-    )
+    output_path = Path(output_folder)
+    reusable = reusable_assessment_ids(output_path / "ranked_trials.json", config)
+    # A fresh attempt cannot see prior outputs unless the saved run explicitly
+    # associates them with the same controls. Failed/aborted writes cannot revive
+    # an old verdict, including when a backend logs a save error and continues.
+    with TemporaryDirectory(prefix=".assessment-", dir=output_folder) as staging:
+        stage_path = Path(staging)
+        for trial_id in reusable.intersection(top_trials):
+            for suffix in (".txt", ".json"):
+                source = output_path / f"{trial_id}{suffix}"
+                if source.is_file():
+                    copyfile(source, stage_path / source.name)
+        rag_processor.process_trials(
+            nct_ids=top_trials,
+            json_folder=_criteria_source_folders(config),
+            output_folder=staging,
+            patient_narrative=patient_narrative,
+        )
+        trial_data = load_trial_data(staging, allowed_ids=set(top_trials))
+        for trial in trial_data:
+            trial_id = trial["TrialID"]
+            if trial_id in reusable:
+                continue
+            text_path = stage_path / f"{trial_id}.txt"
+            if not text_path.exists():
+                # A replacement JSON without text must not inherit old reasoning.
+                text_path.write_text("", encoding="utf-8")
+            text_path.replace(output_path / text_path.name)
+            json_path = stage_path / f"{trial_id}.json"
+            json_path.replace(output_path / json_path.name)
     write_json_file({"status": "done"}, f"{output_folder}/rag_output.json")
     logger.info("RAG-based trial matching complete.")
+    return trial_data
 
 
 def _rag_final_ranking(
@@ -595,7 +625,7 @@ def main_pipeline(
         if resume:
             ranked_path = output_folder / "ranked_trials.json"
             # Resume only current assessment controls; legacy or changed modes re-run.
-            if match_controls_current(ranked_path, config):
+            if match_is_complete(ranked_path, config):
                 logger.info("Resume: skipping already-matched patient %s", patient_id)
                 skipped_patients += 1
                 continue
@@ -656,7 +686,7 @@ def main_pipeline(
             if _rag_enabled(config):
                 with log_timing(logger, "RAG processing"):
                     with _inference_context(torch):
-                        run_rag_processing(
+                        trial_data = run_rag_processing(
                             str(output_folder),
                             top_trials_path,
                             patient_info,
@@ -666,9 +696,7 @@ def main_pipeline(
                 with log_timing(logger, "Final ranking"):
                     # Scope to this run's shortlist so stale per-trial files aren't ranked.
                     shortlist_ids = {trial_id for trial_id, _ in semi_final_trials}
-                    trial_data = load_trial_data(
-                        str(output_folder), allowed_ids=shortlist_ids
-                    )
+                    trial_data = [trial for trial in trial_data if trial["TrialID"] in shortlist_ids]
                     ranked_trials = _rag_final_ranking(
                         trial_data,
                         semi_final_trials,

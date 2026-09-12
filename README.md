@@ -96,7 +96,10 @@ Missing or unusable assessment outputs are not an eligibility verdict.
 **Migration from 0.9.0:** to disable assessment, explicitly set `rag.enabled: false`.
 Setting only `use_cot_reasoning: false` now keeps assessment enabled. Legacy matches
 without the new mode metadata are recomputed when matching resumes; changing the
-assessment switches also invalidates their cached results. This does not establish
+assessment switches or `rag.max_trials_rag` also invalidates their cached results.
+Incomplete assessments remain pending on resume, reusing compatible successful
+trial outputs and retrying missing or unusable ones. Aborted attempts cannot reuse
+verdicts from a prior configuration. This does not establish
 complete patient/model/corpus cache identity, which remains roadmap work.
 
 The default configuration selects `BAAI/bge-m3` embeddings,

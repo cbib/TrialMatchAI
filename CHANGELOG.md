@@ -13,6 +13,9 @@ All notable changes to TrialMatchAI are documented here. The format follows
   label retrieval-only runs and hide assessments from prior enabled runs.
 - Assessment-control changes invalidate cached matching and per-trial assessment
   reuse. Legacy matches without mode metadata are recomputed on resume.
+- Shortlist-budget changes invalidate cached assessments. Partial, unavailable,
+  missing, or corrupt assessment outputs remain retryable; fresh attempts isolate
+  their outputs so an early return or failed write cannot revive old verdicts.
 - The flowchart places eligibility assessment on the default path and labels the
   explicit retrieval-only bypass. Both SVGs state its default-on behavior.
 

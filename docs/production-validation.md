@@ -48,10 +48,12 @@ neither of those is included.
 
 ## Assessment controls follow-up (unreleased)
 
-- Full local suite: **489 passed**, 26.31 seconds. Includes regression coverage for
+- Full local suite: **498 passed**. Includes regression coverage for
   independent assessment/CoT flags, preflight, both backend dispatch paths, mode and
   prompt-style changes during resume, result provenance, stale-output suppression,
-  missing/partial assessment display, and preservation of metadata when reranking.
+  missing/partial assessment display, preservation of metadata when reranking,
+  shortlist-budget changes, retries of incomplete assessments, and isolation of
+  stale outputs after early returns or failed writes.
 - Isolated installed-wheel CLI e2e: passed, including the explicit retrieval-only
   mode in ranked JSON and HTML, report repair, unchanged resume output, and checksums.
 - Ruff and strict MkDocs build: passed. The revised SVGs were rendered and inspected;

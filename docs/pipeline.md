@@ -117,5 +117,12 @@ These fields describe available outputs, not verified clinical completeness.
 
 When upgrading from 0.9.0, configurations that disabled CoT to skip the whole stage
 must explicitly disable `rag.enabled`. Legacy results without this metadata are
-recomputed on resume. Assessment-control changes invalidate both match completion
-and per-trial assessment reuse; full evidence/config/model identity remains P02 work.
+recomputed on resume. Assessment-control changes, including `rag.max_trials_rag`,
+invalidate both match completion and per-trial assessment reuse. Unavailable or
+partial assessments stay pending; a resumed attempt reuses compatible successful
+outputs and retries the remaining trials. Missing or corrupt saved assessments
+also trigger retries. An empty shortlist or explicitly disabled assessment is a
+completed run. Each attempt stages its outputs separately, so an early return or
+failed write cannot associate old verdicts with new controls. Full
+evidence/config/model identity and atomic publication of an entire patient run
+remain P02 work.
