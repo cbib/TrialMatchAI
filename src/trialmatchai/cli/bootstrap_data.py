@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
+import json
 import os
 import stat
 import sys
@@ -11,6 +11,9 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import requests
+
+from trialmatchai.utils.file_utils import write_json_file
+from trialmatchai.utils.integrity import normalize_sha256, read_manifest, verify_sha256
 
 DATA_URL = "https://zenodo.org/records/15516900/files/processed_trials.tar.gz?download=1"
 MODELS_URL = "https://zenodo.org/records/15516900/files/models.tar.gz?download=1"
@@ -78,6 +81,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Re-extract archives even when target directories already exist",
     )
+    parser.add_argument(
+        "--checksum-manifest", type=Path,
+        help="Trusted SHA256SUMS file for requested archives; implies --require-checksums.",
+    )
+    parser.add_argument(
+        "--require-checksums", action="store_true",
+        help="Require SHA-256 for every requested archive before any download/extraction. "
+        "Use --checksum-manifest or TRIALMATCHAI_*_SHA256 environment variables.",
+    )
     args = parser.parse_args(argv)
 
     root = (args.root or _runtime_root()).resolve()
@@ -91,6 +103,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         finetune_data=args.finetune_data,
         finetune_data_url=args.finetune_data_url,
         force=args.force,
+        checksum_manifest=args.checksum_manifest,
+        require_checksums=args.require_checksums,
     )
     return 0
 
@@ -106,14 +120,44 @@ def bootstrap_data(
     finetune_data: bool = False,
     finetune_data_url: str = FINETUNE_DATA_URL,
     force: bool = False,
+    checksum_manifest: str | Path | None = None,
+    require_checksums: bool = False,
 ) -> None:
+    if criteria_chunks < 1:
+        raise ValueError("criteria_chunks must be at least 1")
+    require_checksums = require_checksums or checksum_manifest is not None
+    supplied = read_manifest(checksum_manifest) if checksum_manifest is not None else {}
+    env_names = {
+        PROCESSED_TRIALS_ARCHIVE: "TRIALMATCHAI_PROCESSED_TRIALS_SHA256",
+        **{f"{CHUNK_PREFIX}_{i}.zip": f"TRIALMATCHAI_CRITERIA_PART_{i}_SHA256" for i in range(criteria_chunks)},
+    }
+    if with_models:
+        env_names[MODELS_ARCHIVE] = "TRIALMATCHAI_MODELS_SHA256"
+    if finetune_data:
+        env_names[FINETUNE_ARCHIVE] = "TRIALMATCHAI_FINETUNE_DATA_SHA256"
+    checksums: dict[str, str | None] = {}
+    for name, env in env_names.items():
+        value = supplied.get(name) or os.getenv(env)
+        checksums[name] = normalize_sha256(value) if value else None
+    missing = [name for name, value in checksums.items() if value is None]
+    if require_checksums and missing:
+        raise ValueError(f"Missing required SHA-256 checksums: {', '.join(missing)}")
+
+    def stage_checksums(names):
+        return {name: checksums[name] for name in names if checksums[name] is not None}
+
+    def complete(path, expected):
+        return _extract_complete(path, expected_checksums=expected if require_checksums else None)
+
     data_dir = root / "data"
     models_dir = root / "models"
     data_dir.mkdir(parents=True, exist_ok=True)
 
     criteria_dir = data_dir / "processed_criteria"
-    if force or not _extract_complete(criteria_dir):
+    criteria_sums = stage_checksums(f"{CHUNK_PREFIX}_{i}.zip" for i in range(criteria_chunks))
+    if force or not complete(criteria_dir, criteria_sums):
         criteria_dir.mkdir(parents=True, exist_ok=True)
+        (criteria_dir / _EXTRACT_MARKER).unlink(missing_ok=True)
         for index in range(criteria_chunks):
             chunk_name = f"{CHUNK_PREFIX}_{index}.zip"
             chunk_path = data_dir / chunk_name
@@ -123,41 +167,47 @@ def bootstrap_data(
             )
             _verify_sha256(
                 chunk_path,
-                os.getenv(f"TRIALMATCHAI_CRITERIA_PART_{index}_SHA256"),
+                checksums[chunk_name],
             )
             _safe_extract_zip(chunk_path, criteria_dir)
-        _mark_extract_complete(criteria_dir)
+        _mark_extract_complete(criteria_dir, checksums=criteria_sums)
 
     processed_trials_dir = data_dir / "processed_trials"
-    if force or not _extract_complete(processed_trials_dir):
+    trial_sums = stage_checksums([PROCESSED_TRIALS_ARCHIVE])
+    if force or not complete(processed_trials_dir, trial_sums):
+        (processed_trials_dir / _EXTRACT_MARKER).unlink(missing_ok=True)
         processed_archive = data_dir / PROCESSED_TRIALS_ARCHIVE
         _download_if_missing(data_url, processed_archive)
         _verify_sha256(
-            processed_archive, os.getenv("TRIALMATCHAI_PROCESSED_TRIALS_SHA256")
+            processed_archive, checksums[PROCESSED_TRIALS_ARCHIVE]
         )
         _safe_extract_tar_gz(processed_archive, data_dir)
-        _mark_extract_complete(processed_trials_dir)
+        _mark_extract_complete(processed_trials_dir, checksums=trial_sums)
 
     if with_models:
         models_dir.mkdir(parents=True, exist_ok=True)
-        if force or not _extract_complete(models_dir):
+        model_sums = stage_checksums([MODELS_ARCHIVE])
+        if force or not complete(models_dir, model_sums):
+            (models_dir / _EXTRACT_MARKER).unlink(missing_ok=True)
             models_archive = data_dir / MODELS_ARCHIVE
             _download_if_missing(models_url, models_archive)
-            _verify_sha256(models_archive, os.getenv("TRIALMATCHAI_MODELS_SHA256"))
+            _verify_sha256(models_archive, checksums[MODELS_ARCHIVE])
             _safe_extract_tar_gz(models_archive, models_dir)
-            _mark_extract_complete(models_dir)
+            _mark_extract_complete(models_dir, checksums=model_sums)
 
     if finetune_data:
         finetune_dir = data_dir / "finetune"
-        if force or not _extract_complete(finetune_dir):
+        finetune_sums = stage_checksums([FINETUNE_ARCHIVE])
+        if force or not complete(finetune_dir, finetune_sums):
             finetune_dir.mkdir(parents=True, exist_ok=True)
+            (finetune_dir / _EXTRACT_MARKER).unlink(missing_ok=True)
             finetune_archive = data_dir / FINETUNE_ARCHIVE
             _download_if_missing(finetune_data_url, finetune_archive)
             _verify_sha256(
-                finetune_archive, os.getenv("TRIALMATCHAI_FINETUNE_DATA_SHA256")
+                finetune_archive, checksums[FINETUNE_ARCHIVE]
             )
             _safe_extract_zip(finetune_archive, finetune_dir)
-            _mark_extract_complete(finetune_dir)
+            _mark_extract_complete(finetune_dir, checksums=finetune_sums)
 
     _cleanup_archives(data_dir, criteria_chunks)
 
@@ -186,15 +236,7 @@ def _verify_sha256(path: Path, expected: str | None) -> None:
         _warn(f"No SHA-256 checksum configured for {path.name}; skipping verification.")
         return
 
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    actual = digest.hexdigest()
-    if actual != expected:
-        raise ValueError(
-            f"Checksum mismatch for {path}: expected {expected}, got {actual}"
-        )
+    verify_sha256(path, expected)
 
 
 def _safe_extract_tar_gz(archive: Path, target: Path) -> None:
@@ -245,24 +287,27 @@ def _cleanup_archives(data_dir: Path, criteria_chunks: int) -> None:
         (data_dir / f"{CHUNK_PREFIX}_{index}.zip").unlink(missing_ok=True)
 
 
-def _has_entries(path: Path) -> bool:
-    return path.exists() and any(path.iterdir())
-
-
 _EXTRACT_MARKER = ".bootstrap_complete"
 
 
-def _extract_complete(path: Path) -> bool:
+def _extract_complete(path: Path, *, expected_checksums: dict[str, str] | None = None) -> bool:
     """True only when a prior extract wrote its completion sentinel.
 
     Presence of *some* entries is not proof: a killed extract leaves a partial tree
     that would otherwise bake a truncated corpus into every later run.
     """
-    return (path / _EXTRACT_MARKER).exists()
+    marker = path / _EXTRACT_MARKER
+    if expected_checksums is None:
+        return marker.is_file()
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        return isinstance(data, dict) and data.get("schema") == 1 and data.get("sha256") == expected_checksums
+    except (OSError, ValueError):
+        return False
 
 
-def _mark_extract_complete(path: Path) -> None:
-    (path / _EXTRACT_MARKER).write_text("ok\n", encoding="utf-8")
+def _mark_extract_complete(path: Path, *, checksums: dict[str, str] | None = None) -> None:
+    write_json_file({"schema": 1, "sha256": checksums or {}}, str(path / _EXTRACT_MARKER))
 
 
 def _runtime_root() -> Path:

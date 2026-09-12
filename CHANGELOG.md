@@ -6,7 +6,20 @@ All notable changes to TrialMatchAI are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- A production roadmap covering all 38 audit findings, clinical workflow, retrieval,
+  evaluation, bounded agents, CLI automation, and deployment qualification.
+- `trialmatchai demo` runs synthetic FHIR import, real CPU indexing, retrieval,
+  report generation, and resume; `--version` exposes the package version.
+- `trialmatchai artifacts manifest/verify` manages portable SHA-256 manifests.
+  Bootstrap supports a trusted manifest and a strict mode requiring all digests.
+- CI and releases share required verification, including an isolated installed-wheel
+  CLI run. Releases verify the tested artifacts and attach provenance before OIDC
+  publication. Repository protections still require administrator configuration.
+
 ### Security
+- Explicit unmatched FHIR subject references no longer attach records to the only
+  patient in a bundle. Strict import rejects them; lenient import quarantines them.
 - **Cleared 13 Dependabot advisories (9 of them high) in leaf dependencies**, without disturbing
   the pinned inference stack: `pillow` 12.2.0 → 12.3.0 (decompression-bomb and heap
   out-of-bounds issues in image decoding), `aiohttp` 3.14.1 → 3.14.3 (request smuggling and a
@@ -24,6 +37,8 @@ All notable changes to TrialMatchAI are documented here. The format follows
   so they are a deliberate re-baselining exercise rather than a patch.
 
 ### Fixed
+- Embedder catalog resources are included in built wheels; Make targets use the
+  unified CLI. Disabled model stages no longer trigger matching Hub access checks.
 - **`pip` upgraded to 26.2.1** so CI's dependency audit passes (PYSEC-2026-3721). `pip` is
   dev-only here, arriving transitively via `pip-api` ← `pip-audit`, and is never shipped in
   the wheel.

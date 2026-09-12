@@ -109,6 +109,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 trialmatchai = [
   "config/*.json",
+  "config/catalog/*.json",
   "entity_schemas/*.yaml",
   "entities/resources/*.tsv",
   "interop/exporters/templates/*.html",

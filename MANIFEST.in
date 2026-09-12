@@ -1,0 +1,2 @@
+include pytest.ini
+include scripts/installed_smoke.py

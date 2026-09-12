@@ -110,3 +110,14 @@ def test_json_extraction_rejects_malformed_output():
         assert "Unbalanced JSON object" in str(exc)
     else:
         raise AssertionError("Malformed output should fail JSON extraction")
+
+
+def test_disabled_llms_do_not_check_model_access(tmp_path, monkeypatch):
+    from trialmatchai.services import preflight
+
+    monkeypatch.setattr(preflight, "check_hf_access", lambda *a: (_ for _ in ()).throw(AssertionError("Disabled models must not contact the Hub")))
+    assert preflight.run_preflight_checks({
+        "paths": {"output_dir": str(tmp_path / "results")},
+        "LLM_reranker": {"enabled": False}, "rag": {"enabled": False},
+        "model": {"base_model": "org/private-model", "reranker_model_path": "org/private-reranker"},
+    }, require_models=True) == []

@@ -210,6 +210,9 @@ def _profile_for_resource(
         for candidate in _reference_candidates(reference):
             if candidate in profiles_by_reference:
                 return profiles_by_reference[candidate]
+        # An explicit foreign/unresolved subject must never be attributed to the
+        # sole patient. Only a genuinely absent subject permits that fallback.
+        return None
     if len(profiles) == 1:
         return profiles[0]
     return None

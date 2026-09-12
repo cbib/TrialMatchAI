@@ -122,11 +122,13 @@ def run_preflight_checks(
 
         # Check gated base models up front so an HF auth failure surfaces here, not
         # after first-level search.
-        issues.extend(
-            check_hf_access(
-                [model_cfg.get("base_model"), model_cfg.get("reranker_model_path")]
-            )
-        )
+        requested_models = []
+        if rag_enabled:
+            requested_models.append(model_cfg.get("base_model"))
+        if reranker_enabled:
+            requested_models.append(model_cfg.get("reranker_model_path"))
+        if requested_models:
+            issues.extend(check_hf_access(requested_models))
 
     search_cfg = config.get("search_backend", {})
     if search_cfg:

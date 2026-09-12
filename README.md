@@ -176,6 +176,23 @@ below produces.
 
 ## Quickstart
 
+Try the full software path on synthetic data with Python 3.11, without downloading
+models or a trial corpus (available from this development branch):
+
+```bash
+uv sync --frozen
+uv run --frozen trialmatchai demo --workdir /tmp/trialmatchai-demo
+uv run --frozen trialmatchai demo --workdir /tmp/trialmatchai-demo --resume
+```
+
+The command creates a real CPU search index, imports a synthetic FHIR patient,
+ranks trials, and prints the HTML report path. This demonstrates retrieval and
+reporting; it does not validate model accuracy or clinical eligibility. Choose an
+empty directory for a new run. See the [delivery runbook](docs/release.md) for
+checksums, installed-wheel checks, and release gates, and the
+[production roadmap](docs/production-roadmap.md) for remaining qualification work.
+
+
 ### 1. Configure the runtime
 
 ```bash
