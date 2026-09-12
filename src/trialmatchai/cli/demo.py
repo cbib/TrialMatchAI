@@ -115,15 +115,33 @@ def run_demo(workdir: str | Path | None = None, *, resume: bool = False) -> dict
         raise RuntimeError(f"Demo pipeline failed with exit code {rc}")
     patient_dir = root / "results/demo-patient"
     ranked = json.loads((patient_dir / "ranked_trials.json").read_text())["RankedTrials"]
+    report = patient_dir / "report.html"
+    if not _report_complete(report):
+        # Ranking may have completed before reporting was interrupted. Repair
+        # the derived report from saved evidence without repeating matching.
+        from trialmatchai.main import _maybe_write_report
+
+        _maybe_write_report(patient_dir, config)
     result = {
         "schema_version": 1, "mode": "synthetic_retrieval_only", "workspace": str(root),
         "config": str(root / "config.json"), "report": str(patient_dir / "report.html"),
         "ranked_trial_ids": [row["TrialID"] for row in ranked], "resumed": resume,
     }
-    if not ranked or not Path(result["report"]).is_file():
+    if not ranked or not _report_complete(report):
         raise RuntimeError("Demo did not produce a non-empty ranking and HTML report")
     write_json_file(result, str(root / "demo-result.json"))
     return result
+
+
+def _report_complete(path: Path) -> bool:
+    if path.is_symlink():
+        raise ValueError("Demo report must not be a symlink")
+    if not path.is_file():
+        return False
+    try:
+        return path.read_text(encoding="utf-8").rstrip().endswith("</html>")
+    except UnicodeError:
+        return False
 
 
 def main(argv=None) -> int:

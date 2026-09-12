@@ -138,14 +138,13 @@ jobs:
           }
           Path("dist/build-info.json").write_text(json.dumps(info, indent=2) + "\n")
           PY
-      - run: uv build
+      - run: uv build --no-create-gitignore
       - run: uv run --frozen trialmatchai artifacts manifest dist
       - run: uv run --frozen trialmatchai artifacts verify dist/SHA256SUMS --require-exact --json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: trialmatchai-dist-${{ github.sha }}
           path: dist/
-          include-hidden-files: true # uv build writes .gitignore, which SHA256SUMS includes
           if-no-files-found: error
           retention-days: 14
 

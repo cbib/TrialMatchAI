@@ -213,6 +213,10 @@ def _profile_for_resource(
         # An explicit foreign/unresolved subject must never be attributed to the
         # sole patient. Only a genuinely absent subject permits that fallback.
         return None
+    if any(key in resource for key in ("subject", "patient", "beneficiary")):
+        # Identifier/display-only or malformed references are explicit subjects,
+        # even when this importer cannot resolve them to a patient.
+        return None
     if len(profiles) == 1:
         return profiles[0]
     return None

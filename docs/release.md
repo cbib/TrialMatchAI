@@ -25,7 +25,9 @@ resume command. Use `trialmatchai demo --workdir /path/to/empty-directory` to ch
 the location. Initialization publishes its fixtures atomically; if it is interrupted
 before completion, retry the same command without `--resume`. Once initialized,
 `--resume` requires the original, unmodified fixture configuration;
-create a new workspace to try a different configuration. Runtime state is retained
+create a new workspace to try a different configuration. Resume also regenerates a
+missing or truncated patient report from the saved ranking/evidence without rerunning
+matching. Runtime state is retained
 for inspection. No real patient data is used by this example or by CI.
 
 `trialmatchai --version` prints the package version. The new artifact commands
@@ -65,12 +67,32 @@ The manifest implies `--require-checksums`. Alternatively, strict mode accepts
 `TRIALMATCHAI_PROCESSED_TRIALS_SHA256`, `TRIALMATCHAI_CRITERIA_PART_<n>_SHA256`,
 `TRIALMATCHAI_MODELS_SHA256`, and `TRIALMATCHAI_FINETUNE_DATA_SHA256`. Every requested
 digest must exist and contain exactly 64 hexadecimal characters before work starts.
-Cached archives are hashed before extraction; mismatches fail. Successful extraction
-records archive hashes in its completion marker. Strict mode re-extracts legacy
-markers without this provenance. Resume trusts a matching extraction marker; it
-does not rehash every extracted file. Atomic publication of complete corpus trees
-and per-file corpus verification remain roadmap P05 work. Default bootstrap remains
-compatible with legacy archives whose digests have not been supplied.
+Cached archives are hashed before extraction. A corrupt cache is retained under a
+hidden `.corrupt-<id>` filename and replaced with one fresh download attempt;
+a repeatedly corrupt source fails without accepting a different digest. Downloads
+use `.part` files; completion markers must be regular files, never symlinks or FIFOs.
+
+Each changed stage extracts into a new sibling directory before replacing its
+managed tree. Dedicated criteria/trial/training trees contain only the new archive
+contents. The shared `models/` tree replaces incoming and previously recorded owned
+roots, preserving unrelated top-level models. Schema-2 completion markers record
+archive hashes and owned roots. Strict mode re-extracts legacy markers to migrate
+them; legacy model entries without ownership metadata are conservatively preserved
+unless an incoming archive replaces the same top-level name.
+
+One bootstrap writer holds a workspace lock. Publication renames the old tree to
+`.NAME.bootstrap-previous` and then publishes the staged tree. Failure restores the
+old tree; if killed between renames, the next bootstrap recovers it. Successful
+replacement retains the old tree in `.NAME-backup-*`. Stop readers during updates:
+the two renames leave a short gap, and stages are published individually, not as
+one atomic trial/criteria/index snapshot. Keep sufficient disk space for staging,
+backups, and quarantined downloads. Review these retained files before removal;
+unrelated preserved model files may share hardlinks with their backup copies.
+
+Strict resume checks matching archive provenance and the presence of managed roots.
+It does not rehash every extracted file. End-to-end snapshot identity, index
+publication, and per-file corpus verification remain roadmap P05 work. Default
+bootstrap remains compatible with legacy archives whose digests have not been supplied.
 
 ## Local release rehearsal
 
@@ -84,7 +106,8 @@ This validates workflows with actionlint and the lockfile, lints, runs tests, bu
 checks their manifest, installs the wheel in an isolated environment, exercises the
 public CLI, scans for secrets, and audits installed dependencies. The installed
 smoke verifies packaged embedder catalogs, synthetic patient import, a real index,
-adult/pediatric filtering, ranked output, HTML content, resume, and checksum CLI.
+adult/pediatric filtering, ranked output, HTML content, resume, missing/truncated
+report repair without ranking changes, and checksum CLI.
 Model downloads are disabled. The smoke is also callable via
 `scripts/installed_smoke.py --workspace /empty/path --expect-installed` using an
 installed environment's Python.
@@ -111,7 +134,9 @@ The build records the source commit, Python/uv versions, and lockfile hash. The
 publisher downloads the previously tested artifacts, verifies the manifest, creates
 [GitHub provenance](https://docs.github.com/en/actions/concepts/security/artifact-attestations),
 and publishes the wheel/sdist using [PyPI OIDC](https://docs.pypi.org/trusted-publishers/).
-It does not rebuild. Only the publish job receives write-capable identity permissions.
+The release package build omits uv's housekeeping `.gitignore`, so the manifest
+covers the wheel, sdist, and build metadata. These files remain available in the
+workflow artifact for its declared retention period. It does not rebuild. Only the publish job receives write-capable identity permissions.
 A failed verification blocks publication. Diagnose a partial publish before retrying;
 do not overwrite an existing PyPI version.
 

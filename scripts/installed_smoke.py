@@ -68,8 +68,19 @@ def main() -> None:
     run("demo", "--workdir", str(demo), "--resume")
     assert (ranked.read_bytes(), ranked.stat().st_mtime_ns) == original
     assert json.loads((demo / "demo-result.json").read_text())["resumed"] is True
+    report_path = Path(result["report"])
+    for state in ("missing", "truncated"):
+        if state == "missing":
+            report_path.unlink()
+        else:
+            report_path.write_text("<!DOCTYPE html><html>")
+        run("demo", "--workdir", str(demo), "--resume")
+        repaired = report_path.read_text()
+        assert repaired.rstrip().endswith("</html>")
+        assert "demo-patient" in repaired and "NCT00000001" in repaired
+        assert (ranked.read_bytes(), ranked.stat().st_mtime_ns) == original
     run("artifacts", "verify", str(demo / "SHA256SUMS"), "--json")
-    print("Installed CLI smoke passed: catalog, import, real index, retrieval, report, resume, checksums.")
+    print("Installed CLI smoke passed: catalog, import, real index, retrieval, report repair, resume, checksums.")
 
 
 if __name__ == "__main__":

@@ -107,7 +107,11 @@ def expand_queries(config: Dict[str, Any], *, force: bool = False) -> int:
     Idempotent: a summary already marked ``query_expanded`` is skipped.
     """
     from trialmatchai.matching.query_expansion import build_query_expander, enrich_summary
+    from trialmatchai.services.preflight import check_query_expansion_models
 
+    issues = check_query_expansion_models(config)
+    if issues:
+        raise ValueError("Query expansion preflight failed: " + "; ".join(issues))
     expander = build_query_expander(config)
     if expander is None:
         logger.info("Query expansion disabled; using deterministic summaries.")

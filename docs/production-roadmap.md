@@ -79,16 +79,21 @@ Maintain separate states for clinical eligibility, evidence completeness, and ex
 
 Before claiming quality improvements, establish corrected baselines for all-topic recall/nDCG/eligible precision, per-criterion accuracy, false eligibility/exclusion, evidence fidelity, calibration, successful-run fraction, review time, and cost/latency. Thresholds are to be agreed from measured baselines and clinical error tolerance; no arbitrary production score is invented here.
 
-**Initial implementation status**
+**Foundation release scope**
 
-P01 is implemented on the foundation branch with recorded local validation in
-[the implementation checks](production-validation.md). Hosted checks and repository
-protection configuration must be verified on the draft PR. No release or deployment
-has been performed. P02–P14 remain planned work, including production GPU security
-and actual model qualification. The local full model environment's dependency audit
-reported 23 advisory rows across six packages on 12 September 2026, after the legacy
-exceptions; some rows are repeated aliases. Do not describe that stack as security
-qualified. A clean base/dev audit is a separate, narrower check.
+P01 is implemented for the 0.9.0 foundation release with recorded checks in
+[the validation record](production-validation.md). This includes recoverable
+bootstrap tree replacement, writer locking, corrupt-cache recovery, strict marker
+checks, expanded FHIR attribution coverage, query-expansion model preflight, and
+demo report repair. The release does not implement full cross-stage snapshot
+publication or per-file corpus verification (P05).
+
+P02–P14 remain planned work, including GPU security and actual model qualification.
+The existing local model environment's dependency audit reported 23 advisory rows
+across six packages on 12 September 2026, after legacy exceptions; some rows are
+repeated aliases. A clean base/dev audit is a separate, narrower check. No production
+application deployment is included. Repository protections remain administrator
+settings rather than guarantees supplied by the workflow files.
 
 **Operational definition of done**
 

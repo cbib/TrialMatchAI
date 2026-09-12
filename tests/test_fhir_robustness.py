@@ -232,12 +232,17 @@ def test_fhir_ndjson_strict_raises_on_malformed_line(tmp_path):
 
 
 @pytest.mark.parametrize("strict", [False, True])
-def test_foreign_subject_never_falls_back_to_only_patient(tmp_path, strict):
+@pytest.mark.parametrize("subject", [
+    {"reference": "Patient/patient-B"},
+    {"identifier": {"system": "urn:synthetic", "value": "patient-B"}},
+    {"display": "Synthetic patient B"}, {"reference": ""}, {}, None,
+])
+def test_foreign_subject_never_falls_back_to_only_patient(tmp_path, strict, subject):
     path = tmp_path / "mixed.json"
     path.write_text(json.dumps({"resourceType": "Bundle", "entry": [
         {"resource": {"resourceType": "Patient", "id": "patient-A"}},
         {"resource": {"resourceType": "Condition", "id": "foreign-condition",
-                      "subject": {"reference": "Patient/patient-B"}, "code": {"text": "diabetes"}}},
+                      "subject": subject, "code": {"text": "diabetes"}}},
     ]}))
     if strict:
         with pytest.raises(ValueError, match="no resolvable patient reference"):

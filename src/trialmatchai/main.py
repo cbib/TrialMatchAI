@@ -57,7 +57,7 @@ def _maybe_write_report(output_folder, config) -> None:
             summary_dir=config.get("patient_inputs", {}).get("summary_dir"),
             trial_meta_folders=[str(Path(trials_json).parent / "processed_trials"), trials_json],
         )
-        Path(output_folder, "report.html").write_text(html, encoding="utf-8")
+        write_text_file([html], str(Path(output_folder, "report.html")))
     except Exception:
         logger.warning("HTML report generation failed for %s", output_folder, exc_info=True)
 
