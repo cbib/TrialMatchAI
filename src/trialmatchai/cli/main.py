@@ -9,7 +9,13 @@ def main() -> int:
         prog="trialmatchai",
         description="TrialMatchAI command group.",
     )
+    from trialmatchai import __version__
+
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    subparsers.add_parser("artifacts", help="Create or verify artifact checksums", add_help=False)
+    subparsers.add_parser("demo", help="Run a synthetic CPU example in an isolated workspace", add_help=False)
 
     subparsers.add_parser(
         "pipeline",
@@ -70,7 +76,11 @@ def main() -> int:
     )
 
     args, remainder = parser.parse_known_args()
-    if args.command == "pipeline":
+    if args.command == "artifacts":
+        from trialmatchai.cli.artifacts import main as command
+    elif args.command == "demo":
+        from trialmatchai.cli.demo import main as command
+    elif args.command == "pipeline":
         from trialmatchai.cli.pipeline import main as command
     elif args.command == "healthcheck":
         from trialmatchai.cli.healthcheck import main as command

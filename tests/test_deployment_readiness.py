@@ -110,3 +110,43 @@ def test_json_extraction_rejects_malformed_output():
         assert "Unbalanced JSON object" in str(exc)
     else:
         raise AssertionError("Malformed output should fail JSON extraction")
+
+
+def test_disabled_llms_do_not_check_model_access(tmp_path, monkeypatch):
+    from trialmatchai.services import preflight
+
+    monkeypatch.setattr(preflight, "check_hf_access", lambda *a: (_ for _ in ()).throw(AssertionError("Disabled models must not contact the Hub")))
+    assert preflight.run_preflight_checks({
+        "paths": {"output_dir": str(tmp_path / "results")},
+        "LLM_reranker": {"enabled": False}, "rag": {"enabled": False},
+        "model": {"base_model": "org/private-model", "reranker_model_path": "org/private-reranker"},
+    }, require_models=True) == []
+
+
+def test_query_expansion_only_checks_explicit_and_fallback_models(tmp_path, monkeypatch):
+    from trialmatchai.services import preflight
+
+    calls = []
+    monkeypatch.setattr(preflight, "check_hf_access", lambda ids: calls.append(ids) or ["synthetic access failure"])
+    config = {
+        "paths": {"output_dir": str(tmp_path / "results")},
+        "LLM_reranker": {"enabled": False}, "rag": {"enabled": False},
+        "model": {"base_model": "org/base"}, "query_expansion": {"enabled": True},
+    }
+    assert preflight.run_preflight_checks(config, require_models=True) == ["synthetic access failure"]
+    assert calls == [["org/base"]]
+    config["query_expansion"]["model"] = "org/expander"
+    calls.clear()
+    assert preflight.run_preflight_checks(config, require_models=True) == ["synthetic access failure"]
+    assert calls == [["org/expander"]]
+
+
+def test_expansion_access_failure_stops_before_model_loading(monkeypatch):
+    import pytest
+    from trialmatchai import orchestration
+    from trialmatchai.services import preflight
+
+    monkeypatch.setattr(preflight, "check_hf_access", lambda ids: ["synthetic gated-model failure"])
+    monkeypatch.setattr("trialmatchai.matching.query_expansion.build_query_expander", lambda cfg: pytest.fail("must not load a blocked model"))
+    with pytest.raises(ValueError, match="Query expansion preflight failed"):
+        orchestration.expand_queries({"query_expansion": {"enabled": True, "model": "org/expander"}})

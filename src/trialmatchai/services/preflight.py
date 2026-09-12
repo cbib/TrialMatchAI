@@ -122,11 +122,14 @@ def run_preflight_checks(
 
         # Check gated base models up front so an HF auth failure surfaces here, not
         # after first-level search.
-        issues.extend(
-            check_hf_access(
-                [model_cfg.get("base_model"), model_cfg.get("reranker_model_path")]
-            )
-        )
+        requested_models = []
+        if rag_enabled:
+            requested_models.append(model_cfg.get("base_model"))
+        if reranker_enabled:
+            requested_models.append(model_cfg.get("reranker_model_path"))
+        if requested_models:
+            issues.extend(check_hf_access(requested_models))
+        issues.extend(check_query_expansion_models(config))
 
     search_cfg = config.get("search_backend", {})
     if search_cfg:
@@ -154,6 +157,18 @@ def run_preflight_checks(
     for issue in issues:
         logger.error("Preflight: %s", issue)
     return issues
+
+
+def check_query_expansion_models(config: Dict[str, Any]) -> List[str]:
+    """Check the actual expansion model before the expansion stage loads it."""
+    if not config.get("query_expansion", {}).get("enabled", False):
+        return []
+    from trialmatchai.matching.query_expansion import _resolve_settings
+
+    model = _resolve_settings(config)["model"]
+    if not model:
+        return ["Query expansion requires query_expansion.model or model.base_model."]
+    return check_hf_access([model])
 
 
 def check_cuda(config: Dict[str, Any], *, required: bool) -> List[str]:

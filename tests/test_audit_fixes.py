@@ -150,7 +150,7 @@ def test_expand_queries_applies_configured_condition_caps(tmp_path, monkeypatch)
     monkeypatch.setattr(qe, "build_query_expander", lambda cfg: _Expander())
     orchestration.expand_queries(
         {
-            "query_expansion": {"enabled": True},
+            "query_expansion": {"enabled": True, "model": "synthetic-local-model"},
             "patient_inputs": {"profile_dir": str(profiles), "summary_dir": str(summaries)},
         }
     )

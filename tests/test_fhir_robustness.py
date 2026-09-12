@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from trialmatchai.interop.importers.fhir import (
     _medication_codes_label,
     _resource_disposition,
@@ -227,3 +229,33 @@ def test_fhir_ndjson_strict_raises_on_malformed_line(tmp_path):
     assert len(profiles) >= 1
     with pytest.raises(Exception):
         import_fhir(path, input_format="fhir-ndjson", strict=True)
+
+
+@pytest.mark.parametrize("strict", [False, True])
+@pytest.mark.parametrize("subject", [
+    {"reference": "Patient/patient-B"},
+    {"identifier": {"system": "urn:synthetic", "value": "patient-B"}},
+    {"display": "Synthetic patient B"}, {"reference": ""}, {}, None,
+])
+def test_foreign_subject_never_falls_back_to_only_patient(tmp_path, strict, subject):
+    path = tmp_path / "mixed.json"
+    path.write_text(json.dumps({"resourceType": "Bundle", "entry": [
+        {"resource": {"resourceType": "Patient", "id": "patient-A"}},
+        {"resource": {"resourceType": "Condition", "id": "foreign-condition",
+                      "subject": subject, "code": {"text": "diabetes"}}},
+    ]}))
+    if strict:
+        with pytest.raises(ValueError, match="no resolvable patient reference"):
+            import_fhir(path, strict=True)
+    else:
+        profile = import_fhir(path)[0]
+        assert profile.conditions == []
+        assert profile.unsupported[0]["id"] == "foreign-condition"
+
+
+def test_absent_subject_retains_single_patient_fallback(tmp_path):
+    profile = _import_bundle(tmp_path, [
+        {"resourceType": "Patient", "id": "patient-A"},
+        {"resourceType": "Condition", "code": {"text": "asthma"}},
+    ])[0]
+    assert [fact.label for fact in profile.conditions] == ["asthma"]

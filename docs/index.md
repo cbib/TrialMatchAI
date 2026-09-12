@@ -1,64 +1,53 @@
 # TrialMatchAI
 
-[![CI](https://github.com/cbib/TrialMatchAI/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/cbib/TrialMatchAI/actions/workflows/ci.yml)
-[![Docs](https://github.com/cbib/TrialMatchAI/actions/workflows/docs.yml/badge.svg?branch=main)](https://github.com/cbib/TrialMatchAI/actions/workflows/docs.yml)
-[![PyPI](https://img.shields.io/pypi/v/trialmatchai?logo=pypi&logoColor=white&label=PyPI&color=blue)](https://pypi.org/project/trialmatchai/)
-[![Python versions](https://img.shields.io/pypi/pyversions/trialmatchai?logo=python&logoColor=white&label=Python)](https://pypi.org/project/trialmatchai/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/cbib/TrialMatchAI/blob/main/LICENSE)
-[![Linted with Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+![Patient profiles, retrieval, criterion evidence, and ranked reports](assets/readme-overview.svg)
 
-**TrialMatchAI matches patients to the clinical trials they're eligible for.** Give
-it a patient — clinical notes, FHIR, Phenopacket, or OMOP — and it returns a ranked
-shortlist of trials, each with a transparent, criterion-by-criterion explanation of
-why the patient does or doesn't qualify. Everything runs on your own infrastructure:
-hybrid retrieval over a local LanceDB index paired with chain-of-thought LLM
-reasoning served by vLLM on a single GPU, so sensitive patient data never leaves
-your environment.
+**A configurable CLI for patient-to-trial retrieval and eligibility review.**
+TrialMatchAI imports patient information, searches local LanceDB tables, and writes
+ranked results and HTML reports. Optional models add entity extraction, expansion,
+reranking, and criterion-level assessments.
 
-!!! warning "Research and informational use only"
-    TrialMatchAI is not medical advice, not a medical device, and must not replace
-    review by qualified healthcare professionals.
+!!! info "Beta release — declared validation scope"
+    The release gates test the installed CLI with synthetic data and real CPU search.
+    GPU inference, clinical accuracy, and production clinical deployment remain
+    separate qualification work. Review generated assessments against source evidence;
+    a retrieval score is not an eligibility determination.
 
-## Install
+## Start with the synthetic demo
+
+Install with Python 3.11 in an activated virtual environment:
 
 ```bash
-uv pip install "trialmatchai[llm,gpu,entity]"   # full model-backed runtime (GPU host)
-# or, lightweight (CLI + base deps only):
-uv pip install trialmatchai
+python -m pip install trialmatchai==0.9.0
+trialmatchai demo --workdir ./demo-workspace
+trialmatchai demo --workdir ./demo-workspace --resume
 ```
 
-## The two halves
+Open the report path printed by the command. This walkthrough uses BM25 and
+hashing embeddings with model stages disabled. It creates synthetic records only;
+resume preserves completed ranking and repairs a missing or truncated patient report.
 
-TrialMatchAI runs in two halves — **build the system once**, then **match patients
-many times** — and both are idempotent: finished work is never redone.
+For your own data, use the [README setup instructions](https://github.com/cbib/TrialMatchAI#run-your-own-data).
+Model stages require additional dependencies and configuration. The default adapter
+IDs currently need replacement with downloaded local paths. Format mappings, cache
+invalidation, and registry freshness have documented limits.
 
-```bash
-trialmatchai bootstrap-data            # fetch the prepared corpus + adapters (Zenodo)
-trialmatchai build --concepts          # prepare + index + concept store (resumable)
-trialmatchai e2e --input patient.txt   # ingest + match one patient
-# -> results/<patient_id>/ranked_trials.json  +  a self-contained results/index.html
-```
+## Guides
 
-## One pipeline, maximally modular
+| Guide | What it covers |
+| --- | --- |
+| [Architecture](architecture.md) | Runtime components and local storage |
+| [Pipeline and CLI](pipeline.md) | Stages, presets, and report commands |
+| [Patient interoperability](interoperability.md) | Supported formats and mappings |
+| [Registry updater](registry-updater.md) | Fetching and indexing registry studies |
+| [Fine-tuning](finetuning.md) | Training entry points and data formats |
+| [API reference](api.md) | Python interfaces |
+| [Release runbook](release.md) | Checksums, bootstrap recovery, CI, and publishing |
+| [Validation record](production-validation.md) | Checks performed and their limits |
+| [Codebase review](codebase-review-2026-09-12.md) | Historical audit evidence |
+| [Production roadmap](production-roadmap.md) | Sequenced clinical, ranking, agent, and deployment work |
 
-Under the hood everything is a slice of a single, ordered pipeline of idempotent
-stages. Run the whole thing, or any subset:
-
-```bash
-trialmatchai pipeline                       # run every stage (skipping what's done)
-trialmatchai pipeline --only match          # just (re)match
-trialmatchai pipeline --to index            # the build half
-trialmatchai pipeline --skip expand         # ablation: no query expansion
-trialmatchai pipeline --force match         # redo a stage even if done
-```
-
-See **[Pipeline &amp; CLI](pipeline.md)** for the stage list and flag scheme,
-**[Architecture](architecture.md)** for how it fits together, and the
-**[API reference](api.md)** for the Python API.
-
-## Cite
-
-> Abdallah, M. *et al.* TrialMatchAI: an end-to-end AI-powered clinical trial
-> recommendation system to streamline patient-to-trial matching. *Nature
-> Communications* **17**, 4472 (2026).
-> <https://doi.org/10.1038/s41467-026-70509-w>
+The current pipeline follows a fixed stage sequence. Bounded agents and a clinical
+review workspace are planned. This release does not claim newly improved benchmark
+scores; the [paper](https://doi.org/10.1038/s41467-026-70509-w) describes the published
+research, while the validation record describes this software release.

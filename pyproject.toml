@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trialmatchai"
-version = "0.8.2"
+version = "0.9.0"
 description = "AI-driven patient-to-clinical-trial matching: hybrid retrieval + LLM eligibility reasoning."
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
@@ -109,6 +109,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 trialmatchai = [
   "config/*.json",
+  "config/catalog/*.json",
   "entity_schemas/*.yaml",
   "entities/resources/*.tsv",
   "interop/exporters/templates/*.html",

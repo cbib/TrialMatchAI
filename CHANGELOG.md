@@ -4,29 +4,52 @@ All notable changes to TrialMatchAI are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.9.0] — 2026-09-12
 
-### Security
-- **Cleared 13 Dependabot advisories (9 of them high) in leaf dependencies**, without disturbing
-  the pinned inference stack: `pillow` 12.2.0 → 12.3.0 (decompression-bomb and heap
-  out-of-bounds issues in image decoding), `aiohttp` 3.14.1 → 3.14.3 (request smuggling and a
-  malformed-response parser read), `cryptography` 49.0.0 → 50.0.1 (Bleichenbacher oracle in
-  PKCS#7 `EnvelopedData` decryption) and `pymdown-extensions` 11.0 → 11.0.2 (ReDoS in the
-  markdown extensions used to build these docs). `vllm`, `torch`, `torchvision`, `torchaudio`
-  and `mcp` are unchanged.
-
-  None of these were reachable in normal use — this project processes clinical text rather than
-  untrusted images or HTTP, and never calls PKCS#7 decryption — but all four had fixes available
-  and none is load-bearing, so upgrading is cheaper than carrying the advisories.
-
-  The remaining open advisories are against `vllm` and `torch`. Those require moving off the
-  hard-pinned 0.23.0 / 2.11.0 inference stack that every published benchmark was measured on,
-  so they are a deliberate re-baselining exercise rather than a patch.
+### Added
+- Synthetic CPU demo with real LanceDB indexing, FHIR import, ranking, HTML reports,
+  repeatable resume, and a CLI version command.
+- Portable SHA-256 manifest creation/verification, including exact file-set checks,
+  safe path handling, and strict bootstrap digests from a trusted manifest.
+- Shared CI/release verification with frozen dependencies, installed-wheel CLI e2e,
+  build metadata, artifact checksums, provenance, and PyPI trusted publishing.
+- A codebase audit and sequenced production roadmap covering ranking quality,
+  clinical workflow, bounded agents, CLI automation, and deployment qualification.
 
 ### Fixed
-- **`pip` upgraded to 26.2.1** so CI's dependency audit passes (PYSEC-2026-3721). `pip` is
-  dev-only here, arriving transitively via `pip-api` ← `pip-audit`, and is never shipped in
-  the wheel.
+- Changed bootstrap archives replace managed extraction trees without retaining old
+  files. Publication stages complete trees, serializes writers, recovers interrupted
+  replacement, and retains previous trees and unrelated model directories.
+- Corrupt cached archives are quarantined and retried with a bounded fresh download;
+  completion checks reject symlinks and non-regular marker files.
+- Explicit unresolved FHIR patient references, including identifier-only, display-only,
+  empty, and null references, cannot fall back to the sole patient in a bundle.
+- Interrupted demo initialization can be retried; resume repairs missing/truncated
+  patient reports without repeating completed ranking. Automatic patient reports
+  are written atomically.
+- Query-expansion preflight checks the actual explicit or fallback model before
+  expansion; disabled reranking/reasoning stages do not request unused model access.
+- Embedder catalogs ship in wheels, Make targets use the current CLI, and checksum
+  verification rejects manifest redirection through symlinks.
+
+### Changed
+- Rewritten README with an SVG overview, pipeline diagram, executable onboarding,
+  and explicit boundaries between available features and planned qualification.
+- Documentation builds use frozen dependencies and pinned Actions.
+- Updated locked leaf dependencies: Pillow, aiohttp, cryptography,
+  pymdown-extensions, and the development pip toolchain.
+
+### Known limitations
+- This release validates the CPU software path, not GPU inference or clinical
+  eligibility. Ranking metrics were not rerun or claimed to improve.
+- The optional inference environment still has unresolved dependency advisories;
+  the clean base/dev audit is a narrower check. See `docs/production-validation.md`.
+- Bootstrap replacement is recoverable between two renames, not an online snapshot
+  switch. Stop readers during updates; strict resume does not hash extracted files.
+  Legacy model entries without ownership metadata are preserved conservatively.
+- Full evidence identity, clinical decision semantics, evaluator corrections,
+  model/adapter qualification, review workflows, bounded agents, and application
+  deployment remain in `docs/production-roadmap.md`.
 
 ## [0.8.2] — 2026-08-31
 

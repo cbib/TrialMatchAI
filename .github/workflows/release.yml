@@ -1,44 +1,54 @@
 name: Release
 
-# Publishes trialmatchai to PyPI when a GitHub Release is published.
-# Uses PyPI Trusted Publishing (OIDC) — no API token is stored in the repo.
-# One-time setup on PyPI: add a Trusted Publisher for this repo + workflow +
-# the `pypi` environment (https://docs.pypi.org/trusted-publishers/).
-
 on:
   release:
     types: [published]
-  workflow_dispatch: {}
 
 permissions:
   contents: read
 
+concurrency:
+  group: pypi-release
+  cancel-in-progress: false
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - name: Build sdist + wheel
-        run: uv build
-      - name: Check the built metadata
-        run: uvx twine check dist/*
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
+  verification:
+    uses: ./.github/workflows/verify.yml
+    with:
+      release_tag: ${{ github.event.release.tag_name }}
 
   pypi-publish:
-    needs: build
+    needs: verification
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: pypi
     permissions:
-      id-token: write # required for PyPI Trusted Publishing (OIDC)
+      contents: read
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          name: dist
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: trialmatchai-dist-${{ github.sha }}
           path: dist/
-      - uses: astral-sh/setup-uv@v5
-      - name: Publish to PyPI
-        run: uv publish --trusted-publishing always
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          version: "0.11.24"
+      - name: Verify the tested artifacts
+        env:
+          PYTHONPATH: src
+        run: python -m trialmatchai artifacts verify dist/SHA256SUMS --require-exact --json
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS
+      - name: Publish the tested distributions with OIDC
+        run: uv publish dist/*.whl dist/*.tar.gz --trusted-publishing always

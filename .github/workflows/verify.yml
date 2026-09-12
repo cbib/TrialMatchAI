@@ -1,0 +1,207 @@
+name: Production verification
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Optional release tag, which must match v<package version>
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          version: "0.11.24"
+          enable-cache: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen
+      - run: uv lock --check
+      - run: uv run --frozen ruff check .
+      - run: uv run --frozen pre-commit run actionlint --all-files
+      - run: uv run --frozen pytest -v -m 'not e2e' --junitxml=test-results/unit.xml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: unit-results
+          path: test-results/unit.xml
+          retention-days: 14
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          version: "0.11.24"
+          enable-cache: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen
+      - run: uv run --frozen pre-commit run gitleaks --all-files
+      - run: make audit
+
+  model-imports:
+    # Import compatibility is required; GPU inference is a separate qualification.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          version: "0.11.24"
+          enable-cache: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen --extra entity
+      - name: Import optional model surface
+        run: |
+          uv run --frozen --extra entity python - <<'PY'
+          import importlib
+          for module in (
+              "torch", "transformers", "gliner2",
+              "trialmatchai.entities.recognizers",
+              "trialmatchai.models.embedding.text_embedder",
+              "trialmatchai.models.llm.llm_reranker",
+              "trialmatchai.models.llm.vllm_loader",
+              "trialmatchai.matching.eligibility_reasoning_vllm",
+              "trialmatchai.finetuning.cot",
+              "trialmatchai.finetuning.reranker",
+              "trialmatchai.finetuning.ner",
+          ):
+              importlib.import_module(module)
+              print(f"Imported {module}")
+          PY
+
+  package:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          version: "0.11.24"
+          enable-cache: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen
+      - name: Validate release identity and record build inputs
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          uv run --frozen python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import subprocess
+          import tomllib
+          from pathlib import Path
+          from trialmatchai import __version__
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          assert version == __version__, "Package and module versions differ"
+          tag = os.environ["RELEASE_TAG"]
+          assert not tag or tag == f"v{version}", f"Tag {tag!r} does not match v{version}"
+          Path("dist").mkdir(exist_ok=True)
+          info = {
+              "schema_version": 1, "version": version,
+              "source_commit": os.environ["GITHUB_SHA"],
+              "python": platform.python_version(),
+              "uv": subprocess.check_output(["uv", "--version"], text=True).strip(),
+              "lock_sha256": hashlib.sha256(Path("uv.lock").read_bytes()).hexdigest(),
+          }
+          Path("dist/build-info.json").write_text(json.dumps(info, indent=2) + "\n")
+          PY
+      - run: uv build --no-create-gitignore
+      - run: uv run --frozen trialmatchai artifacts manifest dist
+      - run: uv run --frozen trialmatchai artifacts verify dist/SHA256SUMS --require-exact --json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: trialmatchai-dist-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  installed-cli:
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          version: "0.11.24"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: trialmatchai-dist-${{ github.sha }}
+          path: dist/
+      - name: Verify artifacts before installation
+        env:
+          PYTHONPATH: src
+        run: python -m trialmatchai artifacts verify dist/SHA256SUMS --require-exact --json
+      - name: Run installed wheel through the public CLI
+        env:
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
+        run: |
+          WHEEL="$(realpath dist/trialmatchai-*.whl)"
+          SMOKE_SCRIPT="$PWD/scripts/installed_smoke.py"
+          mkdir -p "$RUNNER_TEMP/trialmatchai-smoke"
+          cd "$RUNNER_TEMP/trialmatchai-smoke"
+          uv run --no-project --isolated --with "$WHEEL" python -I "$SMOKE_SCRIPT" \
+            --expect-installed --workspace "$RUNNER_TEMP/trialmatchai-smoke/workspace"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: installed-cli-failure
+          path: ${{ runner.temp }}/trialmatchai-smoke/workspace/
+          retention-days: 7
+
+  required:
+    if: always()
+    needs: [quality, security, model-imports, package, installed-cli]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every verification job to pass
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          outcomes = {name: job["result"] for name, job in json.loads(os.environ["NEEDS"]).items()}
+          print(outcomes)
+          assert all(result == "success" for result in outcomes.values()), "Verification failed or skipped"
+          PY

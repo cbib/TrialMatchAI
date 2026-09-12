@@ -63,3 +63,5 @@ nav:
   - Fine-tuning: finetuning.md
   - API reference: api.md
   - Release process: release.md
+  - Production roadmap: production-roadmap.md
+  - Codebase review: codebase-review-2026-09-12.md

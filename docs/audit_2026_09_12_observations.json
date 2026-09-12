@@ -1,0 +1,132 @@
+{
+  "A01_remote_adapter_paths": {
+    "all_absolute": true,
+    "any_exists": false,
+    "normalized": {
+      "cot_adapter_path": "/nfs/scratch/mabdallah/TrialMatchAI/majdabd33/trialmatchai-phi4-reasoning-lora",
+      "reranker_adapter_path": "/nfs/scratch/mabdallah/TrialMatchAI/majdabd33/trialmatchai-gemma2-reranker-lora"
+    },
+    "status": "observed"
+  },
+  "A02_exclusion_threshold": {
+    "raw_score": 1.0,
+    "retained_trials": [],
+    "status": "observed",
+    "weighted_score": 0.25
+  },
+  "A03_cross_patient_fhir": {
+    "conditions": [
+      "Synthetic disease belonging to B"
+    ],
+    "patient": "synthetic-A",
+    "status": "observed",
+    "strict": true
+  },
+  "A04_stale_eligibility_worklist": {
+    "new_batches": 0,
+    "reused": {
+      "Final Decision": "Eligible"
+    },
+    "status": "observed"
+  },
+  "A05_incomplete_match_signature": {
+    "signature_unchanged": true,
+    "status": "observed"
+  },
+  "A06_invalid_eligibility_accepted": {
+    "scheduled_for_retry": false,
+    "status": "observed",
+    "stored": {
+      "unrelated": true
+    }
+  },
+  "A07_failed_inclusion_score": {
+    "all_exclusions_unknown": 1.0,
+    "exclusion_violation": -1.0,
+    "generation_error": -1.0,
+    "insufficient_information": 0.5,
+    "mandatory_inclusion_failed": 0.9,
+    "status": "observed"
+  },
+  "A08_missing_fact_becomes_absence": {
+    "exclusion_present": {
+      "evidence": null,
+      "signal": 0.25,
+      "status": "matched"
+    },
+    "inclusion_absent": {
+      "evidence": null,
+      "signal": 1.0,
+      "status": "matched"
+    },
+    "status": "observed"
+  },
+  "A09_gene_mention_becomes_mutation": {
+    "clinical_status": "matched",
+    "signal": 1.0,
+    "status": "observed"
+  },
+  "A10_empty_candidate_scope": {
+    "requested_nct_ids": [],
+    "returned_nct_ids": [
+      "NCT00000001"
+    ],
+    "status": "observed"
+  },
+  "A11_vector_dimension_mismatch": {
+    "cosine": 1.0,
+    "left": [
+      1.0
+    ],
+    "right": [
+      1.0,
+      99.0
+    ],
+    "status": "observed"
+  },
+  "A12_rejected_concept_indexed": {
+    "indexed_synonyms": "unrelated disease",
+    "status": "observed",
+    "text": "synthetic mention"
+  },
+  "A13_missing_topics_omitted": {
+    "expected_topics": 3,
+    "mean_ndcg10": 1.0,
+    "ranked_topics": 1,
+    "scored_topics": 2,
+    "status": "observed"
+  },
+  "A14_condensed_ndcg_one_hit": {
+    "eligible_found": 1,
+    "eligible_total": 10,
+    "ndcg10": 1.0,
+    "ndcg_full10": 0.22009176629808017,
+    "status": "observed"
+  },
+  "A15_failure_report_state": {
+    "final_decision": null,
+    "reasoning_available": true,
+    "status": "observed"
+  },
+  "A16_fhir_export_required_fields": {
+    "has_required_medication": false,
+    "has_required_status": false,
+    "resource_keys": [
+      "code",
+      "id",
+      "note",
+      "resourceType",
+      "subject"
+    ],
+    "status": "observed"
+  },
+  "A17_empty_prepared_criteria_stale": {
+    "old_criterion_remains": true,
+    "status": "observed"
+  },
+  "A18_unvalidated_canonical_patient_id": {
+    "id_accepted": "../synthetic-escape",
+    "status": "observed",
+    "target_outside_output_root": true
+  }
+}
