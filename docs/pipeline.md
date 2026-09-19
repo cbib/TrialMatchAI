@@ -102,7 +102,7 @@ See the [API reference](api.md) for `StageContext`, `Stage`, `select_stages`, an
 
 ## Assessment modes
 
-This section describes the unreleased changes on `main` after 0.9.0.
+This section describes the assessment behavior introduced in 0.9.1.
 
 Eligibility assessment is enabled by default. `rag.enabled` controls whether it
 runs; `use_cot_reasoning` selects the CoT prompt (`true`) or direct JSON prompt

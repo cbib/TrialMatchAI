@@ -32,7 +32,7 @@ it does not install the optional model stack.
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
-python -m pip install trialmatchai==0.9.0
+python -m pip install trialmatchai==0.9.1
 
 trialmatchai --version
 trialmatchai demo --workdir ./demo-workspace
@@ -78,8 +78,8 @@ The code calls its generated eligibility explanations **CoT reasoning**; these
 are model outputs to inspect alongside source evidence, not verified clinical
 reasoning or a guarantee that every criterion has been covered.
 
-In source checkouts after 0.9.0, eligibility assessment and CoT prompt style have
-independent switches (the change is currently unreleased):
+Starting with 0.9.1, eligibility assessment and CoT prompt style have independent
+switches:
 
 | `rag.enabled` | `use_cot_reasoning` | Result |
 | :--- | :--- | :--- |
@@ -127,7 +127,7 @@ hardware you select; there is no universal single-GPU capacity promise.
 For the default model pipeline, install its extras in a dedicated environment:
 
 ```bash
-python -m pip install 'trialmatchai[llm,gpu,entity]==0.9.0'
+python -m pip install 'trialmatchai[llm,gpu,entity]==0.9.1'
 ```
 
 The optional inference stack has unresolved dependency advisories and has not
