@@ -93,3 +93,30 @@ def test_evaluate_precision_is_condensed_to_judged_pool(tmp_path):
     assert mean["P@10(rel>=1)"] == pytest.approx(2 / 10)  # raw would be 0/10
     assert mean["P@10(eligible)"] == pytest.approx(1 / 10)  # only NCT1 is grade 2
     assert mean["graded_P@10"] == pytest.approx((2 + 1) / (10 * 2))  # raw would be 0
+
+
+def test_evaluate_can_count_unjudged_trials_as_zero_gain(tmp_path):
+    q = "trec-1"
+    pdir = tmp_path / q
+    pdir.mkdir()
+    ranked = [{"TrialID": f"NCTX{i}", "Score": 2.0 - i * 0.01} for i in range(10)]
+    ranked += [{"TrialID": "NCT1", "Score": 0.5}, {"TrialID": "NCT2", "Score": 0.4}]
+    (pdir / "ranked_trials.json").write_text(json.dumps(ranked))
+    (pdir / "nct_ids.txt").write_text("\n".join(row["TrialID"] for row in ranked) + "\n")
+    qrels = {q: {"NCT1": 2, "NCT2": 1}}
+
+    condensed = evaluate(qrels, tmp_path, cutoffs=(10,), unjudged_policy="exclude")
+    inclusive = evaluate(
+        qrels, tmp_path, cutoffs=(10,), unjudged_policy="include_as_zero"
+    )
+
+    assert condensed["mean"]["graded_P@10"] == pytest.approx(3 / 20)
+    assert condensed["mean"]["ndcg@10"] == pytest.approx(1.0)
+    assert inclusive["mean"]["graded_P@10"] == 0.0
+    assert inclusive["mean"]["ndcg@10"] == 0.0
+    assert inclusive["unjudged_policy"] == "include_as_zero"
+
+
+def test_evaluate_rejects_unknown_unjudged_policy(tmp_path):
+    with pytest.raises(ValueError, match="Unsupported unjudged policy"):
+        evaluate({}, tmp_path, unjudged_policy="unknown")

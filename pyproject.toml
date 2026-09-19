@@ -78,7 +78,7 @@ finetune = [
 [project.scripts]
 # Single entry point. Every capability is a subcommand: `trialmatchai <cmd>`
 # (pipeline, healthcheck, bootstrap-data, index, build-concepts, update-registry,
-# import-patient, build, run, e2e, trec, report, finetune).
+# import-patient, build, run, e2e, trec, trec-evaluate, reproduce-paper, report, finetune).
 trialmatchai = "trialmatchai.cli.main:main"
 
 [project.urls]

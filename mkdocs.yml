@@ -61,6 +61,8 @@ nav:
   - Patient interoperability: interoperability.md
   - Registry updater: registry-updater.md
   - Fine-tuning: finetuning.md
+  - Paper reproduction: paper-reproduction.md
+  - TREC evaluation: trec-evaluation.md
   - API reference: api.md
   - Release process: release.md
   - Production roadmap: production-roadmap.md

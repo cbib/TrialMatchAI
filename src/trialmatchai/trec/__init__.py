@@ -8,7 +8,21 @@ Exposed via the ``trialmatchai trec`` console command.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from trialmatchai.trec.corpus import TRACK_KEYS, TrackSpec, resolve_tracks
-from trialmatchai.trec.runner import run_tracks
+
+
+def __getattr__(name: str) -> Any:
+    """Keep the public runner import without loading the full pipeline eagerly."""
+    if name == "run_tracks":
+        from trialmatchai.trec.runner import run_tracks
+
+        return run_tracks
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+if TYPE_CHECKING:
+    from trialmatchai.trec.runner import run_tracks as run_tracks
 
 __all__ = ["TRACK_KEYS", "TrackSpec", "resolve_tracks", "run_tracks"]

@@ -10,7 +10,7 @@
 [![Python 3.11](https://img.shields.io/badge/python-3.11-2563EB)](https://github.com/cbib/TrialMatchAI/blob/main/pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-64748B)](https://github.com/cbib/TrialMatchAI/blob/main/LICENSE)
 
-[Try the demo](#try-the-demo) · [Run your own data](#run-your-own-data) · [Architecture](#how-matching-works) · [CLI](#cli-reference) · [Development](#development-and-delivery)
+[Try the demo](#try-the-demo) · [Run your own data](#run-your-own-data) · [Reproduce the paper](#reproduce-the-paper) · [Architecture](#how-matching-works) · [CLI](#cli-reference) · [Development](#development-and-delivery)
 
 </div>
 
@@ -234,6 +234,8 @@ Run `trialmatchai <command> --help` for the current options.
 | `report` | Render a patient report or the multi-patient front page |
 | `update-registry` | Fetch and upsert ClinicalTrials.gov studies; optional watch mode |
 | `trec` | Run TREC Clinical Trials evaluation presets |
+| `trec-evaluate` | Re-score completed TREC rankings with explicit unjudged policies; no GPU inference |
+| `reproduce-paper` | Verify and recalculate the published TREC 2021/2022 result artifact |
 | `finetune` | Train supported reasoning, reranker, or NER components |
 | `healthcheck` | Inspect configured dependencies, paths, and services |
 | `artifacts` | Create or verify portable SHA-256 manifests |
@@ -271,6 +273,30 @@ model revisions, configuration, and a stated treatment of unjudged trials.
 The current evaluator and retrieval pipeline have open audit findings; this
 release does not claim a newly measured ranking improvement or a validated
 comparison against another system.
+
+Completed rankings can be evaluated without repeating retrieval or model
+inference. `trialmatchai trec-evaluate` reports both condensed metrics that
+exclude unjudged trials and metrics that retain unjudged trials with gain zero.
+See the [TREC evaluation guide](https://github.com/cbib/TrialMatchAI/blob/main/docs/trec-evaluation.md)
+for commands, input fingerprints, and measured policy sensitivity across the
+existing complete runs.
+
+## Reproduce the paper
+
+The published TREC result artifact can be audited on CPU with one command:
+
+```bash
+trialmatchai reproduce-paper --workdir ./paper-reproduction
+```
+
+This verifies the pinned Zenodo archive, aggregates its stored per-topic metrics,
+recalculates metrics from the archived rankings, and evaluates the same rankings
+with the current metric implementation. It does not rerun model inference. The
+archived summaries are internally consistent, but some archived rankings do not
+regenerate their stored topic metrics, and the present tie-aware evaluator is not
+the evaluator used for the paper values. See the [full reproduction record](https://github.com/cbib/TrialMatchAI/blob/main/docs/paper-reproduction.md)
+for the measured differences, retrieval recall, offline usage, and the inputs
+still required for an exact historical rerun.
 
 The [research paper](https://doi.org/10.1038/s41467-026-70509-w) describes the
 published study. Its results should be distinguished from this release's software

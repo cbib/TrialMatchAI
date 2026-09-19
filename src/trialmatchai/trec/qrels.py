@@ -10,14 +10,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from statistics import median
 
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from trialmatchai.trec.metrics import (
-    condensed_ndcg,
     graded_precision_at_k,
     precision_at_k,
+    ranking_ndcg,
+    UnjudgedPolicy,
 )
 from trialmatchai.utils.logging_config import setup_logging
 
@@ -162,13 +164,18 @@ def evaluate(
     *,
     cutoffs: tuple[int, ...] = DEFAULT_CUTOFFS,
     threshold: int = 1,
+    unjudged_policy: UnjudgedPolicy = "exclude",
 ) -> dict:
     """Per-query and mean metrics over the patients in ``results_dir``.
 
     Reports recall@k (retrieval, first-level list) and tie-aware nDCG@{5,10,20}
-    + P@10 (ranking, condensed to judged trials). P@10 is split into "relevant"
-    (grade>=1) and "eligible" (grade==2).
+    + P@10. ``unjudged_policy='exclude'`` condenses the ranked list to judged
+    trials before applying cutoffs; ``'include_as_zero'`` retains unjudged trials
+    with gain zero. P@10 is split into "relevant" (grade>=1) and "eligible"
+    (grade==2).
     """
+    if unjudged_policy not in {"exclude", "include_as_zero"}:
+        raise ValueError(f"Unsupported unjudged policy: {unjudged_policy}")
     results_dir = Path(results_dir)
     relevant = relevant_ncts(qrels, threshold=threshold)
     eligible = relevant_ncts(qrels, threshold=2)
@@ -181,6 +188,7 @@ def evaluate(
     rank_sums[f"P@{P_CUTOFF}(rel>=1)"] = 0.0
     rank_sums[f"P@{P_CUTOFF}(eligible)"] = 0.0
     rank_sums[f"graded_P@{P_CUTOFF}"] = 0.0
+    rank_sums[f"unjudged_fraction@{P_CUTOFF}"] = 0.0
     rank_counts = {key: 0 for key in rank_sums}
 
     for query_id, judgments in qrels.items():
@@ -203,11 +211,31 @@ def evaluate(
                 rec_counts[f"recall@{k}"] += 1
 
         if ranked:
-            # Two IDCG bases: ndcg@k normalizes by the ideal over judged-AND-ranked trials
-            # (recall-independent ordering quality); ndcg_full@k by the ideal over the FULL judged
-            # pool (recall-aware, trec_eval-style). DCG numerator is condensed (ignores unjudged) in both.
-            ndcg = condensed_ndcg(ranked, score_of, judgments, NDCG_CUTOFFS)
-            ndcg_full = condensed_ndcg(ranked, score_of, judgments, NDCG_CUTOFFS, full_ideal=True)
+            unjudged_fraction = sum(
+                trial_id not in judgments for trial_id in ranked[:P_CUTOFF]
+            ) / float(P_CUTOFF)
+            row[f"unjudged_fraction@{P_CUTOFF}"] = unjudged_fraction
+            rank_sums[f"unjudged_fraction@{P_CUTOFF}"] += unjudged_fraction
+            rank_counts[f"unjudged_fraction@{P_CUTOFF}"] += 1
+            # Two IDCG bases: ndcg@k normalizes by the ideal over judged-and-ranked
+            # trials (recall-independent ordering quality); ndcg_full@k by the ideal
+            # over the full judged pool. The selected policy controls whether the DCG
+            # ranking drops unjudged trials or retains their positions with zero gain.
+            ndcg = ranking_ndcg(
+                ranked,
+                score_of,
+                judgments,
+                NDCG_CUTOFFS,
+                unjudged_policy=unjudged_policy,
+            )
+            ndcg_full = ranking_ndcg(
+                ranked,
+                score_of,
+                judgments,
+                NDCG_CUTOFFS,
+                unjudged_policy=unjudged_policy,
+                full_ideal=True,
+            )
             for k in NDCG_CUTOFFS:
                 row[f"ndcg@{k}"] = ndcg[k]
                 row[f"ndcg_full@{k}"] = ndcg_full[k]
@@ -215,13 +243,18 @@ def evaluate(
                 rank_sums[f"ndcg_full@{k}"] += ndcg_full[k]
                 rank_counts[f"ndcg@{k}"] += 1
                 rank_counts[f"ndcg_full@{k}"] += 1
-            # Condense to the judged pool before the precision cutoff so unjudged trials the
-            # assessors never saw don't count as misses (matches condensed_ndcg above). Without
-            # this, a non-pooled system's many unjudged hits understated P@k and clashed with nDCG.
-            judged_ranked = [nid for nid in ranked if nid in judgments]
-            p_rel = precision_at_k(judged_ranked, rel_set, P_CUTOFF)
-            p_elig = precision_at_k(judged_ranked, eligible.get(query_id, set()), P_CUTOFF)
-            p_graded = graded_precision_at_k(judged_ranked, judgments, P_CUTOFF)
+            # Apply the same policy to precision: either drop unjudged trials before
+            # the cutoff or keep them at their original rank as nonrelevant.
+            evaluated_ranked = (
+                [nid for nid in ranked if nid in judgments]
+                if unjudged_policy == "exclude"
+                else ranked
+            )
+            p_rel = precision_at_k(evaluated_ranked, rel_set, P_CUTOFF)
+            p_elig = precision_at_k(
+                evaluated_ranked, eligible.get(query_id, set()), P_CUTOFF
+            )
+            p_graded = graded_precision_at_k(evaluated_ranked, judgments, P_CUTOFF)
             row[f"P@{P_CUTOFF}(rel>=1)"] = p_rel
             row[f"P@{P_CUTOFF}(eligible)"] = p_elig
             row[f"graded_P@{P_CUTOFF}"] = p_graded
@@ -234,10 +267,18 @@ def evaluate(
         per_query[query_id] = row
 
     mean = {**_mean(rec_sums, rec_counts), **_mean(rank_sums, rank_counts)}
+    metric_keys = tuple(mean)
+    medians = {
+        key: median(float(row[key]) for row in per_query.values() if row.get(key) is not None)
+        for key in metric_keys
+        if any(row.get(key) is not None for row in per_query.values())
+    }
     return {
+        "unjudged_policy": unjudged_policy,
         "recall_relevance_threshold": threshold,
         "num_queries_scored": len(per_query),
         "num_queries_ranked": rank_counts[f"ndcg@{NDCG_CUTOFFS[0]}"],
         "mean": mean,
+        "median": medians,
         "per_query": per_query,
     }
