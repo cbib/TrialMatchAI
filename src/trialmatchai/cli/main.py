@@ -65,6 +65,11 @@ def main() -> int:
         add_help=False,
     )
     subparsers.add_parser(
+        "reproduce-paper",
+        help="Verify and recalculate the published TREC 2021/2022 result artifact",
+        add_help=False,
+    )
+    subparsers.add_parser(
         "report",
         help="Render a self-contained HTML match report from a patient's results",
         add_help=False,
@@ -102,6 +107,8 @@ def main() -> int:
         from trialmatchai.cli.e2e import main as command
     elif args.command == "trec":
         from trialmatchai.cli.trec import main as command
+    elif args.command == "reproduce-paper":
+        from trialmatchai.cli.reproduce_paper import main as command
     elif args.command == "report":
         from trialmatchai.cli.report import main as command
     elif args.command == "finetune":
