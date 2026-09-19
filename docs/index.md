@@ -18,7 +18,7 @@ criterion-level eligibility assessment. Query expansion is separately configurab
 Install with Python 3.11 in an activated virtual environment:
 
 ```bash
-python -m pip install trialmatchai==0.9.0
+python -m pip install trialmatchai==0.9.1
 trialmatchai demo --workdir ./demo-workspace
 trialmatchai demo --workdir ./demo-workspace --resume
 ```

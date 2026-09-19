@@ -32,7 +32,7 @@ it does not install the optional model stack.
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
-python -m pip install trialmatchai==0.9.0
+python -m pip install trialmatchai==0.9.1
 
 trialmatchai --version
 trialmatchai demo --workdir ./demo-workspace
@@ -127,7 +127,7 @@ hardware you select; there is no universal single-GPU capacity promise.
 For the default model pipeline, install its extras in a dedicated environment:
 
 ```bash
-python -m pip install 'trialmatchai[llm,gpu,entity]==0.9.0'
+python -m pip install 'trialmatchai[llm,gpu,entity]==0.9.1'
 ```
 
 The optional inference stack has unresolved dependency advisories and has not

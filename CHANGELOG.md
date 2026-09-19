@@ -6,7 +6,22 @@ All notable changes to TrialMatchAI are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-09-19
+
+### Added
+- A checksum-pinned, CPU-only `reproduce-paper` command audits the published
+  TREC 2021/2022 archive against official qrels and separates stored metrics,
+  ranking recalculation, retrieval recall, and current-evaluator results.
+- `trec-evaluate` reuses completed rankings to compare explicit unjudged-trial
+  policies, with macro means, medians, per-topic metrics, qrels checksums, and
+  evaluation-input fingerprints.
+- Reproducible reports record both unjudged policies for six complete local
+  configurations across all 125 TREC 2021/2022 topics.
+
 ### Fixed
+- Paper archive caches and fresh extractions must contain every summary,
+  per-topic metric, ranking, candidate list, and recall-cutoff file consumed by
+  the audit.
 - Eligibility assessment is controlled by `rag.enabled` independently of the CoT
   prompt setting. Disabling `use_cot_reasoning` now selects direct JSON assessment.
 - Ranked output records assessment controls and availability. Reports explicitly
@@ -18,6 +33,13 @@ All notable changes to TrialMatchAI are documented here. The format follows
   their outputs so an early return or failed write cannot revive old verdicts.
 - The flowchart places eligibility assessment on the default path and labels the
   explicit retrieval-only bypass. Both SVGs state its default-on behavior.
+
+### Changed
+- The TREC package imports its GPU runner lazily so artifact and metric audits do
+  not load the model stack.
+- Paper-reproduction output reports current tie-aware nDCG under both supported
+  unjudged-trial policies while retaining the previous condensed result field for
+  compatibility.
 
 ### Migration
 - Set `rag.enabled: false` to skip assessment. `use_cot_reasoning: false` alone no
