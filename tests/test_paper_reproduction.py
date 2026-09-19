@@ -36,6 +36,60 @@ def test_paper_archive_extraction_rejects_traversal(tmp_path):
     assert not (tmp_path / "outside.json").exists()
 
 
+def test_paper_archive_extraction_requires_recall_inputs(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        reproduction,
+        "TRACKS",
+        {"21": {"directory": "TREC21", "prefix": "trec-2021", "topics": 1}},
+    )
+    monkeypatch.setattr(reproduction, "RECALL_CUTOFFS", (10,))
+    archive = tmp_path / "incomplete.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("matching_results/TREC21/average_metrics.json", "{}")
+        bundle.writestr(
+            "matching_results/TREC21/trec-20211/evaluation_metrics.json", "{}"
+        )
+        bundle.writestr("matching_results/TREC21/trec-20211/ranked_trials.json", "[]")
+        bundle.writestr("matching_results/TREC21/trec-20211/nct_ids.txt", "NCT1\n")
+
+    with pytest.raises(ValueError, match="nct_ids_10.txt"):
+        reproduction.extract_reproduction_files(archive, tmp_path / "work")
+
+
+def test_incomplete_extraction_cache_is_rebuilt(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        reproduction,
+        "TRACKS",
+        {"21": {"directory": "TREC21", "prefix": "trec-2021", "topics": 1}},
+    )
+    monkeypatch.setattr(reproduction, "RECALL_CUTOFFS", (10,))
+    monkeypatch.setattr(reproduction, "PAPER_RESULTS_SHA256", "test-archive")
+    work = tmp_path / "work"
+    cached_topic = work / "matching_results" / "TREC21" / "trec-20211"
+    cached_topic.mkdir(parents=True)
+    (work / "matching_results" / ".paper-results.json").write_text(
+        json.dumps({"archive_sha256": "test-archive"}), encoding="utf-8"
+    )
+    for name in ("evaluation_metrics.json", "ranked_trials.json", "nct_ids.txt"):
+        (cached_topic / name).write_text("{}", encoding="utf-8")
+    (cached_topic.parent / "average_metrics.json").write_text("{}", encoding="utf-8")
+
+    archive = tmp_path / "complete.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("matching_results/TREC21/average_metrics.json", "{}")
+        for name, content in (
+            ("evaluation_metrics.json", "{}"),
+            ("ranked_trials.json", "[]"),
+            ("nct_ids.txt", "NCT1\n"),
+            ("nct_ids_10.txt", "NCT1\n"),
+        ):
+            bundle.writestr(f"matching_results/TREC21/trec-20211/{name}", content)
+
+    extracted = reproduction.extract_reproduction_files(archive, work)
+
+    assert (extracted / "TREC21" / "trec-20211" / "nct_ids_10.txt").is_file()
+
+
 def test_paper_ranking_metric_drops_unjudged_and_preserves_archived_order():
     metrics = reproduction.paper_ranking_metrics(
         ["UNJUDGED", "NCT_GRADE_1", "NCT_GRADE_2"],

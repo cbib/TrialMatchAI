@@ -115,6 +115,24 @@ def _validated_member(name: str) -> PurePosixPath:
     return path
 
 
+def _required_reproduction_paths(root: Path):
+    """Yield every archive file consumed by the reproduction audit."""
+    for spec in TRACKS.values():
+        track_dir = root / str(spec["directory"])
+        yield track_dir / "average_metrics.json"
+        for topic in range(1, int(spec["topics"]) + 1):
+            topic_dir = track_dir / f"{spec['prefix']}{topic}"
+            yield topic_dir / "evaluation_metrics.json"
+            yield topic_dir / "ranked_trials.json"
+            yield topic_dir / "nct_ids.txt"
+            for cutoff in RECALL_CUTOFFS:
+                yield topic_dir / f"nct_ids_{cutoff}.txt"
+
+
+def _missing_reproduction_paths(root: Path) -> list[Path]:
+    return [path for path in _required_reproduction_paths(root) if not path.is_file()]
+
+
 def extract_reproduction_files(archive: Path, workdir: Path) -> Path:
     """Extract only files needed for metric reproduction, atomically and safely."""
     workdir = Path(workdir).resolve()
@@ -124,13 +142,9 @@ def extract_reproduction_files(archive: Path, workdir: Path) -> Path:
         state = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         state = {}
-    cache_complete = state.get("archive_sha256") == PAPER_RESULTS_SHA256 and all(
-        (target / str(spec["directory"]) / "average_metrics.json").is_file()
-        and len(list((target / str(spec["directory"])).glob("*/evaluation_metrics.json")))
-        == int(spec["topics"])
-        and len(list((target / str(spec["directory"])).glob("*/ranked_trials.json")))
-        == int(spec["topics"])
-        for spec in TRACKS.values()
+    cache_complete = (
+        state.get("archive_sha256") == PAPER_RESULTS_SHA256
+        and not _missing_reproduction_paths(target)
     )
     if cache_complete:
         return target
@@ -159,8 +173,13 @@ def extract_reproduction_files(archive: Path, workdir: Path) -> Path:
                 with bundle.open(member) as source, destination.open("wb") as output:
                     shutil.copyfileobj(source, output)
                 extracted += 1
-        if extracted < sum(spec["topics"] for spec in TRACKS.values()) * 3:
-            raise ValueError("Paper archive is missing the expected TREC reproduction files")
+        missing = _missing_reproduction_paths(staging)
+        if missing:
+            example = missing[0].relative_to(staging)
+            raise ValueError(
+                "Paper archive is missing "
+                f"{len(missing)} expected TREC reproduction file(s); first missing: {example}"
+            )
         write_json_file(
             {"schema": 1, "archive_sha256": PAPER_RESULTS_SHA256, "files": extracted},
             str(staging / ".paper-results.json"),
