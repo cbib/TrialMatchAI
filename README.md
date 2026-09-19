@@ -78,8 +78,8 @@ The code calls its generated eligibility explanations **CoT reasoning**; these
 are model outputs to inspect alongside source evidence, not verified clinical
 reasoning or a guarantee that every criterion has been covered.
 
-In source checkouts after 0.9.0, eligibility assessment and CoT prompt style have
-independent switches (the change is currently unreleased):
+Starting with 0.9.1, eligibility assessment and CoT prompt style have independent
+switches:
 
 | `rag.enabled` | `use_cot_reasoning` | Result |
 | :--- | :--- | :--- |
