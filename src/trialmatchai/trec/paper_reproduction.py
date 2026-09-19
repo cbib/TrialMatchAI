@@ -279,18 +279,17 @@ def audit_track(track: str, results_root: Path, qrels_path: Path) -> dict:
         if not _close(archived_summary[key], stored_summary[key]["mean"])
     }
 
-    current = evaluate(qrels, track_dir, cutoffs=RECALL_CUTOFFS)
-    current_keys = tuple(current["mean"])
-    current_summary = {
-        key: {
-            "mean": current["mean"][key],
-            "median": median(
-                float(row[key]) for row in current["per_query"].values() if key in row
-            ),
+    current_by_policy = {}
+    for policy in ("exclude", "include_as_zero"):
+        current = evaluate(
+            qrels, track_dir, cutoffs=RECALL_CUTOFFS, unjudged_policy=policy
+        )
+        current_by_policy[policy] = {
+            key: {"mean": value, "median": current["median"][key]}
+            for key, value in current["mean"].items()
+            if value is not None
         }
-        for key in current_keys
-        if current["mean"][key] is not None
-    }
+    current_summary = current_by_policy["exclude"]
 
     return {
         "track": f"TREC20{track}",
@@ -300,6 +299,7 @@ def audit_track(track: str, results_root: Path, qrels_path: Path) -> dict:
         "recalculated_from_rankings": recalculated_summary,
         "paper_retrieval_recall": recall_summary,
         "current_evaluator": current_summary,
+        "current_evaluator_by_unjudged_policy": current_by_policy,
         "checks": {
             "archived_summary_matches_stored_topics": not summary_mismatches,
             "rankings_match_stored_topic_metrics": not mismatch_topics,
@@ -337,6 +337,19 @@ def reproduce_paper_results(results_root: Path, qrels_dir: Path) -> dict:
             key: pooled("current_evaluator", key)
             for key in tracks["21"]["current_evaluator"]
             if key in tracks["22"]["current_evaluator"]
+        },
+        "current_evaluator_by_unjudged_policy": {
+            policy: {
+                key: sum(
+                    item["current_evaluator_by_unjudged_policy"][policy][key]["mean"]
+                    * item["topics"]
+                    for item in tracks.values()
+                )
+                / total_topics
+                for key in tracks["21"]["current_evaluator_by_unjudged_policy"][policy]
+                if key in tracks["22"]["current_evaluator_by_unjudged_policy"][policy]
+            }
+            for policy in ("exclude", "include_as_zero")
         },
     }
     return {

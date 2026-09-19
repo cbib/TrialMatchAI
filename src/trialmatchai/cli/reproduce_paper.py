@@ -35,6 +35,9 @@ def _print_human(report: dict, output: Path) -> None:
         stored = track["stored_per_topic"]
         recalculated = track["recalculated_from_rankings"]
         current = track["current_evaluator"]
+        current_inclusive = track["current_evaluator_by_unjudged_policy"][
+            "include_as_zero"
+        ]
         print(f"\n{track['track']} ({track['topics']} topics)")
         print(
             "  stored per-topic aggregation: "
@@ -48,7 +51,8 @@ def _print_human(report: dict, output: Path) -> None:
         )
         print(
             "  current-evaluator nDCG@10 mean: "
-            f"{current['ndcg@10']['mean']:.6f}"
+            f"exclude={current['ndcg@10']['mean']:.6f}, "
+            f"include-as-zero={current_inclusive['ndcg@10']['mean']:.6f}"
         )
 
 

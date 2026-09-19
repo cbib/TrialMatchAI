@@ -234,6 +234,7 @@ Run `trialmatchai <command> --help` for the current options.
 | `report` | Render a patient report or the multi-patient front page |
 | `update-registry` | Fetch and upsert ClinicalTrials.gov studies; optional watch mode |
 | `trec` | Run TREC Clinical Trials evaluation presets |
+| `trec-evaluate` | Re-score completed TREC rankings with explicit unjudged policies; no GPU inference |
 | `reproduce-paper` | Verify and recalculate the published TREC 2021/2022 result artifact |
 | `finetune` | Train supported reasoning, reranker, or NER components |
 | `healthcheck` | Inspect configured dependencies, paths, and services |
@@ -272,6 +273,13 @@ model revisions, configuration, and a stated treatment of unjudged trials.
 The current evaluator and retrieval pipeline have open audit findings; this
 release does not claim a newly measured ranking improvement or a validated
 comparison against another system.
+
+Completed rankings can be evaluated without repeating retrieval or model
+inference. `trialmatchai trec-evaluate` reports both condensed metrics that
+exclude unjudged trials and metrics that retain unjudged trials with gain zero.
+See the [TREC evaluation guide](https://github.com/cbib/TrialMatchAI/blob/main/docs/trec-evaluation.md)
+for commands, input fingerprints, and measured policy sensitivity across the
+existing complete runs.
 
 ## Reproduce the paper
 

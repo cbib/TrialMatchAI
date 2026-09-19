@@ -30,6 +30,11 @@ It reports three separate views:
    evaluator to the same rankings. These values answer a different metric
    question and should not be substituted for the published values.
 
+Use [`trialmatchai trec-evaluate`](trec-evaluation.md) to compare the current
+evaluator with unjudged trials excluded versus retained as zero-gain results.
+That comparison can reuse any completed result directory and performs no model
+inference.
+
 For an offline or CI run, supply the already-downloaded official archive and
 qrels:
 
@@ -61,6 +66,11 @@ Means and medians are macro-averages across all topics in each track.
 | TREC 2022 nDCG@10 | 0.708484 | 0.762500 | 0.683137 | 0.598333 |
 | TREC 2022 nDCG@20 | 0.719456 | 0.766262 | 0.656213 | 0.632342 |
 | TREC 2022 graded P@10 | 0.663000 | 0.725000 | 0.661000 | 0.661000 |
+
+For the same archived rankings, retaining unjudged trials as zero-gain results
+instead of excluding them changes current tie-aware mean nDCG@10 from 0.669746
+to 0.435800 on TREC 2021 and from 0.598333 to 0.458934 on TREC 2022. The JSON
+report stores both policies explicitly.
 
 Across all 125 topics, weighting both tracks by topic count gives a stored mean
 nDCG@10 of 0.713276 and stored mean graded P@10 of 0.688400. These do not exactly

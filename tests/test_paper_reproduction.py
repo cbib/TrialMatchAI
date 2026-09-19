@@ -68,13 +68,14 @@ def test_audit_track_separates_stored_metrics_from_ranking_recalculation(
     (topic / "ranked_trials.json").write_text(
         json.dumps(
             [
+                {"TrialID": "UNJUDGED", "Score": 2.0},
                 {"TrialID": "NCT2", "Score": 1.0},
                 {"TrialID": "NCT1", "Score": 1.0},
             ]
         ),
         encoding="utf-8",
     )
-    (topic / "nct_ids.txt").write_text("NCT2\nNCT1\n", encoding="utf-8")
+    (topic / "nct_ids.txt").write_text("UNJUDGED\nNCT2\nNCT1\n", encoding="utf-8")
     for cutoff in reproduction.RECALL_CUTOFFS:
         (topic / f"nct_ids_{cutoff}.txt").write_text("NCT2\nNCT1\n", encoding="utf-8")
 
@@ -87,4 +88,10 @@ def test_audit_track_separates_stored_metrics_from_ranking_recalculation(
     # Current evaluation tie-averages the equal scores; the paper method preserves file order.
     assert result["current_evaluator"]["ndcg@5"]["mean"] != pytest.approx(
         result["recalculated_from_rankings"]["ndcg@5"]["mean"]
+    )
+    assert (
+        result["current_evaluator_by_unjudged_policy"]["include_as_zero"]["ndcg@5"][
+            "mean"
+        ]
+        < result["current_evaluator_by_unjudged_policy"]["exclude"]["ndcg@5"]["mean"]
     )

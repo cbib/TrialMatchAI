@@ -2,15 +2,17 @@
 
 nDCG here is tie-aware (McSherry & Najork, 2008): tied scores each get the mean
 positional discount over the tie group's ranks — the expected nDCG over all tie
-orderings, invariant to arbitrary tie-breaking. It is also condensed (over
-labeled-and-retrieved trials only, decoupling ranking quality from recall). Gain is
-linear (gain = relevance grade), matching trec_eval's default.
+orderings, invariant to arbitrary tie-breaking. Evaluation can either condense the
+ranking to judged trials or retain unjudged trials with zero gain. Gain is linear
+(gain = relevance grade), matching trec_eval's default.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Dict, Mapping, Sequence, Set
+from typing import Dict, Literal, Mapping, Sequence, Set
+
+UnjudgedPolicy = Literal["exclude", "include_as_zero"]
 
 
 def _discount(rank: int) -> float:
@@ -62,7 +64,7 @@ def ndcg_at_k(
     *,
     ideal_gains: Sequence[float] | None = None,
 ) -> float:
-    """Tie-aware nDCG@k. ``ordered_ids`` should be the condensed (labeled) list.
+    """Tie-aware nDCG@k over the supplied evaluated ranking.
 
     ``ideal_gains`` chooses the IDCG basis: ``None`` (default) uses the gains of
     ``ordered_ids`` (judged-AND-ranked), making nDCG recall-independent; pass the FULL
@@ -121,3 +123,33 @@ def condensed_ndcg(
     condensed = [nid for nid in ranked_ids if nid in grade_of]
     ideal = [float(g) for g in grade_of.values()] if full_ideal else None
     return {k: ndcg_at_k(condensed, score_of, grade_of, k, ideal_gains=ideal) for k in cutoffs}
+
+
+def ranking_ndcg(
+    ranked_ids: Sequence[str],
+    score_of: Mapping[str, float],
+    grade_of: Mapping[str, int],
+    cutoffs: Sequence[int],
+    *,
+    unjudged_policy: UnjudgedPolicy = "exclude",
+    full_ideal: bool = False,
+) -> Dict[int, float]:
+    """Tie-aware nDCG under an explicit treatment of unjudged documents.
+
+    ``exclude`` is the condensed-list convention: unjudged documents are removed
+    before rank cutoffs are applied. ``include_as_zero`` retains their positions
+    and assigns gain zero, matching the usual trec_eval treatment. ``full_ideal``
+    controls whether unretrieved judged documents remain in the ideal ranking.
+    """
+    if unjudged_policy not in {"exclude", "include_as_zero"}:
+        raise ValueError(f"Unsupported unjudged policy: {unjudged_policy}")
+    evaluated = (
+        [document for document in ranked_ids if document in grade_of]
+        if unjudged_policy == "exclude"
+        else list(ranked_ids)
+    )
+    ideal = [float(gain) for gain in grade_of.values()] if full_ideal else None
+    return {
+        cutoff: ndcg_at_k(evaluated, score_of, grade_of, cutoff, ideal_gains=ideal)
+        for cutoff in cutoffs
+    }
