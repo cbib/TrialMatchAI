@@ -283,23 +283,25 @@ existing complete runs.
 
 ## Reproduce the paper
 
-Inspect the deposited TREC result files on CPU with one command:
+Check the published result archive on CPU using saved outputs:
 
 ```bash
 trialmatchai reproduce-paper --workdir ./paper-reproduction
 ```
 
-The command verifies the pinned Zenodo archive and official TREC judgments,
-checks the saved per-topic and track summaries, and reports separately
-documented calculations from the saved rankings. See the
-[published result-file guide](docs/paper-reproduction.md) for input options,
-checksums, and how to read the report.
+The command calculates ranking and retrieval metrics from the deposited results
+and official qrels, checks the input checksums, and records the metric definitions
+and per-track summaries in its JSON report.
 
-The [research paper](https://doi.org/10.1038/s41467-026-70509-w) describes the
-published study. Its results should be distinguished from this release's software
-checks. The roadmap prioritizes retrieval recall, eligibility semantics, evidence
-coverage, benchmark integrity, and a usable review workflow before bounded agent
-experiments.
+Across the 125 topics, pooled median eligible-trial recall is 90.91% at 1,000
+candidates, representing 2.05% of the combined judged-trial corpus.
+In the synthetic ideal-candidate experiment, the originating trial ranks first
+for 92 of 100 patients and within the top ten for 100 of 100.
+
+For offline use, pass `--archive /path/to/matching_results.zip`,
+`--qrels-dir /path/to/qrels`, and `--no-download`. See the
+[paper results and reproduction report](docs/paper-reproduction.md) for the
+ranking tables, recall definitions, downloadable per-topic values, and checksums.
 
 ## Development and delivery
 

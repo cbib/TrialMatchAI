@@ -28,7 +28,7 @@ def _print_human(report: dict, output: Path) -> None:
     pooled = report["all_125_topics_weighted_mean"]["stored_per_topic"]
     print(
         "All 125 topics, stored weighted means: "
-        f"nDCG@10={pooled['ndcg@10']:.6f}, graded P@10={pooled['p@10']:.6f}"
+        f"nDCG@10={pooled['ndcg@10']:.6f}, archive P@10={pooled['p@10']:.6f}"
     )
     for track in report["tracks"].values():
         checks = track["checks"]
@@ -45,7 +45,7 @@ def _print_human(report: dict, output: Path) -> None:
         )
         print(f"  rankings differing from stored metrics: {checks['ranking_mismatch_count']}")
         print(
-            "  paper-method nDCG@10 mean: "
+            "  archive-convention nDCG@10 mean: "
             f"stored={stored['ndcg@10']['mean']:.6f}, "
             f"recalculated={recalculated['ndcg@10']['mean']:.6f}"
         )

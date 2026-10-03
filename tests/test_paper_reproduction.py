@@ -102,6 +102,27 @@ def test_paper_ranking_metric_drops_unjudged_and_preserves_archived_order():
     assert metrics["p@5"] == pytest.approx(3 / (2 * 5))
 
 
+def test_archive_ndcg_ideal_uses_returned_trials_only():
+    metrics = reproduction.paper_ranking_metrics(
+        ["RETURNED_GRADE_1"],
+        {"RETURNED_GRADE_1": 1, "NOT_RETURNED_GRADE_2": 2},
+    )
+
+    assert metrics["ndcg@5"] == 1.0
+
+
+def test_archive_precision_normalizes_each_cutoff_by_its_maximum_grade():
+    # TREC 2021 topic 18: no grade-2 trial occurs in the first five judged hits.
+    grades = [1, 1, 1, 0, 1, 1, 1, 1, 2, 2]
+    ids = [f"TRIAL_{index}" for index in range(len(grades))]
+    metrics = reproduction.paper_ranking_metrics(ids, dict(zip(ids, grades)))
+
+    assert metrics["p@5"] == 0.8
+    assert metrics["p@10"] == 0.55
+    assert reproduction.paper_ranking_metrics(["ZERO"], {"ZERO": 0})["p@5"] == 0.0
+    assert reproduction.paper_ranking_metrics([], {})["p@5"] == 0.0
+
+
 def test_audit_track_separates_stored_metrics_from_ranking_recalculation(
     tmp_path, monkeypatch
 ):

@@ -216,19 +216,27 @@ def _dcg(grades: Sequence[int], cutoff: int) -> float:
 def paper_ranking_metrics(
     ranked_ids: Sequence[str], judgments: Mapping[str, int]
 ) -> dict[str, float]:
-    """Recalculate the metric convention used by the published result files.
+    """Recalculate the convention empirically verified against the result bundle.
 
     Unjudged trials are removed before applying each cutoff.  nDCG uses linear
-    grades and preserves the archived order within score ties.  ``p@k`` is the
-    normalized graded precision ``sum(grade) / (2*k)``.
+    grades, an ideal ranking of the judged-and-returned trials, and the archived
+    order within score ties. ``p@k`` divides the top-k grade sum by ``k`` times
+    the maximum grade in that top-k list (zero when all grades are zero).
+
+    This precision convention is specific to the archived results. Eligible-only
+    precision and fixed-scale graded precision are separate measurements.
     """
     grades = [int(judgments[trial]) for trial in ranked_ids if trial in judgments]
-    ideal = sorted((int(grade) for grade in judgments.values()), reverse=True)
+    ideal = sorted(grades, reverse=True)
     metrics: dict[str, float] = {}
     for cutoff in RANKING_CUTOFFS:
         ideal_dcg = _dcg(ideal, cutoff)
         metrics[f"ndcg@{cutoff}"] = _dcg(grades, cutoff) / ideal_dcg if ideal_dcg else 0.0
-        metrics[f"p@{cutoff}"] = sum(grades[:cutoff]) / (2.0 * cutoff)
+        top_grades = grades[:cutoff]
+        maximum = max(top_grades, default=0)
+        metrics[f"p@{cutoff}"] = (
+            sum(top_grades) / (float(maximum) * cutoff) if maximum else 0.0
+        )
     return metrics
 
 
@@ -381,6 +389,16 @@ def reproduce_paper_results(results_root: Path, qrels_dir: Path) -> dict:
         },
         "qrels_sha256": {
             track: sha256_file(Path(qrels_dir) / f"qrels_{track}.txt") for track in TRACKS
+        },
+        "recalculation_convention": {
+            "basis": "empirically verified against the archived per-topic metrics",
+            "unjudged": "removed before cutoffs",
+            "gain": "linear qrels grades",
+            "ties": "archived file order",
+            "ndcg_ideal": "judged trials present in the returned ranking",
+            "p_at_k": "sum(top-k grades) / (k * max(top-k grades)); zero if max is zero",
+            "recall_relevance": "qrels grade >= 1",
+            "recall_inputs": "separate nct_ids_K.txt candidate lists",
         },
         "status": (
             "verified_with_ranking_discrepancies"

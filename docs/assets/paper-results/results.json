@@ -1,0 +1,490 @@
+{
+  "schema": 1,
+  "calculation_date": "2026-10-03",
+  "paper": "https://doi.org/10.1038/s41467-026-70509-w",
+  "inputs": {
+    "matching_results": {
+      "sha256": "dbfd11f19ffbfd78acfeaeee634c3e7e7ca8cb4d72b526ff8d191f9e880312c8",
+      "url": "https://zenodo.org/records/15045515/files/matching_results.zip?download=1"
+    },
+    "qrels_sha256": {
+      "21": "ba7a2cddc90285e75cd76adcd483394a6c9bacf7017113222058ba6537e6d8ac",
+      "22": "e569a531489e03f7b1fab03fe169c8ea66f4a59e8180fa9858b1a6e4bdcb0c5c"
+    },
+    "figure_source_files": {
+      "source-data.xlsx": {
+        "sha256": "f619861af2df142e772d650400725ff1ff7f12b396fe0416a2badbacda40f553",
+        "url": "https://media.springernature.com/original/springer-static/esm/art%3A10.1038%2Fs41467-026-70509-w/MediaObjects/41467_2026_70509_MOESM6_ESM.xlsx"
+      },
+      "supplementary-data.xlsx": {
+        "sha256": "7a01dcce457aea7f8b22595dbefb972bd50fd4965845423be8c08a2a71fa4029",
+        "url": "https://media.springernature.com/original/springer-static/esm/art%3A10.1038%2Fs41467-026-70509-w/MediaObjects/41467_2026_70509_MOESM4_ESM.xlsx"
+      },
+      "supplementary-methods.pdf": {
+        "sha256": "87a29dfa09557163f7d24bb276d4cfb8df4678a2f7f66d8e748dee1c904c3569",
+        "url": "https://media.springernature.com/original/springer-static/esm/art%3A10.1038%2Fs41467-026-70509-w/MediaObjects/41467_2026_70509_MOESM1_ESM.pdf"
+      }
+    }
+  },
+  "definitions": {
+    "ndcg": "Filter unjudged before cutoff; linear grades/log2 discount; ideal over judged-and-returned trials; preserve archived order within score ties.",
+    "precision": "P@k in the deposited results: sum(top-k grades)/(k*max(top-k grades)), with zero when the maximum grade is zero. Eligible-only precision and fixed-scale graded precision are recorded separately.",
+    "recall": "Set intersection of nct_ids_K.txt and qrels grade >= 1 divided by all qrels grade >= 1 for that topic. Eligible-only results are also reported separately.",
+    "aggregation": "Arithmetic mean and median over all 75/50 topics; pooled mean weights individual topics equally."
+  },
+  "verification": {
+    "ranking_topics": 125,
+    "ranking_values": 750,
+    "archived_ranking_mismatches": 0,
+    "sklearn_ndcg_values_verified": 375,
+    "sklearn_max_absolute_difference": 3.3306690738754696e-16,
+    "archive_summary_values_verified": 12,
+    "source_recall_values_checked": 1500,
+    "source_recall_differences_count": 0,
+    "archive_sha256_verified": true,
+    "qrels_sha256_verified": true
+  },
+  "tracks": {
+    "21": {
+      "topics": 75,
+      "ranking_metrics": {
+        "ndcg@20": {
+          "mean": 0.7244128136355482,
+          "median": 0.7331143654869708,
+          "archived_mean": 0.7244128136355481
+        },
+        "ndcg@10": {
+          "mean": 0.71647077674374,
+          "median": 0.7354776644450401,
+          "archived_mean": 0.7164707767437399
+        },
+        "ndcg@5": {
+          "mean": 0.7297205973785589,
+          "median": 0.7469385177900298,
+          "archived_mean": 0.7297205973785589
+        },
+        "p@20": {
+          "mean": 0.674,
+          "median": 0.7,
+          "archived_mean": 0.6739999999999999
+        },
+        "p@10": {
+          "mean": 0.7053333333333334,
+          "median": 0.75,
+          "archived_mean": 0.7053333333333334
+        },
+        "p@5": {
+          "mean": 0.7506666666666667,
+          "median": 0.8,
+          "archived_mean": 0.7506666666666667
+        }
+      },
+      "alternative_precision_definitions": {
+        "p@5": {
+          "eligible_only": {
+            "mean": 0.5973333333333334,
+            "median": 0.6
+          },
+          "grade_ge_1": {
+            "mean": 0.8453333333333334,
+            "median": 1.0
+          },
+          "fixed_grade_2_scale": {
+            "mean": 0.7213333333333334,
+            "median": 0.8
+          }
+        },
+        "p@10": {
+          "eligible_only": {
+            "mean": 0.5693333333333334,
+            "median": 0.6
+          },
+          "grade_ge_1": {
+            "mean": 0.8160000000000001,
+            "median": 0.9
+          },
+          "fixed_grade_2_scale": {
+            "mean": 0.6926666666666667,
+            "median": 0.7
+          }
+        },
+        "p@20": {
+          "eligible_only": {
+            "mean": 0.5406666666666666,
+            "median": 0.55
+          },
+          "grade_ge_1": {
+            "mean": 0.7813333333333333,
+            "median": 0.85
+          },
+          "fixed_grade_2_scale": {
+            "mean": 0.661,
+            "median": 0.7
+          }
+        }
+      },
+      "retrieval_recall_grade_ge_1": {
+        "10": {
+          "mean": 0.07750728701286502,
+          "median": 0.04424778761061947
+        },
+        "50": {
+          "mean": 0.253241244809659,
+          "median": 0.2
+        },
+        "100": {
+          "mean": 0.37775478516190747,
+          "median": 0.32663316582914576
+        },
+        "200": {
+          "mean": 0.5285086255478514,
+          "median": 0.50625
+        },
+        "300": {
+          "mean": 0.6105099919823976,
+          "median": 0.6275659824046921
+        },
+        "400": {
+          "mean": 0.6587048435922936,
+          "median": 0.7128205128205128
+        },
+        "500": {
+          "mean": 0.6937677768187459,
+          "median": 0.7380952380952381
+        },
+        "600": {
+          "mean": 0.7157937446377337,
+          "median": 0.7727272727272727
+        },
+        "700": {
+          "mean": 0.7309036414474351,
+          "median": 0.7906976744186046
+        },
+        "800": {
+          "mean": 0.7418178092446995,
+          "median": 0.8059701492537313
+        },
+        "900": {
+          "mean": 0.7512966757118297,
+          "median": 0.8102189781021898
+        },
+        "1000": {
+          "mean": 0.7579882444130375,
+          "median": 0.8175182481751825
+        }
+      },
+      "retrieval_recall_eligible_only": {
+        "10": {
+          "mean": 0.08916290598533934,
+          "median": 0.047619047619047616
+        },
+        "50": {
+          "mean": 0.2898798535712037,
+          "median": 0.2127659574468085
+        },
+        "100": {
+          "mean": 0.4272181362721492,
+          "median": 0.37566137566137564
+        },
+        "200": {
+          "mean": 0.5924645211895371,
+          "median": 0.6036036036036037
+        },
+        "300": {
+          "mean": 0.6809332710639953,
+          "median": 0.7181208053691275
+        },
+        "400": {
+          "mean": 0.7321158305904493,
+          "median": 0.7985074626865671
+        },
+        "500": {
+          "mean": 0.7690472131081889,
+          "median": 0.8461538461538461
+        },
+        "600": {
+          "mean": 0.7915579033336584,
+          "median": 0.8867924528301887
+        },
+        "700": {
+          "mean": 0.8057920299139397,
+          "median": 0.8888888888888888
+        },
+        "800": {
+          "mean": 0.818199941711425,
+          "median": 0.9057971014492754
+        },
+        "900": {
+          "mean": 0.8296972254997004,
+          "median": 0.9090909090909091
+        },
+        "1000": {
+          "mean": 0.8358138438435316,
+          "median": 0.9090909090909091
+        }
+      }
+    },
+    "22": {
+      "topics": 50,
+      "ranking_metrics": {
+        "ndcg@20": {
+          "mean": 0.7194557069992731,
+          "median": 0.7662624157918984,
+          "archived_mean": 0.7194557069992732
+        },
+        "ndcg@10": {
+          "mean": 0.7084843841195615,
+          "median": 0.7624999253148924,
+          "archived_mean": 0.7084843841195617
+        },
+        "ndcg@5": {
+          "mean": 0.7221436028339762,
+          "median": 0.8193183568387621,
+          "archived_mean": 0.7221436028339764
+        },
+        "p@20": {
+          "mean": 0.62,
+          "median": 0.6375,
+          "archived_mean": 0.6199999999999999
+        },
+        "p@10": {
+          "mean": 0.663,
+          "median": 0.725,
+          "archived_mean": 0.6630000000000001
+        },
+        "p@5": {
+          "mean": 0.706,
+          "median": 0.8,
+          "archived_mean": 0.7059999999999998
+        }
+      },
+      "alternative_precision_definitions": {
+        "p@5": {
+          "eligible_only": {
+            "mean": 0.644,
+            "median": 0.8
+          },
+          "grade_ge_1": {
+            "mean": 0.764,
+            "median": 0.8
+          },
+          "fixed_grade_2_scale": {
+            "mean": 0.704,
+            "median": 0.8
+          }
+        },
+        "p@10": {
+          "eligible_only": {
+            "mean": 0.606,
+            "median": 0.6499999999999999
+          },
+          "grade_ge_1": {
+            "mean": 0.716,
+            "median": 0.8
+          },
+          "fixed_grade_2_scale": {
+            "mean": 0.661,
+            "median": 0.725
+          }
+        },
+        "p@20": {
+          "eligible_only": {
+            "mean": 0.554,
+            "median": 0.525
+          },
+          "grade_ge_1": {
+            "mean": 0.6859999999999999,
+            "median": 0.775
+          },
+          "fixed_grade_2_scale": {
+            "mean": 0.62,
+            "median": 0.6375
+          }
+        }
+      },
+      "retrieval_recall_grade_ge_1": {
+        "10": {
+          "mean": 0.08803822307183996,
+          "median": 0.061924846625766874
+        },
+        "50": {
+          "mean": 0.29958830622922694,
+          "median": 0.26365248226950355
+        },
+        "100": {
+          "mean": 0.4321232212995129,
+          "median": 0.3922663358147229
+        },
+        "200": {
+          "mean": 0.5569727389445045,
+          "median": 0.5497470404735243
+        },
+        "300": {
+          "mean": 0.6134913026195253,
+          "median": 0.6661768554117433
+        },
+        "400": {
+          "mean": 0.654067741387066,
+          "median": 0.709726443768997
+        },
+        "500": {
+          "mean": 0.6769766086326233,
+          "median": 0.7196428571428571
+        },
+        "600": {
+          "mean": 0.6917347249319573,
+          "median": 0.7435341254490191
+        },
+        "700": {
+          "mean": 0.701779249631878,
+          "median": 0.7580174927113703
+        },
+        "800": {
+          "mean": 0.708820947078098,
+          "median": 0.7696969696969698
+        },
+        "900": {
+          "mean": 0.7124637397947874,
+          "median": 0.7696969696969698
+        },
+        "1000": {
+          "mean": 0.7165257556434121,
+          "median": 0.7696969696969698
+        }
+      },
+      "retrieval_recall_eligible_only": {
+        "10": {
+          "mean": 0.12617448719371538,
+          "median": 0.07565162110616656
+        },
+        "50": {
+          "mean": 0.37052447002916605,
+          "median": 0.30254237288135594
+        },
+        "100": {
+          "mean": 0.5060789751412382,
+          "median": 0.476528288667017
+        },
+        "200": {
+          "mean": 0.634896154012421,
+          "median": 0.6609929078014184
+        },
+        "300": {
+          "mean": 0.7027705803424242,
+          "median": 0.7793819655521783
+        },
+        "400": {
+          "mean": 0.7459487619375184,
+          "median": 0.8271493212669683
+        },
+        "500": {
+          "mean": 0.7704704570752847,
+          "median": 0.8631205673758866
+        },
+        "600": {
+          "mean": 0.7853938358955419,
+          "median": 0.8740425531914894
+        },
+        "700": {
+          "mean": 0.7963998394894296,
+          "median": 0.88
+        },
+        "800": {
+          "mean": 0.8041138963807127,
+          "median": 0.8896268656716417
+        },
+        "900": {
+          "mean": 0.8074189480492837,
+          "median": 0.8959114004445856
+        },
+        "1000": {
+          "mean": 0.8118629998815012,
+          "median": 0.8977770720863766
+        }
+      }
+    }
+  },
+  "pooled_ranking_means": {
+    "ndcg@5": 0.7266897995607258,
+    "ndcg@10": 0.7132762196940686,
+    "ndcg@20": 0.7224299709810382,
+    "p@5": 0.7328,
+    "p@10": 0.6884,
+    "p@20": 0.6524
+  },
+  "combined_corpus_recall": {
+    "corpus_basis": "Union of unique trial IDs in the official 2021/2022 qrels. This measures the combined judged-trial pool, not an independently verified full historical index.",
+    "unique_trials_2021": 26162,
+    "unique_trials_2022": 26585,
+    "overlap": 4033,
+    "combined_unique_trials": 48714,
+    "three_percent_candidates": 1461.4199999999998,
+    "three_percent_ceiling": 1462,
+    "1000_as_percent_combined_corpus": 2.0527979636244202,
+    "pooled_recall": {
+      "500": {
+        "grade_ge_1": {
+          "topics": 125,
+          "mean": 0.6870513095442968,
+          "median": 0.7263157894736842,
+          "micro": 0.6925770308123249
+        },
+        "eligible_only": {
+          "topics": 125,
+          "mean": 0.7696165106950272,
+          "median": 0.8595744680851064,
+          "micro": 0.7787359343779577
+        }
+      },
+      "800": {
+        "grade_ge_1": {
+          "topics": 125,
+          "mean": 0.7286190643780589,
+          "median": 0.7883211678832117,
+          "micro": 0.7437513466925232
+        },
+        "eligible_only": {
+          "topics": 125,
+          "mean": 0.81256552357914,
+          "median": 0.9,
+          "micro": 0.8330003154905878
+        }
+      },
+      "900": {
+        "grade_ge_1": {
+          "topics": 125,
+          "mean": 0.7357635013450128,
+          "median": 0.7992424242424242,
+          "micro": 0.7519931049342814
+        },
+        "eligible_only": {
+          "topics": 125,
+          "mean": 0.8207859145195338,
+          "median": 0.9067164179104478,
+          "micro": 0.8402565990114629
+        }
+      },
+      "1000": {
+        "grade_ge_1": {
+          "topics": 125,
+          "mean": 0.7414032489051874,
+          "median": 0.8031914893617021,
+          "micro": 0.7588881706528765
+        },
+        "eligible_only": {
+          "topics": 125,
+          "mean": 0.8262335062587195,
+          "median": 0.9090909090909091,
+          "micro": 0.8461457566515932
+        }
+      }
+    }
+  },
+  "ideal_candidate_results": {
+    "topics": 100,
+    "rank1_count": 92,
+    "top2_count": 95,
+    "top10_count": 100,
+    "maximum_rank": 9
+  }
+}

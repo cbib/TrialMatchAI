@@ -41,6 +41,7 @@ invalidation, and registry freshness have documented limits.
 | [Patient interoperability](interoperability.md) | Supported formats and mappings |
 | [Registry updater](registry-updater.md) | Fetching and indexing registry studies |
 | [Fine-tuning](finetuning.md) | Training entry points and data formats |
+| [Paper results and reproduction](paper-reproduction.md) | Ranking results, pooled recall, ideal candidates, and downloadable values |
 | [API reference](api.md) | Python interfaces |
 | [Release runbook](release.md) | Checksums, bootstrap recovery, CI, and publishing |
 | [Validation record](production-validation.md) | Checks performed and their limits |
