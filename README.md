@@ -283,20 +283,17 @@ existing complete runs.
 
 ## Reproduce the paper
 
-The published TREC result artifact can be audited on CPU with one command:
+Inspect the deposited TREC result files on CPU with one command:
 
 ```bash
 trialmatchai reproduce-paper --workdir ./paper-reproduction
 ```
 
-This verifies the pinned Zenodo archive, aggregates its stored per-topic metrics,
-recalculates metrics from the archived rankings, and evaluates the same rankings
-with the current metric implementation. It does not rerun model inference. The
-archived summaries are internally consistent, but some archived rankings do not
-regenerate their stored topic metrics, and the present tie-aware evaluator is not
-the evaluator used for the paper values. See the [full reproduction record](https://github.com/cbib/TrialMatchAI/blob/main/docs/paper-reproduction.md)
-for the measured differences, retrieval recall, offline usage, and the inputs
-still required for an exact historical rerun.
+The command verifies the pinned Zenodo archive and official TREC judgments,
+checks the saved per-topic and track summaries, and reports separately
+documented calculations from the saved rankings. See the
+[published result-file guide](docs/paper-reproduction.md) for input options,
+checksums, and how to read the report.
 
 The [research paper](https://doi.org/10.1038/s41467-026-70509-w) describes the
 published study. Its results should be distinguished from this release's software
