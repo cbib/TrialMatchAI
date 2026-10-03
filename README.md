@@ -10,7 +10,7 @@
 [![Python 3.11](https://img.shields.io/badge/python-3.11-2563EB)](https://github.com/cbib/TrialMatchAI/blob/main/pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-64748B)](https://github.com/cbib/TrialMatchAI/blob/main/LICENSE)
 
-[Try the demo](#try-the-demo) · [Run your own data](#run-your-own-data) · [Reproduce the paper](#reproduce-the-paper) · [Architecture](#how-matching-works) · [CLI](#cli-reference) · [Development](#development-and-delivery)
+[Try the demo](#try-the-demo) · [Performance](#performance) · [Run your own data](#run-your-own-data) · [Reproduce the paper](#reproduce-the-paper) · [Architecture](#how-matching-works) · [CLI](#cli-reference) · [Development](#development-and-delivery)
 
 </div>
 
@@ -107,6 +107,105 @@ The default configuration selects `BAAI/bge-m3` embeddings,
 `microsoft/phi-4` eligibility reasoning with TrialMatchAI adapters. Query expansion
 is disabled by default. See the [actual defaults](https://github.com/cbib/TrialMatchAI/blob/main/src/trialmatchai/config/config.json)
 and [pipeline guide](https://github.com/cbib/TrialMatchAI/blob/main/docs/pipeline.md) for stage controls and configuration.
+
+## Performance
+
+The experiments below compare retrieval embedders and eligibility models in
+TrialMatchAI. Source data and per-topic evaluation reports accompany the figures.
+
+### Trial ranking · TREC 2021 and 2022
+
+The five configurations combine MedCPT or BGE-M3 retrieval with different
+eligibility models. Scores are topic-weighted means across 75 TREC 2021 and
+50 TREC 2022 topics.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/performance_dark.svg">
+  <img src="docs/assets/performance_light.svg" alt="Mean nDCG@10 and graded precision@10 for MedCPT with Qwen3.6, Baichuan, MedGemma and II-Medical, and BGE-M3 with Phi-4, across 125 TREC 2021 and 2022 topics" width="100%">
+</picture>
+
+<details>
+<summary>Ranking values and evaluation settings</summary>
+
+| Retrieval | Eligibility model | nDCG@10 | Graded P@10 |
+| :--- | :--- | ---: | ---: |
+| MedCPT | Qwen3.6-35B-A3B (2-bit) | 0.806 | 0.780 |
+| MedCPT | Baichuan-M2-32B | 0.785 | 0.760 |
+| BGE-M3 | Phi-4 | 0.776 | 0.745 |
+| MedCPT | MedGemma | 0.765 | 0.738 |
+| MedCPT | II-Medical-8B | 0.729 | 0.706 |
+
+Unjudged trials are removed before applying each cutoff. nDCG uses linear grades,
+averages score ties, and normalizes against the ideal ranking of returned judged
+trials. Graded P@10 is the sum of the top-ten relevance grades divided by 20.
+
+[Chart data](benchmarks/readme/ranking-comparison.json) ·
+[Per-topic evaluation and policy settings](docs/trec-evaluation.md).
+The published study's results and definitions are available in the
+[paper results report](docs/paper-reproduction.md).
+
+</details>
+
+### Retrieval recall by embedder
+
+First-stage retrieval is evaluated on the judged-trial pool with hybrid search
+at vector weight 0.6. Recall counts eligible trials, corresponding to qrels
+grade 2; concept linking is held fixed across the four embedders.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/recall_dark.svg">
+  <img src="docs/assets/recall_light.svg" alt="Eligible-trial recall from 10 to 2000 candidates for MedCPT, PubMedBERT, BGE-M3 and Qwen3-Embedding, with separate TREC 2021 and 2022 panels and a linear candidate-count axis" width="100%">
+</picture>
+
+<details>
+<summary>Recall at 1,000 candidates and source data</summary>
+
+| Embedder | TREC 2021 | TREC 2022 |
+| :--- | ---: | ---: |
+| MedCPT | 91.49% | 90.27% |
+| PubMedBERT | 90.34% | 89.38% |
+| BGE-M3 | 87.78% | 88.37% |
+| Qwen3-Embedding | 88.70% | 88.02% |
+
+Values are mean per-topic recall over 75 topics in 2021 and 50 in 2022.
+[Embedder benchmark data](benchmarks/embedders) ·
+[Benchmark runner](scripts/benchmark_embedder.py).
+
+</details>
+
+### TREC 2023 · BGE-M3 + Phi-4
+
+The 2023 experiment uses structured patient topics and reports mean scores over
+the 37 topics with official judgments. The indexed corpus contains 17,103 of
+17,106 judged trial IDs. Ranking metrics remove unjudged trials before applying
+each cutoff; retrieval recall counts qrels grades 1 and 2.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/trec2023_dark.svg">
+  <img src="docs/assets/trec2023_light.svg" alt="TREC 2023 BGE-M3 and Phi-4 results across 37 judged topics: nDCG at 5, 10 and 20, graded and binary precision at 10, and first-stage recall at 1000 candidates" width="100%">
+</picture>
+
+<details>
+<summary>TREC 2023 values and per-topic results</summary>
+
+| Metric | Mean |
+| :--- | ---: |
+| nDCG@5 | 0.8871 |
+| nDCG@10 | 0.8806 |
+| nDCG@20 | 0.8718 |
+| Graded P@10 | 0.8811 |
+| Precision@10 · grade ≥1 | 0.9351 |
+| Precision@10 · eligible | 0.8270 |
+| First-stage recall@1000 · grade ≥1 | 0.6442 |
+
+[Evaluation report](benchmarks/trec/bge-m3-phi4-trec23.json) includes per-topic
+scores, both unjudged-document policies, and hashes of the qrels and evaluated
+inputs. These results describe the judged-pool experiment.
+
+</details>
+
+Regenerate the light and dark SVG figures with
+`python scripts/render_readme_visuals.py` in an environment with Matplotlib.
 
 ## Run your own data
 

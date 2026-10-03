@@ -1,0 +1,129 @@
+{
+  "schema": 1,
+  "aggregation": "Topic-weighted mean across 75 TREC 2021 and 50 TREC 2022 topics",
+  "unjudged_policy": "exclude",
+  "ndcg": "Tie-aware, linear grades; ideal over returned judged trials",
+  "graded_precision": "Sum of top-10 grades divided by 20",
+  "sources": {
+    "21": {
+      "path": "benchmarks/trec/unjudged-policy-trec21.json",
+      "sha256": "9a7bb5c5a67cf66592ba400444a8e0da433485be7f8d7902dba52493f7af1acb"
+    },
+    "22": {
+      "path": "benchmarks/trec/unjudged-policy-trec22.json",
+      "sha256": "a932fb65bea9b6000342271da4e7ac065d08c60ce9fb1d11d2e673af06d6c342"
+    }
+  },
+  "runs": [
+    {
+      "run": "qwen36_medcpt",
+      "model": "Qwen3.6-35B-A3B",
+      "retriever_label": "MedCPT \u00b7 2-bit",
+      "topics": 125,
+      "tracks": {
+        "21": {
+          "topics": 75,
+          "ndcg@10": 0.8214584944628943,
+          "graded_P@10": 0.8126666666666668,
+          "evaluation_input_sha256": "217228f467f3a2ae14a2a88f9c78a345e833e800bcae0f9dcc99ca83cb37e876"
+        },
+        "22": {
+          "topics": 50,
+          "ndcg@10": 0.7832053952230806,
+          "graded_P@10": 0.7309999999999998,
+          "evaluation_input_sha256": "2187bae91f457b49765006bd9be07e4a2711b916afe18b1f89e46f8609cce6fc"
+        }
+      },
+      "ndcg@10": 0.8061572547669689,
+      "graded_P@10": 0.78
+    },
+    {
+      "run": "h100_baichuan",
+      "model": "Baichuan-M2-32B",
+      "retriever_label": "MedCPT",
+      "topics": 125,
+      "tracks": {
+        "21": {
+          "topics": 75,
+          "ndcg@10": 0.8224955649390504,
+          "graded_P@10": 0.8026666666666668,
+          "evaluation_input_sha256": "c1bf01e08c7d79779d38e2e46bedad87d4881cd617ff2f5479ab78ed45cf5a4a"
+        },
+        "22": {
+          "topics": 50,
+          "ndcg@10": 0.7277868524527126,
+          "graded_P@10": 0.6949999999999998,
+          "evaluation_input_sha256": "33765f5507d837a342e57a3c84210136c4c8343eaa221e02d9fdc0af75922a44"
+        }
+      },
+      "ndcg@10": 0.7846120799445152,
+      "graded_P@10": 0.7595999999999999
+    },
+    {
+      "run": "h100_rrf",
+      "model": "Phi-4",
+      "retriever_label": "BGE-M3",
+      "topics": 125,
+      "tracks": {
+        "21": {
+          "topics": 75,
+          "ndcg@10": 0.790936519510314,
+          "graded_P@10": 0.7753333333333334,
+          "evaluation_input_sha256": "7e77496e335c92920faa2e6afa97b8b3297d5f415bbe766d9130ab287b595551"
+        },
+        "22": {
+          "topics": 50,
+          "ndcg@10": 0.752820505770411,
+          "graded_P@10": 0.6999999999999998,
+          "evaluation_input_sha256": "e92490bb73cab9b5c6d8da39513cb8d3e5f35bd8f66b6753036635ca2e12838d"
+        }
+      },
+      "ndcg@10": 0.7756901140143527,
+      "graded_P@10": 0.7452000000000001
+    },
+    {
+      "run": "h100_medcpt",
+      "model": "MedGemma",
+      "retriever_label": "MedCPT",
+      "topics": 125,
+      "tracks": {
+        "21": {
+          "topics": 75,
+          "ndcg@10": 0.7987271514510064,
+          "graded_P@10": 0.7826666666666665,
+          "evaluation_input_sha256": "9d89f695629b5d4c826725923637cbfa9048f37ef76b9c4116c3292ca1fea192"
+        },
+        "22": {
+          "topics": 50,
+          "ndcg@10": 0.7144332567540345,
+          "graded_P@10": 0.6709999999999999,
+          "evaluation_input_sha256": "667b1a3c9716f25e609203587528a755fa1e4df5ef4314ed17720b03963e1e11"
+        }
+      },
+      "ndcg@10": 0.7650095935722175,
+      "graded_P@10": 0.7379999999999999
+    },
+    {
+      "run": "iimedical_medcpt",
+      "model": "II-Medical-8B",
+      "retriever_label": "MedCPT",
+      "topics": 125,
+      "tracks": {
+        "21": {
+          "topics": 75,
+          "ndcg@10": 0.7539097396513507,
+          "graded_P@10": 0.7373333333333335,
+          "evaluation_input_sha256": "10e37480beb5050ede0cc142d17acf20a57d4a3cf2f7a2a88f4181a24519e373"
+        },
+        "22": {
+          "topics": 50,
+          "ndcg@10": 0.6907967445812107,
+          "graded_P@10": 0.6590000000000003,
+          "evaluation_input_sha256": "7eeedc0a77fa0f45790f8a677480ca10d5158b41fd05ac3cdc360ab498a0f05c"
+        }
+      },
+      "ndcg@10": 0.7286645416232946,
+      "graded_P@10": 0.7060000000000002
+    }
+  ]
+}
