@@ -6,6 +6,16 @@ All notable changes to TrialMatchAI are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+- Resolved all open Dependabot advisories (159) by upgrading the optional ML
+  stack to `vllm==0.34.0`, `torch==2.14.0`, `transformers==5.22.2`,
+  `tokenizers==0.23.3`, `accelerate==1.16.0`, `safetensors>=0.8`,
+  `datasets>=5.0.1` and `bitsandbytes==0.50.2`, and refreshing vulnerable
+  transitive dependencies in `uv.lock` (Pillow, PyJWT, certifi, AnyIO, aiohttp,
+  filelock, virtualenv, fsspec, dnspython, msgpack, setuptools, mcp, and others).
+- `make audit` no longer passes legacy `--ignore-vuln` exceptions; `pip-audit`
+  is clean without them.
+
 ## [0.9.1] — 2026-09-19
 
 ### Added
