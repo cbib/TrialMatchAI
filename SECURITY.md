@@ -20,16 +20,15 @@ lancedb, PyYAML). These are kept patched and are covered by the CI `pip-audit` g
 
 The heavy machine-learning runtime — **vLLM, PyTorch, and their transitive
 dependencies** — ships only in the **optional extras** (`gpu`, `llm`, `entity`,
-`finetune`). These are **pinned** (`vllm==0.23.0`, `torch==2.11.0`) because the
-inference stack (LoRA-served adapters, CoT/reranker engines) requires a specific,
-mutually-compatible combination.
+`finetune`). These are **pinned** (`vllm==0.34.0`, `torch==2.14.0`,
+`transformers==5.22.2`) because the inference stack (LoRA-served adapters,
+CoT/reranker engines) requires a specific, mutually-compatible combination.
 
-GitHub Dependabot reports advisories against these pinned ML packages. As of this
-writing they have **no patched release available** (e.g. the `vllm 0.23.0` and
-`torch 2.11.0` advisories list no fixed version), so they cannot be resolved by a
-version bump. They affect only deployments that install the GPU/LLM extras, never
-the base install. We therefore **accept and track** them, and revisit the vLLM/Torch
-pin as a deliberate, GPU-validated upgrade when a compatible patched stack exists.
+Because the pins are exact, advisories against the ML stack are resolved by a
+deliberate, GPU-validated bump of the vLLM/Torch/Transformers set together (vLLM
+pins an exact Torch and a Transformers range). These advisories affect only
+deployments that install the GPU/LLM extras, never the base install. Transitive
+dependencies are refreshed in `uv.lock` with `uv lock --upgrade-package <name>`.
 
 If you run the full stack in a sensitive environment, isolate the GPU inference
 service (it is designed to run on a single self-hosted GPU host) and keep it off
